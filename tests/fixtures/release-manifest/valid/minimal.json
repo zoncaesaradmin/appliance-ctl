@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "bundleVersion": "2.4.0",
+  "releaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
+  "hostBaseline": {
+    "os": "ubuntu",
+    "osVersion": "24.04",
+    "arch": "amd64"
+  },
+  "builtAt": "2026-06-02T03:00:00Z",
+  "compatibility": {
+    "k3sVersion": "v1.30.4+k3s1",
+    "chartVersion": "2.4.0",
+    "argoVersion": "3.5.2"
+  },
+  "signingKeyId": "release-signing-key-2026",
+  "entries": [
+    {
+      "path": "appliance",
+      "component": "appliance",
+      "digest": "sha256:e87bdd39792a988e195511f38552bee6ab3bab8a557988a512b25f53580b82fc",
+      "sizeBytes": 52428800,
+      "executable": true
+    },
+    {
+      "path": "k3s/binary/k3s",
+      "component": "k3s-binary",
+      "digest": "sha256:c59b14c7c8265ebe66f7507454ae43c371ebde7bb8de1a0595a4c4fae2db1206",
+      "sizeBytes": 62914560,
+      "executable": true
+    },
+    {
+      "path": "k3s/install/install.sh",
+      "component": "k3s-install",
+      "digest": "sha256:e6b042f63fb537526382ee9b0076652f1b29f355fe543f34230dc1a3d731cf90",
+      "sizeBytes": 32768,
+      "executable": true
+    },
+    {
+      "path": "k3s/images/k3s-airgap-images-amd64.tar.zst",
+      "component": "k3s-images",
+      "digest": "sha256:b81eecf6861140a827b02d5f1351577d8c996cd83b4d62fcec2ef716be9dd766",
+      "sizeBytes": 419430400
+    },
+    {
+      "path": "oci-images/control-plane.tar",
+      "component": "oci-images",
+      "digest": "sha256:7a97c50d2a358b974311662899a0d4bf309e6a0335a82e27e585ccb52bc03630",
+      "sizeBytes": 209715200
+    },
+    {
+      "path": "charts/appliance-chart-2.4.0.tgz",
+      "component": "chart",
+      "digest": "sha256:af9732f2de8b2b1fdc6003e628ef66e035ad7b6080697e58f7fc645e16a0b268",
+      "sizeBytes": 65536
+    },
+    {
+      "path": "crds/argo-crds-3.5.2.yaml",
+      "component": "crds",
+      "digest": "sha256:df4133c99c6069d4dad9ba4dde3b54bd2e80a02034ac91071e29aca1d720ef76",
+      "sizeBytes": 32768
+    },
+    {
+      "path": "configuration/configuration.schema.json",
+      "component": "configuration",
+      "digest": "sha256:dba2bdf15e6d8cb3b3ae2a99e50c4a28327e5c04d884b29e5571f4a2aef4dc00",
+      "sizeBytes": 4096
+    },
+    {
+      "path": "scanner-data/grype-db.tar.zst",
+      "component": "scanner-data",
+      "digest": "sha256:2edfd57fb498c4385897268ebe6369511bfd17f0c1b8835ab33d7ad59692b9c6",
+      "sizeBytes": 104857600
+    },
+    {
+      "path": "sbom/appliance-sbom.spdx.json",
+      "component": "sbom",
+      "digest": "sha256:b0744f92c17e4fc215c23f3256483243618c358d3d85fe49a7913de7123a330b",
+      "sizeBytes": 1048576
+    },
+    {
+      "path": "provenance/appliance.provenance.json",
+      "component": "provenance",
+      "digest": "sha256:c4356250e2283231cd85f7b301eb0d8e9a3bcceb20c47289e73109270c66d133",
+      "sizeBytes": 8192
+    },
+    {
+      "path": "notices/THIRD-PARTY-NOTICES.txt",
+      "component": "notices",
+      "digest": "sha256:be0ff1040364973be03b562e4e990a07ab59e393f5d9cc424c8dac5a14b01518",
+      "sizeBytes": 65536
+    },
+    {
+      "path": "public-keys/release-signing.pub",
+      "component": "public-keys",
+      "digest": "sha256:3bedd741bed50c95b701d184f80a351009ddec4be06fc89d390bdb6c7239ed4e",
+      "sizeBytes": 1024
+    },
+    {
+      "path": "tests/conformance-suite.tar.zst",
+      "component": "tests",
+      "digest": "sha256:fae1ece697d760cbd989082fe567cfb7e05fa641782bcfc659962946d73a28b2",
+      "sizeBytes": 2097152
+    }
+  ]
+}

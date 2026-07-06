@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "command": "install",
+  "applianceVersion": "2.4.0",
+  "startedAt": "2026-06-02T04:00:00Z",
+  "completedAt": "2026-06-02T04:12:31Z",
+  "status": "succeeded",
+  "exitCode": 0,
+  "message": "Installation completed successfully.",
+  "evidenceReportId": "evidence-01J8QK9H1M2NC8R2X8AE1Q8T6V",
+  "data": {
+    "installedVersion": "2.4.0",
+    "releaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
+    "transactionId": "txn-01J8QK4G8H9YB7Q1W7ZD0P7S5U"
+  }
+}

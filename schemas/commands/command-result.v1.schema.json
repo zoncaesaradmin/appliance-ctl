@@ -1,0 +1,359 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://appliance-release/schemas/commands/command-result.v1.schema.json",
+  "title": "CommandResult",
+  "description": "Structured machine-readable result envelope emitted by every `appliance <command>` subcommand invocation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "command",
+    "applianceVersion",
+    "startedAt",
+    "status",
+    "exitCode"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "command": { "$ref": "#/$defs/command" },
+    "applianceVersion": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "status": {
+      "enum": ["succeeded", "failed", "rolled-back", "confirmation-required"]
+    },
+    "exitCode": { "type": "integer", "minimum": 0, "maximum": 255 },
+    "message": { "type": "string" },
+    "evidenceReportId": {
+      "type": "string",
+      "description": "Correlates this result with an evidence.v1 report, if one was produced."
+    },
+    "confirmation": { "$ref": "#/$defs/confirmation" },
+    "data": {
+      "type": "object",
+      "description": "Command-specific result payload; shape depends on the `command` field."
+    }
+  },
+  "allOf": [
+    { "$ref": "#/$defs/dataFor/assemble-bundle" },
+    { "$ref": "#/$defs/dataFor/preflight" },
+    { "$ref": "#/$defs/dataFor/install" },
+    { "$ref": "#/$defs/dataFor/status" },
+    { "$ref": "#/$defs/dataFor/verify" },
+    { "$ref": "#/$defs/dataFor/verify-bundle" },
+    { "$ref": "#/$defs/dataFor/backup" },
+    { "$ref": "#/$defs/dataFor/restore" },
+    { "$ref": "#/$defs/dataFor/upgrade" },
+    { "$ref": "#/$defs/dataFor/repair" },
+    { "$ref": "#/$defs/dataFor/support-bundle" },
+    { "$ref": "#/$defs/dataFor/uninstall" },
+    { "$ref": "#/$defs/dataFor/factory-reset" },
+    { "$ref": "#/$defs/destructiveRequiresConfirmation" }
+  ],
+  "$defs": {
+    "command": {
+      "enum": [
+        "assemble-bundle",
+        "preflight",
+        "install",
+        "status",
+        "verify",
+        "verify-bundle",
+        "backup",
+        "restore",
+        "upgrade",
+        "repair",
+        "support-bundle",
+        "uninstall",
+        "factory-reset"
+      ]
+    },
+    "confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "acknowledgedDataLoss", "token"],
+      "properties": {
+        "mode": { "enum": ["interactive", "non-interactive"] },
+        "acknowledgedDataLoss": { "type": "boolean" },
+        "token": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque confirmation token supplied interactively or via a controlled non-interactive flag/file."
+        }
+      }
+    },
+    "destructiveRequiresConfirmation": {
+      "if": {
+        "properties": {
+          "command": { "const": "factory-reset" },
+          "status": { "const": "succeeded" }
+        },
+        "required": ["command", "status"]
+      },
+      "then": {
+        "required": ["confirmation"],
+        "properties": {
+          "confirmation": {
+            "properties": { "acknowledgedDataLoss": { "const": true } },
+            "required": ["acknowledgedDataLoss"]
+          }
+        }
+      }
+    },
+    "dataFor": {
+      "assemble-bundle": { "$ref": "#/$defs/commandDataShape/assemble-bundle" },
+      "preflight": { "$ref": "#/$defs/commandDataShape/preflight" },
+      "install": { "$ref": "#/$defs/commandDataShape/install" },
+      "status": { "$ref": "#/$defs/commandDataShape/status" },
+      "verify": { "$ref": "#/$defs/commandDataShape/verify" },
+      "verify-bundle": { "$ref": "#/$defs/commandDataShape/verify-bundle" },
+      "backup": { "$ref": "#/$defs/commandDataShape/backup" },
+      "restore": { "$ref": "#/$defs/commandDataShape/restore" },
+      "upgrade": { "$ref": "#/$defs/commandDataShape/upgrade" },
+      "repair": { "$ref": "#/$defs/commandDataShape/repair" },
+      "support-bundle": { "$ref": "#/$defs/commandDataShape/support-bundle" },
+      "uninstall": { "$ref": "#/$defs/commandDataShape/uninstall" },
+      "factory-reset": { "$ref": "#/$defs/commandDataShape/factory-reset" }
+    },
+    "commandDataShape": {
+      "assemble-bundle": {
+        "if": { "properties": { "command": { "const": "assemble-bundle" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bundleDir", "bundleVersion", "releaseId", "manifestPath", "signaturePath", "publicKeyPath", "entryCount"],
+              "properties": {
+                "bundleDir": { "type": "string", "minLength": 1 },
+                "bundleVersion": { "type": "string", "minLength": 1 },
+                "releaseId": { "type": "string", "minLength": 1 },
+                "manifestPath": { "type": "string", "minLength": 1 },
+                "signaturePath": { "type": "string", "minLength": 1 },
+                "publicKeyPath": { "type": "string", "minLength": 1 },
+                "entryCount": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      },
+      "preflight": {
+        "if": { "properties": { "command": { "const": "preflight" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["overallStatus", "evidenceReportId"],
+              "properties": {
+                "overallStatus": { "enum": ["pass", "auto-fix", "operator-action", "unsupported"] },
+                "evidenceReportId": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      },
+      "install": {
+        "if": { "properties": { "command": { "const": "install" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["installedVersion", "releaseId", "transactionId"],
+              "properties": {
+                "installedVersion": { "type": "string", "minLength": 1 },
+                "releaseId": { "type": "string", "minLength": 1 },
+                "transactionId": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      },
+      "status": {
+        "if": { "properties": { "command": { "const": "status" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["installedVersion", "k3sHealthy", "componentHealth"],
+              "properties": {
+                "installedVersion": { "type": "string" },
+                "k3sHealthy": { "type": "boolean" },
+                "componentHealth": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name", "healthy"],
+                    "properties": {
+                      "name": { "type": "string", "minLength": 1 },
+                      "healthy": { "type": "boolean" },
+                      "detail": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "verify": {
+        "if": { "properties": { "command": { "const": "verify" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["manifestValid", "entriesVerified", "entriesFailed"],
+              "properties": {
+                "manifestValid": { "type": "boolean" },
+                "entriesVerified": { "type": "integer", "minimum": 0 },
+                "entriesFailed": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "verify-bundle": {
+        "if": { "properties": { "command": { "const": "verify-bundle" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bundleDir", "bundleVersion", "releaseId", "k3sVersion", "chartVersion", "argoVersion"],
+              "properties": {
+                "bundleDir": { "type": "string", "minLength": 1 },
+                "bundleVersion": { "type": "string", "minLength": 1 },
+                "releaseId": { "type": "string", "minLength": 1 },
+                "k3sVersion": { "type": "string", "minLength": 1 },
+                "chartVersion": { "type": "string", "minLength": 1 },
+                "argoVersion": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      },
+      "backup": {
+        "if": { "properties": { "command": { "const": "backup" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["backupId", "sizeBytes"],
+              "properties": {
+                "backupId": { "type": "string", "minLength": 1 },
+                "sizeBytes": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      },
+      "restore": {
+        "if": { "properties": { "command": { "const": "restore" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["backupId", "restoredVersion"],
+              "properties": {
+                "backupId": { "type": "string", "minLength": 1 },
+                "restoredVersion": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      },
+      "upgrade": {
+        "if": { "properties": { "command": { "const": "upgrade" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sourceVersion", "targetVersion", "rollbackPerformed"],
+              "properties": {
+                "sourceVersion": { "type": "string", "minLength": 1 },
+                "targetVersion": { "type": "string", "minLength": 1 },
+                "rollbackPerformed": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      },
+      "repair": {
+        "if": { "properties": { "command": { "const": "repair" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["actionsPerformed"],
+              "properties": {
+                "actionsPerformed": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "support-bundle": {
+        "if": { "properties": { "command": { "const": "support-bundle" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bundlePath", "digest", "secretsRedacted"],
+              "properties": {
+                "bundlePath": { "type": "string", "minLength": 1 },
+                "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                "secretsRedacted": { "const": true }
+              }
+            }
+          }
+        }
+      },
+      "uninstall": {
+        "if": { "properties": { "command": { "const": "uninstall" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["dataPreserved"],
+              "properties": {
+                "dataPreserved": { "const": true }
+              }
+            }
+          }
+        }
+      },
+      "factory-reset": {
+        "if": { "properties": { "command": { "const": "factory-reset" } }, "required": ["command"] },
+        "then": {
+          "properties": {
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["dataLossAcknowledged"],
+              "properties": {
+                "dataLossAcknowledged": { "const": true },
+                "backupVerified": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

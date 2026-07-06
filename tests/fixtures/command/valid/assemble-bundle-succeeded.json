@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "command": "assemble-bundle",
+  "applianceVersion": "2.4.0",
+  "startedAt": "2026-07-06T00:00:00Z",
+  "completedAt": "2026-07-06T00:01:00Z",
+  "status": "succeeded",
+  "exitCode": 0,
+  "message": "assembled bundle /tmp/appliance-2.4.0-bundle",
+  "data": {
+    "bundleDir": "/tmp/appliance-2.4.0-bundle",
+    "bundleVersion": "2.4.0",
+    "releaseId": "release-2.4.0",
+    "manifestPath": "/tmp/appliance-2.4.0-bundle/release-manifest.json",
+    "signaturePath": "/tmp/appliance-2.4.0-bundle/release-manifest.sig",
+    "publicKeyPath": "/tmp/appliance-2.4.0-bundle/public-keys/release-signing.pub",
+    "entryCount": 14
+  }
+}

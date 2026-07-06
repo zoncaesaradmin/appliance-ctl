@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://appliance-release/schemas/release-input.v1.schema.json",
+  "title": "ReleaseInput",
+  "description": "Signed, immutable product input set produced by the private appliance-code repository and consumed by release intake.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "productVersion",
+    "releaseId",
+    "generatedAt",
+    "artifacts",
+    "compatibility"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "productVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+    },
+    "releaseId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique, stable identifier for this candidate input set, e.g. a build UUID."
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "controlPlaneImage",
+        "applianceChart",
+        "argoCrds",
+        "configurationSchema",
+        "compatibility",
+        "checksums",
+        "sbom",
+        "provenance",
+        "notices",
+        "tests"
+      ],
+      "properties": {
+        "controlPlaneImage": { "$ref": "#/$defs/artifact" },
+        "applianceChart": { "$ref": "#/$defs/artifact" },
+        "argoCrds": { "$ref": "#/$defs/artifact" },
+        "configurationSchema": { "$ref": "#/$defs/artifact" },
+        "compatibility": { "$ref": "#/$defs/artifact" },
+        "checksums": { "$ref": "#/$defs/artifact" },
+        "sbom": { "$ref": "#/$defs/artifactDirectory" },
+        "provenance": { "$ref": "#/$defs/artifactDirectory" },
+        "notices": { "$ref": "#/$defs/artifactDirectory" },
+        "tests": { "$ref": "#/$defs/artifactDirectory" }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["k3sVersion", "chartVersion", "argoVersion"],
+      "properties": {
+        "k3sVersion": { "type": "string", "minLength": 1 },
+        "chartVersion": { "type": "string", "minLength": 1 },
+        "argoVersion": { "type": "string", "minLength": 1 },
+        "supportedUpgradeSources": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Product versions this release is permitted to upgrade from."
+        }
+      }
+    },
+    "vulnerabilityExceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "reason", "expiresAt", "signedBy"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "signedBy": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest", "sizeBytes"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "#/$defs/digest" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "signature": { "type": "string", "minLength": 1 }
+      }
+    },
+    "artifactDirectory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "manifestDigest"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "manifestDigest": {
+          "$ref": "#/$defs/digest",
+          "description": "Digest of the directory's own file listing/manifest, binding its contents."
+        }
+      }
+    }
+  }
+}

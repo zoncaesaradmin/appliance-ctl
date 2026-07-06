@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "reportId": "evidence-01J8QK9H1M2NC8R2X8AE1Q8T6V",
+  "generatedAt": "2026-07-03T09:05:00Z",
+  "applianceVersion": "2.4.0",
+  "operation": "preflight",
+  "checks": [
+    {
+      "id": "os-arch-supported",
+      "category": "host",
+      "status": "pass",
+      "message": "Ubuntu 24.04 amd64 matches the qualified host baseline.",
+      "timestamp": "2026-07-03T09:05:01Z",
+      "durationMs": 12,
+      "idempotent": true,
+      "secretsRedacted": true
+    },
+    {
+      "id": "cgroup-v2-enabled",
+      "category": "host",
+      "status": "auto-fix",
+      "message": "cgroup v2 is not the default; installer will enable unified cgroup hierarchy.",
+      "timestamp": "2026-07-03T09:05:02Z",
+      "durationMs": 8,
+      "idempotent": true,
+      "secretsRedacted": true
+    },
+    {
+      "id": "internal-dns-resolvable",
+      "category": "network",
+      "status": "operator-action",
+      "message": "Internal DNS record for the appliance hostname does not resolve.",
+      "remediation": "Create an internal A/AAAA record for the configured hostname before continuing.",
+      "timestamp": "2026-07-03T09:05:03Z",
+      "durationMs": 40,
+      "idempotent": true,
+      "secretsRedacted": true
+    }
+  ]
+}

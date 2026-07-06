@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://appliance-release/schemas/evidence.v1.schema.json",
+  "title": "EvidenceReport",
+  "description": "Machine-readable completion evidence for preflight, verification, conformance, and lifecycle operations. Included in support bundles with secrets redacted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reportId",
+    "generatedAt",
+    "applianceVersion",
+    "operation",
+    "checks"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "reportId": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "applianceVersion": { "type": "string", "minLength": 1 },
+    "operation": {
+      "enum": [
+        "preflight",
+        "install",
+        "status",
+        "upgrade",
+        "repair",
+        "backup",
+        "restore",
+        "uninstall",
+        "factory-reset",
+        "verify",
+        "support-bundle"
+      ]
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/check" }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "status",
+        "message",
+        "timestamp",
+        "idempotent",
+        "secretsRedacted"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+          "description": "Stable machine-readable check identifier, e.g. disk-ext4-free-space."
+        },
+        "category": {
+          "enum": [
+            "host",
+            "network",
+            "storage",
+            "security",
+            "manifest",
+            "k3s",
+            "chart",
+            "dependency",
+            "backup-restore",
+            "upgrade",
+            "conformance"
+          ]
+        },
+        "status": {
+          "enum": ["pass", "auto-fix", "operator-action", "unsupported", "fail", "skipped"]
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "remediation": {
+          "type": "string",
+          "description": "Required guidance when status is operator-action or unsupported."
+        },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "idempotent": {
+          "type": "boolean",
+          "description": "True when re-running this check without prior remediation yields the same result."
+        },
+        "secretsRedacted": {
+          "const": true,
+          "description": "Evidence records must never carry unredacted secrets; this is a hard invariant, not an observation."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "enum": ["operator-action", "unsupported"] } },
+            "required": ["status"]
+          },
+          "then": { "required": ["remediation"] }
+        }
+      ]
+    }
+  }
+}

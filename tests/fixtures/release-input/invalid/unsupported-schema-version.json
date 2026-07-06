@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 2,
+  "productVersion": "2.4.0",
+  "releaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
+  "generatedAt": "2026-06-01T12:00:00Z",
+  "artifacts": {
+    "controlPlaneImage": {
+      "path": "control-plane.oci.tar.zst",
+      "digest": "sha256:9682666514c07508d9ee41ca0a32cf2fc8e0fbda9466c5bfd0f88b82ca5389e9",
+      "sizeBytes": 104857600,
+      "signature": "control-plane.oci.tar.zst.sig"
+    },
+    "applianceChart": {
+      "path": "appliance-chart-2.4.0.tgz",
+      "digest": "sha256:cc57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
+      "sizeBytes": 65536
+    },
+    "argoCrds": {
+      "path": "argo-crds-3.5.2.tar.zst",
+      "digest": "sha256:108fb5b8c49ab1aa369ef1d799591f0173a45c64e68a180267263ce35281a4c4",
+      "sizeBytes": 32768
+    },
+    "configurationSchema": {
+      "path": "configuration.schema.json",
+      "digest": "sha256:cbe0d029431ea4c792ecc23daf793f18bd5b57eed6c8419ac5a89b1cdf40c25c",
+      "sizeBytes": 4096
+    },
+    "compatibility": {
+      "path": "compatibility.json",
+      "digest": "sha256:fa528d3adef61d199a8348ffb48ef0143603ea2e0ad007121c39edc6e3aeb567",
+      "sizeBytes": 1024
+    },
+    "checksums": {
+      "path": "checksums.txt",
+      "digest": "sha256:d3beb16ca27a9fc332b55f526e1c8da6db0b2f58d50c9d27d59e15e23a4e35a8",
+      "sizeBytes": 2048
+    },
+    "sbom": {
+      "path": "sbom/",
+      "manifestDigest": "sha256:98f3ae1ef67113d8140d4f6cb8d2830070e21ea48f091be519659846c771a374"
+    },
+    "provenance": {
+      "path": "provenance/",
+      "manifestDigest": "sha256:96d815328a42cb4ef89d5e0b7a1df6be43b484832c83a7b4596d8402c7c0b12b"
+    },
+    "notices": {
+      "path": "notices/",
+      "manifestDigest": "sha256:7367ab9a454559025d4d8ee2241d74682674f0e62c344695d23cfb2f080dd0a9"
+    },
+    "tests": {
+      "path": "tests/",
+      "manifestDigest": "sha256:59830ebc3a4184110566bf1a290d08473dfdcbd492ce498b14cd1a5e2fa2e441"
+    }
+  },
+  "compatibility": {
+    "k3sVersion": "v1.30.4+k3s1",
+    "chartVersion": "2.4.0",
+    "argoVersion": "3.5.2",
+    "supportedUpgradeSources": [
+      "2.3.0",
+      "2.3.1"
+    ]
+  }
+}

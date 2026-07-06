@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "command": "factory-reset",
+  "applianceVersion": "2.4.0",
+  "startedAt": "2026-07-03T10:00:00Z",
+  "completedAt": "2026-07-03T10:05:00Z",
+  "status": "succeeded",
+  "exitCode": 0,
+  "confirmation": {
+    "mode": "interactive",
+    "acknowledgedDataLoss": true,
+    "token": "confirm-01J8QKC1D2E3F4G5H6J7K8M9N0"
+  },
+  "data": {
+    "dataLossAcknowledged": true,
+    "backupVerified": true
+  }
+}

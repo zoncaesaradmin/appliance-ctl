@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://appliance-release/schemas/release-manifest.v1.schema.json",
+  "title": "ReleaseManifest",
+  "description": "Signed manifest of every byte inside a complete air-gap release bundle. The appliance CLI verifies every bundle-local artifact against this manifest before any privileged change.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "bundleVersion",
+    "releaseId",
+    "hostBaseline",
+    "builtAt",
+    "compatibility",
+    "signingKeyId",
+    "entries"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "bundleVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+    },
+    "releaseId": { "type": "string", "minLength": 1 },
+    "hostBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "osVersion", "arch"],
+      "properties": {
+        "os": { "const": "ubuntu" },
+        "osVersion": { "const": "24.04" },
+        "arch": { "const": "amd64" }
+      }
+    },
+    "builtAt": { "type": "string", "format": "date-time" },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["k3sVersion", "chartVersion", "argoVersion"],
+      "properties": {
+        "k3sVersion": { "type": "string", "minLength": 1 },
+        "chartVersion": { "type": "string", "minLength": 1 },
+        "argoVersion": { "type": "string", "minLength": 1 },
+        "supportedUpgradeSources": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Appliance versions this release is permitted to upgrade from (the N-1 policy)."
+        }
+      }
+    },
+    "signingKeyId": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "component": {
+      "enum": [
+        "appliance",
+        "k3s-binary",
+        "k3s-install",
+        "k3s-images",
+        "oci-images",
+        "chart",
+        "crds",
+        "configuration",
+        "scanner-data",
+        "sbom",
+        "provenance",
+        "notices",
+        "public-keys",
+        "tests"
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "component", "digest", "sizeBytes"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path relative to the bundle root."
+        },
+        "component": { "$ref": "#/$defs/component" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "executable": { "type": "boolean", "default": false },
+        "imageReference": {
+          "type": "string",
+          "minLength": 1,
+          "description": "For k3s-images/oci-images entries, the OCI image reference this archive contains (e.g. docker.io/rancher/mirrored-coredns-coredns:1.11.3), used to detect whether it is already imported."
+        }
+      }
+    }
+  }
+}

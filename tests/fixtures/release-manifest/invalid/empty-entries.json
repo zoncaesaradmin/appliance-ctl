@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "bundleVersion": "2.4.0",
+  "releaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
+  "hostBaseline": {
+    "os": "ubuntu",
+    "osVersion": "24.04",
+    "arch": "amd64"
+  },
+  "builtAt": "2026-06-02T03:00:00Z",
+  "compatibility": {
+    "k3sVersion": "v1.30.4+k3s1",
+    "chartVersion": "2.4.0",
+    "argoVersion": "3.5.2"
+  },
+  "signingKeyId": "release-signing-key-2026",
+  "entries": []
+}

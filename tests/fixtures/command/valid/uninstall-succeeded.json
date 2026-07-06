@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "command": "uninstall",
+  "applianceVersion": "2.4.0",
+  "startedAt": "2026-07-03T11:00:00Z",
+  "completedAt": "2026-07-03T11:01:00Z",
+  "status": "succeeded",
+  "exitCode": 0,
+  "confirmation": {
+    "mode": "non-interactive",
+    "acknowledgedDataLoss": false,
+    "token": "confirm-01J8QKD2E3F4G5H6J7K8M9N0P1"
+  },
+  "data": {
+    "dataPreserved": true
+  }
+}

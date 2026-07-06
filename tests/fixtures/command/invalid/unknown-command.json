@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "command": "reboot",
+  "applianceVersion": "2.4.0",
+  "startedAt": "2026-07-03T09:00:00Z",
+  "completedAt": "2026-07-03T09:00:01Z",
+  "status": "succeeded",
+  "exitCode": 0,
+  "data": {
+    "installedVersion": "2.4.0",
+    "k3sHealthy": true,
+    "componentHealth": [
+      {
+        "name": "k3s",
+        "healthy": true
+      },
+      {
+        "name": "traefik",
+        "healthy": true
+      },
+      {
+        "name": "control-plane",
+        "healthy": true,
+        "detail": "3/3 pods ready"
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "applianceInstanceId": "9f4d6b1e-2a3c-4e5f-8b1a-7c6d5e4f3a2b",
+  "installedVersion": "2.4.0",
+  "installedReleaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
+  "components": {
+    "k3sVersion": "v1.30.4+k3s1",
+    "chartVersion": "2.4.0",
+    "argoVersion": "3.5.2"
+  },
+  "k3sOwnership": {
+    "owned": true,
+    "ownerApplianceVersion": "2.4.0"
+  },
+  "lastOperation": {
+    "type": "install",
+    "status": "completed",
+    "transactionId": "txn-01J8QK4G8H9YB7Q1W7ZD0P7S5U",
+    "startedAt": "2026-06-02T04:00:00Z"
+  },
+  "history": [
+    {
+      "type": "install",
+      "status": "completed",
+      "transactionId": "txn-01J8QK4G8H9YB7Q1W7ZD0P7S5U",
+      "startedAt": "2026-06-02T04:00:00Z",
+      "completedAt": "2026-06-02T04:12:31Z"
+    }
+  ],
+  "createdAt": "2026-06-02T04:00:00Z",
+  "updatedAt": "2026-06-02T04:12:31Z"
+}
