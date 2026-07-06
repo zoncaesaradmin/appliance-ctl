@@ -126,6 +126,7 @@ clean:
 	find . -not -path './.git/*' \( \
 		-name '*.test' -o \
 		-name '*.out' -o \
+		-name 'bin' -o \
 		-name 'coverage.*' -o \
 		-name '*.coverprofile' -o \
 		-name 'profile.cov' \
