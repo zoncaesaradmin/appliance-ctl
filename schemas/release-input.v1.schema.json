@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schemaVersion",
-    "productVersion",
+    "codeVersion",
     "releaseId",
     "generatedAt",
     "artifacts",
@@ -17,9 +17,10 @@
     "schemaVersion": {
       "const": 1
     },
-    "productVersion": {
+    "codeVersion": {
       "type": "string",
-      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$",
+      "description": "Version of the appliance-code candidate that produced this release-input set."
     },
     "releaseId": {
       "type": "string",
@@ -36,7 +37,6 @@
       "required": [
         "controlPlaneImage",
         "applianceChart",
-        "argoCrds",
         "configurationSchema",
         "compatibility",
         "checksums",
@@ -48,7 +48,6 @@
       "properties": {
         "controlPlaneImage": { "$ref": "#/$defs/artifact" },
         "applianceChart": { "$ref": "#/$defs/artifact" },
-        "argoCrds": { "$ref": "#/$defs/artifact" },
         "configurationSchema": { "$ref": "#/$defs/artifact" },
         "compatibility": { "$ref": "#/$defs/artifact" },
         "checksums": { "$ref": "#/$defs/artifact" },
@@ -61,11 +60,10 @@
     "compatibility": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["k3sVersion", "chartVersion", "argoVersion"],
+      "required": ["k3sVersion", "chartVersion"],
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },
-        "argoVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",
           "items": { "type": "string" },

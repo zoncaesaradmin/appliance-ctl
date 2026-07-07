@@ -20,17 +20,16 @@ import (
 
 // Input is a verified appliance-code release-input set on disk.
 type Input struct {
-	RootDir        string
-	ProductVersion string
-	ReleaseID      string
-	Compatibility  Compatibility
-	Artifacts      Artifacts
+	RootDir       string
+	CodeVersion   string
+	ReleaseID     string
+	Compatibility Compatibility
+	Artifacts     Artifacts
 }
 
 type Compatibility struct {
 	K3sVersion              string
 	ChartVersion            string
-	ArgoVersion             string
 	SupportedUpgradeSources []string
 }
 
@@ -49,7 +48,6 @@ type DirArtifact struct {
 type Artifacts struct {
 	ControlPlaneImage   FileArtifact
 	ApplianceChart      FileArtifact
-	ArgoCRDs            FileArtifact
 	ConfigurationSchema FileArtifact
 	Compatibility       FileArtifact
 	Checksums           FileArtifact
@@ -60,12 +58,11 @@ type Artifacts struct {
 }
 
 type doc struct {
-	ProductVersion string `json:"productVersion"`
-	ReleaseID      string `json:"releaseId"`
-	Artifacts      struct {
+	CodeVersion string `json:"codeVersion"`
+	ReleaseID   string `json:"releaseId"`
+	Artifacts   struct {
 		ControlPlaneImage   fileArtifact `json:"controlPlaneImage"`
 		ApplianceChart      fileArtifact `json:"applianceChart"`
-		ArgoCRDs            fileArtifact `json:"argoCrds"`
 		ConfigurationSchema fileArtifact `json:"configurationSchema"`
 		Compatibility       fileArtifact `json:"compatibility"`
 		Checksums           fileArtifact `json:"checksums"`
@@ -108,14 +105,13 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 	}
 
 	input := &Input{
-		RootDir:        rootDir,
-		ProductVersion: parsed.ProductVersion,
-		ReleaseID:      parsed.ReleaseID,
-		Compatibility:  parsed.Compatibility,
+		RootDir:       rootDir,
+		CodeVersion:   parsed.CodeVersion,
+		ReleaseID:     parsed.ReleaseID,
+		Compatibility: parsed.Compatibility,
 		Artifacts: Artifacts{
 			ControlPlaneImage:   toFileArtifact(rootDir, parsed.Artifacts.ControlPlaneImage),
 			ApplianceChart:      toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
-			ArgoCRDs:            toFileArtifact(rootDir, parsed.Artifacts.ArgoCRDs),
 			ConfigurationSchema: toFileArtifact(rootDir, parsed.Artifacts.ConfigurationSchema),
 			Compatibility:       toFileArtifact(rootDir, parsed.Artifacts.Compatibility),
 			Checksums:           toFileArtifact(rootDir, parsed.Artifacts.Checksums),
@@ -129,7 +125,6 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 	artifacts := []verify.Artifact{
 		{Name: "control-plane-image", Path: input.Artifacts.ControlPlaneImage.Path, ExpectedDigest: input.Artifacts.ControlPlaneImage.Digest, ExpectedSizeBytes: input.Artifacts.ControlPlaneImage.SizeBytes},
 		{Name: "appliance-chart", Path: input.Artifacts.ApplianceChart.Path, ExpectedDigest: input.Artifacts.ApplianceChart.Digest, ExpectedSizeBytes: input.Artifacts.ApplianceChart.SizeBytes},
-		{Name: "argo-crds", Path: input.Artifacts.ArgoCRDs.Path, ExpectedDigest: input.Artifacts.ArgoCRDs.Digest, ExpectedSizeBytes: input.Artifacts.ArgoCRDs.SizeBytes},
 		{Name: "configuration-schema", Path: input.Artifacts.ConfigurationSchema.Path, ExpectedDigest: input.Artifacts.ConfigurationSchema.Digest, ExpectedSizeBytes: input.Artifacts.ConfigurationSchema.SizeBytes},
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
 		{Name: "checksums", Path: input.Artifacts.Checksums.Path, ExpectedDigest: input.Artifacts.Checksums.Digest, ExpectedSizeBytes: input.Artifacts.Checksums.SizeBytes},

@@ -19,7 +19,6 @@ func sampleState() *state.InstalledState {
 		Components: state.Components{
 			K3sVersion:   "v1.30.4+k3s1",
 			ChartVersion: "2.4.0",
-			ArgoVersion:  "3.5.2",
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"},
 		LastOperation: state.Operation{

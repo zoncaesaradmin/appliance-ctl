@@ -5,8 +5,7 @@
   "installedReleaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
   "components": {
     "k3sVersion": "v1.30.4+k3s1",
-    "chartVersion": "2.4.0",
-    "argoVersion": "3.5.2"
+    "chartVersion": "2.4.0"
   },
   "k3sOwnership": {
     "owned": true,

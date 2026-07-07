@@ -101,12 +101,12 @@ func TestVerifyArtifacts_MissingArtifactFailsClosed(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "never-delivered.tgz")
 
 	checks, err := verify.VerifyArtifacts(&pub, []verify.Artifact{
-		{Name: "argo-crds", Path: missing, ExpectedDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000", ExpectedSizeBytes: 100},
+		{Name: "missing-artifact", Path: missing, ExpectedDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000", ExpectedSizeBytes: 100},
 	})
 	if err == nil {
 		t.Fatal("expected missing artifact to fail verification")
 	}
-	if got := statusOfCheck(t, checks, "argo-crds-digest"); got != evidence.StatusFail {
+	if got := statusOfCheck(t, checks, "missing-artifact-digest"); got != evidence.StatusFail {
 		t.Errorf("expected digest check to fail for missing artifact, got %s", got)
 	}
 }

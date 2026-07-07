@@ -58,7 +58,7 @@ func NewOrchestrator() *Orchestrator {
 // supported upgrade from what's installed, take and verify a mandatory
 // pre-upgrade backup, stage new images, swap the K3s binary only if its
 // version actually changed (preserving the prior binary/config/unit for
-// rollback), apply the new CRDs and chart, then persist the new
+// rollback), apply the new chart, then persist the new
 // installed-state. Any failure after the backup is taken triggers a
 // restore-based rollback: the K3s binary/config/unit (if changed) are put
 // back and the data directory is restored from the pre-upgrade backup.
@@ -90,13 +90,8 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
 		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, opts.TargetApplianceVersion, resolved.Compatibility.SupportedUpgradeSources)
 	}
-	if isDowngrade(installed.Components.ArgoVersion, resolved.Compatibility.ArgoVersion) {
-		return nil, checks, fmt.Errorf("upgrade: refusing Argo CRD downgrade from %s to %s", installed.Components.ArgoVersion, resolved.Compatibility.ArgoVersion)
-	}
-
 	k3sBinarySrc := resolved.K3sBinaryPath
 	chartPath := resolved.ChartPath
-	crdPath := resolved.CRDPath
 	configSchemaPath := resolved.ConfigurationPath
 
 	// Mandatory pre-upgrade recovery set.
@@ -176,14 +171,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	checks = append(checks, binaryCheck)
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
-	crdCheck, err := applier.ApplyCRDs(ctx, crdPath)
-	checks = append(checks, crdCheck)
-	if err != nil {
-		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-		checks = append(checks, rollback()...)
-		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
-	}
-
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  chartPath,
@@ -207,7 +194,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
-			ArgoVersion:  resolved.Compatibility.ArgoVersion,
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: opts.TargetApplianceVersion},
 		LastOperation: state.Operation{

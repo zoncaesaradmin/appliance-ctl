@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "productVersion": "2.4.0",
+  "codeVersion": "2.4.0",
   "releaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
   "generatedAt": "2026-06-01T12:00:00Z",
   "artifacts": {
@@ -19,11 +19,6 @@
       "path": "configuration.schema.json",
       "digest": "sha256:cbe0d029431ea4c792ecc23daf793f18bd5b57eed6c8419ac5a89b1cdf40c25c",
       "sizeBytes": 4096
-    },
-    "compatibility": {
-      "path": "compatibility.json",
-      "digest": "sha256:fa528d3adef61d199a8348ffb48ef0143603ea2e0ad007121c39edc6e3aeb567",
-      "sizeBytes": 1024
     },
     "checksums": {
       "path": "checksums.txt",
@@ -50,7 +45,6 @@
   "compatibility": {
     "k3sVersion": "v1.30.4+k3s1",
     "chartVersion": "2.4.0",
-    "argoVersion": "3.5.2",
     "supportedUpgradeSources": [
       "2.3.0",
       "2.3.1"

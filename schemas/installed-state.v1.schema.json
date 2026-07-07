@@ -31,11 +31,10 @@
     "components": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["k3sVersion", "chartVersion", "argoVersion"],
+      "required": ["k3sVersion", "chartVersion"],
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
-        "chartVersion": { "type": "string", "minLength": 1 },
-        "argoVersion": { "type": "string", "minLength": 1 }
+        "chartVersion": { "type": "string", "minLength": 1 }
       }
     },
     "k3sOwnership": {

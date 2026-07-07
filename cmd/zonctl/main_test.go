@@ -236,7 +236,7 @@ func TestRun_SupportBundleCollectsInstalledState(t *testing.T) {
 		ApplianceInstanceID: "test-instance",
 		InstalledVersion:    "2.4.0",
 		InstalledReleaseID:  "01J8QK3F9G7XA6P0V6ZC9N6R4T",
-		Components:          state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: "2.4.0", ArgoVersion: "3.5.2"},
+		Components:          state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: "2.4.0"},
 		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"},
 		LastOperation: state.Operation{
 			Type: "install", Status: "completed", TransactionID: "txn-test",

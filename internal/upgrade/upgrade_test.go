@@ -21,7 +21,6 @@ import (
 type bundleSpec struct {
 	bundleVersion    string
 	k3sVersion       string
-	argoVersion      string
 	chartVersion     string
 	supportedSources []string
 }
@@ -37,7 +36,6 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 	}{
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion},
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion},
-		{"crds/argo-crds.yaml", "crds", "fake crds " + spec.argoVersion},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\n"},
 	}
 
@@ -66,7 +64,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
 		"compatibility": map[string]any{
-			"k3sVersion": spec.k3sVersion, "chartVersion": spec.chartVersion, "argoVersion": spec.argoVersion,
+			"k3sVersion": spec.k3sVersion, "chartVersion": spec.chartVersion,
 			"supportedUpgradeSources": spec.supportedSources,
 		},
 		"signingKeyId": "release-signing-key",
@@ -144,7 +142,7 @@ type environment struct {
 	kubeconfigPath     string
 }
 
-func setupEnvironment(t *testing.T, installedVersion, k3sVersion, argoVersion, chartVersion string) environment {
+func setupEnvironment(t *testing.T, installedVersion, k3sVersion, chartVersion string) environment {
 	t.Helper()
 	stateDir := t.TempDir()
 	env := environment{
@@ -179,7 +177,7 @@ func setupEnvironment(t *testing.T, installedVersion, k3sVersion, argoVersion, c
 		ApplianceInstanceID: "test-instance",
 		InstalledVersion:    installedVersion,
 		InstalledReleaseID:  "prior-release",
-		Components:          state.Components{K3sVersion: k3sVersion, ChartVersion: chartVersion, ArgoVersion: argoVersion},
+		Components:          state.Components{K3sVersion: k3sVersion, ChartVersion: chartVersion},
 		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: installedVersion},
 		LastOperation: state.Operation{
 			Type: "install", Status: "completed", TransactionID: "txn-prior",
@@ -218,9 +216,9 @@ func TestUpgrade_SupportedSourceMatrix(t *testing.T) {
 
 	for _, source := range matrix {
 		t.Run(source, func(t *testing.T) {
-			env := setupEnvironment(t, source, "v1.30.0+k3s1", "3.5.1", "2.3.0")
+			env := setupEnvironment(t, source, "v1.30.0+k3s1", "2.3.0")
 			bundleDir, pub := buildBundle(t, bundleSpec{
-				bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", argoVersion: "3.5.2", chartVersion: "2.4.0",
+				bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 				supportedSources: matrix,
 			})
 
@@ -242,9 +240,9 @@ func TestUpgrade_SupportedSourceMatrix(t *testing.T) {
 
 // Unsupported source version must be refused before any mutation.
 func TestUpgrade_RefusesUnsupportedSource(t *testing.T) {
-	env := setupEnvironment(t, "2.1.0", "v1.29.0+k3s1", "3.4.0", "2.1.0")
+	env := setupEnvironment(t, "2.1.0", "v1.29.0+k3s1", "2.1.0")
 	bundleDir, pub := buildBundle(t, bundleSpec{
-		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", argoVersion: "3.5.2", chartVersion: "2.4.0",
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0", "2.3.1"},
 	})
 
@@ -265,35 +263,13 @@ func TestUpgrade_RefusesUnsupportedSource(t *testing.T) {
 	}
 }
 
-// Argo CRD downgrade must be refused.
-func TestUpgrade_RefusesArgoCRDDowngrade(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "3.5.5", "2.3.0")
-	bundleDir, pub := buildBundle(t, bundleSpec{
-		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", argoVersion: "3.5.1", chartVersion: "2.4.0",
-		supportedSources: []string{"2.3.0"},
-	})
-
-	fake := &fakeK3s{}
-	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
-
-	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
-	_, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
-	if err == nil {
-		t.Fatal("expected a CRD downgrade to be refused")
-	}
-	if !strings.Contains(err.Error(), "downgrade") {
-		t.Errorf("expected a downgrade-specific message, got: %v", err)
-	}
-}
-
 // Failed-upgrade recovery: a chart-apply failure must trigger a
 // restore-based rollback that leaves the data directory exactly as it
 // was before the upgrade attempt.
 func TestUpgrade_FailedChartApplyRollsBackToPreUpgradeBackup(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "3.5.1", "2.3.0")
+	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0")
 	bundleDir, pub := buildBundle(t, bundleSpec{
-		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", argoVersion: "3.5.2", chartVersion: "2.4.0",
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
 	})
 

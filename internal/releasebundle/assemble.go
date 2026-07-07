@@ -34,6 +34,7 @@ type EntryConfig struct {
 
 type Config struct {
 	SchemaVersion         int           `json:"schemaVersion"`
+	BundleVersion         string        `json:"bundleVersion"`
 	ReleaseInputDir       string        `json:"releaseInputDir"`
 	BundleDir             string        `json:"bundleDir"`
 	SigningKeyID          string        `json:"signingKeyId"`
@@ -84,8 +85,8 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.SchemaVersion != 1 {
 		return Config{}, fmt.Errorf("releasebundle: config schemaVersion must be 1")
 	}
-	if cfg.ReleaseInputDir == "" || cfg.BundleDir == "" || cfg.SigningKeyID == "" || cfg.SigningPrivateKeyPath == "" {
-		return Config{}, fmt.Errorf("releasebundle: releaseInputDir, bundleDir, signingKeyId, and signingPrivateKeyPath are required")
+	if cfg.BundleVersion == "" || cfg.ReleaseInputDir == "" || cfg.BundleDir == "" || cfg.SigningKeyID == "" || cfg.SigningPrivateKeyPath == "" {
+		return Config{}, fmt.Errorf("releasebundle: bundleVersion, releaseInputDir, bundleDir, signingKeyId, and signingPrivateKeyPath are required")
 	}
 	if cfg.HostBaseline.OS == "" || cfg.HostBaseline.OSVersion == "" || cfg.HostBaseline.Arch == "" {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
@@ -192,14 +193,13 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 
 	doc := manifestDoc{
 		SchemaVersion: 1,
-		BundleVersion: input.ProductVersion,
+		BundleVersion: cfg.BundleVersion,
 		ReleaseID:     input.ReleaseID,
 		HostBaseline:  cfg.HostBaseline,
 		BuiltAt:       time.Now().UTC().Format(time.RFC3339),
 		Compatibility: map[string]any{
 			"k3sVersion":              input.Compatibility.K3sVersion,
 			"chartVersion":            input.Compatibility.ChartVersion,
-			"argoVersion":             input.Compatibility.ArgoVersion,
 			"supportedUpgradeSources": supportedUpgradeSources,
 		},
 		SigningKeyID: cfg.SigningKeyID,
@@ -224,7 +224,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 
 	return Result{
 		BundleDir:     cfg.BundleDir,
-		BundleVersion: input.ProductVersion,
+		BundleVersion: cfg.BundleVersion,
 		ReleaseID:     input.ReleaseID,
 		ManifestPath:  manifestPath,
 		SignaturePath: sigPath,
@@ -269,7 +269,7 @@ func validateConfiguredEntry(entry EntryConfig) error {
 		return fmt.Errorf("releasebundle: every entry requires sourcePath, targetPath, and component")
 	}
 	switch entry.Component {
-	case "appliance", "k3s-binary", "k3s-install", "k3s-images", "oci-images", "chart", "crds", "configuration", "scanner-data", "sbom", "provenance", "notices", "public-keys", "tests":
+	case "appliance", "k3s-binary", "k3s-install", "k3s-images", "oci-images", "chart", "configuration", "scanner-data", "sbom", "provenance", "notices", "public-keys", "tests":
 	default:
 		return fmt.Errorf("releasebundle: unsupported component %q", entry.Component)
 	}
@@ -362,7 +362,7 @@ func validateInstallableBundle(entries []manifestEntry) error {
 	for _, entry := range entries {
 		counts[entry.Component]++
 	}
-	requiredSingles := []string{"appliance", "k3s-binary", "chart", "crds", "configuration"}
+	requiredSingles := []string{"appliance", "k3s-binary", "chart", "configuration"}
 	for _, component := range requiredSingles {
 		if counts[component] == 0 {
 			return fmt.Errorf("releasebundle: assembled bundle is missing required component %q", component)

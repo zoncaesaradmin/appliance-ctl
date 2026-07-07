@@ -1,8 +1,5 @@
-// Package helm applies the bundled Argo CRDs and the exact appliance
-// Helm chart to the local K3s cluster: "Apply the bundled versioned Argo
-// CRDs before the chart" and "Install the exact Helm chart with
-// schema-validated values and wait for rollout" (docs/release-plan.md
-// Fresh Install Sequence).
+// Package helm applies the exact appliance Helm chart to the local K3s
+// cluster with schema-validated values and waits for rollout.
 package helm
 
 import "github.com/zoncaesaradmin/appliance-ctl/internal/cli"

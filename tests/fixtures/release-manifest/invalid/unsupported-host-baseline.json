@@ -10,8 +10,7 @@
   "builtAt": "2026-06-02T03:00:00Z",
   "compatibility": {
     "k3sVersion": "v1.30.4+k3s1",
-    "chartVersion": "2.4.0",
-    "argoVersion": "3.5.2"
+    "chartVersion": "2.4.0"
   },
   "signingKeyId": "release-signing-key-2026",
   "entries": [
@@ -53,12 +52,6 @@
       "component": "chart",
       "digest": "sha256:af9732f2de8b2b1fdc6003e628ef66e035ad7b6080697e58f7fc645e16a0b268",
       "sizeBytes": 65536
-    },
-    {
-      "path": "crds/argo-crds-3.5.2.yaml",
-      "component": "crds",
-      "digest": "sha256:df4133c99c6069d4dad9ba4dde3b54bd2e80a02034ac91071e29aca1d720ef76",
-      "sizeBytes": 32768
     },
     {
       "path": "configuration/configuration.schema.json",

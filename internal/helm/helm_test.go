@@ -57,40 +57,6 @@ func contains(args []string, want string) bool {
 
 func joinCall(call []string) string { return strings.Join(call, " ") }
 
-func TestApplyCRDs_Success(t *testing.T) {
-	dir := t.TempDir()
-	crdDir := filepath.Join(dir, "crds")
-	if err := os.MkdirAll(crdDir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-
-	fake := &fakeCLI{}
-	a := &helm.Applier{Run: fake.Run, Kubeconfig: "/etc/rancher/k3s/k3s.yaml"}
-
-	check, err := a.ApplyCRDs(context.Background(), crdDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if check.Status != evidence.StatusPass {
-		t.Errorf("expected pass, got %s: %s", check.Status, check.Message)
-	}
-}
-
-// Missing artifact: the manifest references a CRD directory that was
-// never delivered in the bundle.
-func TestApplyCRDs_MissingDirectoryFailsClosed(t *testing.T) {
-	fake := &fakeCLI{}
-	a := &helm.Applier{Run: fake.Run, Kubeconfig: "kubeconfig"}
-
-	missing := filepath.Join(t.TempDir(), "never-delivered-crds")
-	if _, err := a.ApplyCRDs(context.Background(), missing); err == nil {
-		t.Fatal("expected missing CRD directory to fail")
-	}
-	if len(fake.calls) != 0 {
-		t.Errorf("expected no kubectl invocation for a missing directory, got %v", fake.calls)
-	}
-}
-
 func sampleRelease(t *testing.T, dir string) helm.ChartRelease {
 	t.Helper()
 	chartPath := filepath.Join(dir, "appliance-chart-2.4.0.tgz")
@@ -191,18 +157,11 @@ func TestHelm_RequiresNoNetworkAccess(t *testing.T) {
 	t.Cleanup(func() { net.DefaultResolver = original })
 
 	dir := t.TempDir()
-	crdDir := filepath.Join(dir, "crds")
-	if err := os.MkdirAll(crdDir, 0o750); err != nil {
-		t.Fatal(err)
-	}
 	rel := sampleRelease(t, dir)
 
 	fake := &fakeCLI{}
 	a := &helm.Applier{Run: fake.Run, Kubeconfig: "kubeconfig"}
 
-	if _, err := a.ApplyCRDs(context.Background(), crdDir); err != nil {
-		t.Fatalf("ApplyCRDs should succeed offline: %v", err)
-	}
 	if _, err := a.InstallOrUpgrade(context.Background(), rel); err != nil {
 		t.Fatalf("InstallOrUpgrade should succeed offline: %v", err)
 	}

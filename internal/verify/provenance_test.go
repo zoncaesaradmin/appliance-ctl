@@ -37,7 +37,7 @@ func TestVerifyProvenance_WrongBuilderIdentity(t *testing.T) {
 // being verified.
 func TestVerifyProvenance_MissingSubject(t *testing.T) {
 	stmt := sampleStatement()
-	err := verify.VerifyProvenance(stmt, []string{"https://appliance-code.internal/builders/release-ci"}, "argo-crds", "sha256:abc123")
+	err := verify.VerifyProvenance(stmt, []string{"https://appliance-code.internal/builders/release-ci"}, "appliance-chart", "sha256:abc123")
 	if err == nil {
 		t.Error("expected missing subject to fail verification")
 	}

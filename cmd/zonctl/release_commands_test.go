@@ -33,7 +33,6 @@ func buildReleaseInputDirForCLI(t *testing.T) string {
 	files := map[string]string{
 		"control-plane.oci.tar.zst":            "control-plane",
 		"appliance-chart-2.4.0.tgz":            "chart",
-		"argo-crds-3.5.2.tar.zst":              "crds-compressed",
 		"configuration.schema.json":            `{"type":"object"}`,
 		"compatibility.json":                   `{"k3sVersion":"v1.30.4+k3s1"}`,
 		"checksums.txt":                        "checksums",
@@ -62,14 +61,13 @@ func buildReleaseInputDirForCLI(t *testing.T) string {
 	}
 
 	doc := map[string]any{
-		"schemaVersion":  1,
-		"productVersion": "2.4.0",
-		"releaseId":      "release-2.4.0",
-		"generatedAt":    "2026-07-06T00:00:00Z",
+		"schemaVersion": 1,
+		"codeVersion":   "2.4.0",
+		"releaseId":     "release-2.4.0",
+		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart")},
-			"argoCrds":            map[string]any{"path": "argo-crds-3.5.2.tar.zst", "digest": digestOf("argo-crds-3.5.2.tar.zst"), "sizeBytes": len("crds-compressed")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
 			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("checksums")},
@@ -81,7 +79,6 @@ func buildReleaseInputDirForCLI(t *testing.T) string {
 		"compatibility": map[string]any{
 			"k3sVersion":              "v1.30.4+k3s1",
 			"chartVersion":            "2.4.0",
-			"argoVersion":             "3.5.2",
 			"supportedUpgradeSources": []string{"2.3.0"},
 		},
 	}
@@ -105,7 +102,6 @@ func TestRun_AssembleBundleAndVerifyBundle(t *testing.T) {
 	writeReleaseFixtureFile(t, staging, "k3s-airgap-images.tar", "k3s images", 0o640)
 	writeReleaseFixtureFile(t, staging, "control-plane.tar", "app image", 0o640)
 	writeReleaseFixtureFile(t, staging, "chart.tgz", "chart", 0o640)
-	writeReleaseFixtureFile(t, staging, "crds.yaml", "kind: CustomResourceDefinition\n", 0o640)
 	writeReleaseFixtureFile(t, staging, "values.yaml", "replicaCount: 1\n", 0o640)
 
 	_, priv, err := ed25519.GenerateKey(nil)
@@ -123,6 +119,7 @@ func TestRun_AssembleBundleAndVerifyBundle(t *testing.T) {
 
 	cfg := releasebundle.Config{
 		SchemaVersion:         1,
+		BundleVersion:         "9.1.0",
 		ReleaseInputDir:       releaseInputDir,
 		BundleDir:             filepath.Join(t.TempDir(), "bundle"),
 		SigningKeyID:          "release-signing-key",
@@ -135,7 +132,6 @@ func TestRun_AssembleBundleAndVerifyBundle(t *testing.T) {
 			{SourcePath: filepath.Join(staging, "k3s-airgap-images.tar"), TargetPath: "k3s/images/k3s-airgap-images.tar", Component: "k3s-images"},
 			{SourcePath: filepath.Join(staging, "control-plane.tar"), TargetPath: "oci-images/control-plane.tar", Component: "oci-images", ImageReference: "internal/control-plane:2.4.0"},
 			{SourcePath: filepath.Join(staging, "chart.tgz"), TargetPath: "charts/appliance-chart-2.4.0.tgz", Component: "chart"},
-			{SourcePath: filepath.Join(staging, "crds.yaml"), TargetPath: "crds/argo-crds.yaml", Component: "crds"},
 			{SourcePath: filepath.Join(staging, "values.yaml"), TargetPath: "configuration/values.yaml", Component: "configuration"},
 		},
 	}
@@ -192,7 +188,7 @@ func TestRun_AssembleBundleAndVerifyBundle(t *testing.T) {
 	if verifyResult.Command != "verify-bundle" {
 		t.Fatalf("expected verify-bundle command result, got %+v", verifyResult)
 	}
-	if verifyResult.Data.BundleVersion != "2.4.0" || verifyResult.Data.ReleaseID != "release-2.4.0" {
+	if verifyResult.Data.BundleVersion != "9.1.0" || verifyResult.Data.ReleaseID != "release-2.4.0" {
 		t.Fatalf("unexpected verify-bundle metadata: %+v", verifyResult)
 	}
 }

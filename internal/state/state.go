@@ -21,7 +21,6 @@ import (
 type Components struct {
 	K3sVersion   string `json:"k3sVersion"`
 	ChartVersion string `json:"chartVersion"`
-	ArgoVersion  string `json:"argoVersion"`
 }
 
 // K3sOwnership records that the installed K3s belongs to this appliance

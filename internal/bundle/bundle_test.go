@@ -37,7 +37,7 @@ func buildBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 		"releaseId":     "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
-		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "argoVersion": "3.5.2"},
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0"},
 		"signingKeyId":  "release-signing-key",
 		"entries": []map[string]any{
 			{"path": entryPath, "component": "chart", "digest": digest, "sizeBytes": len(entryContent)},

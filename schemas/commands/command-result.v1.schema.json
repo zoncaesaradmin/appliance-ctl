@@ -226,14 +226,13 @@
             "data": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["bundleDir", "bundleVersion", "releaseId", "k3sVersion", "chartVersion", "argoVersion"],
+              "required": ["bundleDir", "bundleVersion", "releaseId", "k3sVersion", "chartVersion"],
               "properties": {
                 "bundleDir": { "type": "string", "minLength": 1 },
                 "bundleVersion": { "type": "string", "minLength": 1 },
                 "releaseId": { "type": "string", "minLength": 1 },
                 "k3sVersion": { "type": "string", "minLength": 1 },
-                "chartVersion": { "type": "string", "minLength": 1 },
-                "argoVersion": { "type": "string", "minLength": 1 }
+                "chartVersion": { "type": "string", "minLength": 1 }
               }
             }
           }

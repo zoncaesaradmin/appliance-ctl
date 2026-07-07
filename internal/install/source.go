@@ -22,7 +22,6 @@ type Resolved struct {
 
 	K3sBinaryPath     string
 	ChartPath         string
-	CRDPath           string
 	ConfigurationPath string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
@@ -59,10 +58,6 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	if !ok {
 		return Resolved{}, checks, fmt.Errorf("install: bundle has no chart entry")
 	}
-	crdPath, ok := b.Path("crds")
-	if !ok {
-		return Resolved{}, checks, fmt.Errorf("install: bundle has no crds entry")
-	}
 	configurationPath, err := configurationPath(b)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -81,7 +76,6 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		Compatibility:     b.Compatibility,
 		K3sBinaryPath:     k3sBinaryPath,
 		ChartPath:         chartPath,
-		CRDPath:           crdPath,
 		ConfigurationPath: configurationPath,
 		K3sImages:         k3sImages,
 		OCIImages:         ociImages,

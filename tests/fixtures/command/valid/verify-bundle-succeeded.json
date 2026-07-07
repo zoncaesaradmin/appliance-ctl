@@ -12,7 +12,6 @@
     "bundleVersion": "2.4.0",
     "releaseId": "release-2.4.0",
     "k3sVersion": "v1.30.4+k3s1",
-    "chartVersion": "2.4.0",
-    "argoVersion": "3.5.2"
+    "chartVersion": "2.4.0"
   }
 }

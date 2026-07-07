@@ -174,13 +174,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	rollbacks = append(rollbacks, func() { _ = importer.Rollback(ctx, preloadResult.NewlyImported) })
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
-	crdCheck, err := applier.ApplyCRDs(ctx, resolved.CRDPath)
-	checks = append(checks, crdCheck)
-	if err != nil {
-		runRollbacks()
-		return nil, checks, fmt.Errorf("install: %w", err)
-	}
-
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  resolved.ChartPath,
@@ -203,7 +196,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
-			ArgoVersion:  resolved.Compatibility.ArgoVersion,
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: opts.ApplianceVersion},
 		LastOperation: state.Operation{

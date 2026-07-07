@@ -55,7 +55,6 @@ func runVerifyBundle(opts cliOptions, logger *slog.Logger, result commandResult)
 		"releaseId":     b.ReleaseID,
 		"k3sVersion":    b.Compatibility.K3sVersion,
 		"chartVersion":  b.Compatibility.ChartVersion,
-		"argoVersion":   b.Compatibility.ArgoVersion,
 	})
 	return finish(result, "succeeded", 0, fmt.Sprintf("verified bundle %s", opts.bundleDir), data)
 }

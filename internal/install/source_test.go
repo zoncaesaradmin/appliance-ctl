@@ -17,7 +17,6 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	files := map[string]string{
 		"k3s/binary/k3s":                          "fake k3s binary",
 		"charts/appliance-chart-2.4.0.tgz":        "fake chart",
-		"crds/argo-crds.yaml":                     "fake crds",
 		"configuration/configuration.schema.json": `{"type":"object"}`,
 		"configuration/values.yaml":               "replicaCount: 1\n",
 	}
@@ -41,8 +40,6 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 			component = "k3s-binary"
 		case rel == "charts/appliance-chart-2.4.0.tgz":
 			component = "chart"
-		case rel == "crds/argo-crds.yaml":
-			component = "crds"
 		}
 		manifestEntries = append(manifestEntries, map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
@@ -55,7 +52,7 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 		"releaseId":     "release-2.4.0",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-06T00:00:00Z",
-		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "argoVersion": "3.5.2"},
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
 	}

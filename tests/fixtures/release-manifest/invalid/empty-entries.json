@@ -10,8 +10,7 @@
   "builtAt": "2026-06-02T03:00:00Z",
   "compatibility": {
     "k3sVersion": "v1.30.4+k3s1",
-    "chartVersion": "2.4.0",
-    "argoVersion": "3.5.2"
+    "chartVersion": "2.4.0"
   },
   "signingKeyId": "release-signing-key-2026",
   "entries": []
