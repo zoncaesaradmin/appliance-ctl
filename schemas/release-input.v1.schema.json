@@ -19,8 +19,8 @@
     },
     "codeVersion": {
       "type": "string",
-      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$",
-      "description": "Version of the appliance-code candidate that produced this release-input set."
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "description": "Sanitized appliance-code repo identity that produced this release-input set, for example a release tag, git describe value, or commit SHA."
     },
     "releaseId": {
       "type": "string",

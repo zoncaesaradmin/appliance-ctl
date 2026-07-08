@@ -24,6 +24,11 @@ func writeFile(t *testing.T, root, rel, content string) string {
 
 func buildReleaseInput(t *testing.T) string {
 	t.Helper()
+	return buildReleaseInputWithCodeVersion(t, "2.4.0")
+}
+
+func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
+	t.Helper()
 	root := t.TempDir()
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
@@ -52,8 +57,8 @@ func buildReleaseInput(t *testing.T) string {
 
 	doc := map[string]any{
 		"schemaVersion": 1,
-		"codeVersion":   "2.4.0",
-		"releaseId":     "release-2.4.0",
+		"codeVersion":   codeVersion,
+		"releaseId":     "release-" + codeVersion,
 		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes")},
@@ -93,6 +98,17 @@ func TestLoad_ValidReleaseInput(t *testing.T) {
 	}
 	if len(checks) == 0 {
 		t.Fatal("expected evidence checks")
+	}
+}
+
+func TestLoad_ValidReleaseInputWithRepoDerivedCodeVersion(t *testing.T) {
+	root := buildReleaseInputWithCodeVersion(t, "v0.1.0-3-ge6a4243-dirty")
+	in, _, err := releaseinput.Load(root)
+	if err != nil {
+		t.Fatalf("expected repo-derived code version to validate, got: %v", err)
+	}
+	if in.CodeVersion != "v0.1.0-3-ge6a4243-dirty" || in.ReleaseID != "release-v0.1.0-3-ge6a4243-dirty" {
+		t.Fatalf("unexpected parsed metadata: %+v", in)
 	}
 }
 
