@@ -132,7 +132,11 @@ func TestChecks_OperatorActionCases(t *testing.T) {
 		{"dns-not-resolvable", "internal-dns-resolvable", func(f *host.Facts) { f.HostnameResolvesInternally = false }},
 		{"invalid-hostname", "hostname-valid-tls-san", func(f *host.Facts) { f.Hostname = "not_a_valid_host!" }},
 		{"port-in-use", "required-ports-available", func(f *host.Facts) { f.PortsInUse = map[int]string{6443: "some-service"} }},
-		{"firewall-active", "firewall-detected", func(f *host.Facts) { f.FirewallActive = true; f.FirewallName = "ufw" }},
+		{"firewall-active", "firewall-detected", func(f *host.Facts) {
+			f.FirewallActive = true
+			f.FirewallName = "ufw"
+			f.FirewallMissingRules = []string{"6443/tcp"}
+		}},
 		{"conflicting-service", "no-conflicting-services", func(f *host.Facts) { f.ConflictingServices = []string{"docker"} }},
 	}
 	for _, tc := range cases {
@@ -144,6 +148,30 @@ func TestChecks_OperatorActionCases(t *testing.T) {
 				t.Errorf("check %q: expected operator-action, got %s", tc.id, got)
 			}
 		})
+	}
+}
+
+func TestChecks_UFWPassesWhenRequiredRulesExist(t *testing.T) {
+	facts := baseFacts()
+	facts.FirewallActive = true
+	facts.FirewallName = "ufw"
+	facts.FirewallMissingRules = nil
+
+	checks := preflight.Run(facts)
+	if got := statusOf(t, checks, "firewall-detected"); got != preflight.StatusPass {
+		t.Errorf("expected pass for ufw when required rules exist, got %s", got)
+	}
+}
+
+func TestChecks_UFWRequiresRulesWhenMissing(t *testing.T) {
+	facts := baseFacts()
+	facts.FirewallActive = true
+	facts.FirewallName = "ufw"
+	facts.FirewallMissingRules = []string{"6443/tcp", "10250/tcp", "8472/udp"}
+
+	checks := preflight.Run(facts)
+	if got := statusOf(t, checks, "firewall-detected"); got != preflight.StatusOperatorAction {
+		t.Errorf("expected operator-action for ufw with missing required rules, got %s", got)
 	}
 }
 

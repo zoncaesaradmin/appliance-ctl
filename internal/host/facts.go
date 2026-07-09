@@ -47,6 +47,10 @@ type Facts struct {
 
 	FirewallActive bool
 	FirewallName   string
+	// FirewallMissingRules lists required ingress rules still missing from
+	// a detected firewall policy. Empty means either no firewall is active,
+	// or the detected firewall already permits the required baseline ports.
+	FirewallMissingRules []string
 
 	// ConflictingServices lists systemd units observed active that are not
 	// permitted to coexist with an appliance-owned K3s installation.

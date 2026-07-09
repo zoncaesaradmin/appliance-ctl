@@ -238,6 +238,16 @@ func checkFirewall(f host.Facts) result {
 	if !f.FirewallActive {
 		return result{StatusPass, "no active host firewall detected", ""}
 	}
+	if f.FirewallName == "ufw" && len(f.FirewallMissingRules) == 0 {
+		return result{StatusPass, `firewall "ufw" is active and required baseline ports are permitted`, ""}
+	}
+	if f.FirewallName == "ufw" && len(f.FirewallMissingRules) > 0 {
+		return result{
+			StatusOperatorAction,
+			fmt.Sprintf(`firewall "ufw" is active and missing required rules: %s`, strings.Join(f.FirewallMissingRules, ", ")),
+			fmt.Sprintf("allow the required rules through ufw before continuing (for example: sudo ufw allow %s)", strings.Join(f.FirewallMissingRules, " && sudo ufw allow ")),
+		}
+	}
 	return result{
 		StatusOperatorAction,
 		fmt.Sprintf("firewall %q is active", f.FirewallName),

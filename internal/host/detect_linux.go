@@ -67,7 +67,7 @@ func Detect(opts Options) (Facts, error) {
 		}
 	}
 
-	f.FirewallActive, f.FirewallName = detectFirewall()
+	f.FirewallActive, f.FirewallName, f.FirewallMissingRules = detectFirewall(opts.RequiredPorts)
 	f.ConflictingServices = detectConflictingServices()
 
 	return f, nil
@@ -209,23 +209,65 @@ func portInUse(port int) (owner string, inUse bool) {
 	return "", false
 }
 
-func detectFirewall() (active bool, name string) {
+func detectFirewall(requiredPorts []int) (active bool, name string, missingRules []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if out, err := exec.CommandContext(ctx, "ufw", "status").Output(); err == nil {
-		if strings.Contains(strings.ToLower(string(out)), "active") {
-			return true, "ufw"
+		lower := strings.ToLower(string(out))
+		if strings.Contains(lower, "inactive") {
+			return false, "ufw", nil
 		}
-		return false, "ufw"
+		if strings.Contains(lower, "active") {
+			return true, "ufw", missingUFWRules(string(out), requiredPorts)
+		}
+		return false, "ufw", nil
 	}
 	if serviceIsActive("nftables") {
-		return true, "nftables"
+		return true, "nftables", nil
 	}
 	if serviceIsActive("firewalld") {
-		return true, "firewalld"
+		return true, "firewalld", nil
 	}
-	return false, ""
+	return false, "", nil
+}
+
+func missingUFWRules(statusOutput string, requiredPorts []int) []string {
+	allowed := map[string]bool{}
+	scanner := bufio.NewScanner(strings.NewReader(statusOutput))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		rule := strings.ToLower(fields[0])
+		action := strings.ToUpper(fields[1])
+		if action != "ALLOW" {
+			continue
+		}
+		allowed[rule] = true
+	}
+
+	var missing []string
+	for _, rule := range requiredUFWRules(requiredPorts) {
+		if !allowed[rule] && !allowed[strings.Split(rule, "/")[0]] {
+			missing = append(missing, rule)
+		}
+	}
+	return missing
+}
+
+func requiredUFWRules(requiredPorts []int) []string {
+	rules := make([]string, 0, len(requiredPorts))
+	for _, port := range requiredPorts {
+		switch port {
+		case 8472:
+			rules = append(rules, "8472/udp")
+		default:
+			rules = append(rules, fmt.Sprintf("%d/tcp", port))
+		}
+	}
+	return rules
 }
 
 func detectConflictingServices() []string {
