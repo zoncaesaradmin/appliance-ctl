@@ -76,8 +76,8 @@ const (
 // DecideOwnership reconciles the on-host installed-state record (nil on a
 // fresh host) with the K3s service/cluster actually observed on the
 // host. priorInstallAttempted should be derived from the transaction
-// journal: whether this host has ever begun an install, regardless of
-// outcome. It disambiguates a leftover service from a crashed install
+// journal: whether this host has an interrupted prior install still on
+// record. It disambiguates a leftover service from a crashed install
 // (repair needed) versus a genuinely pre-existing cluster (adopt or
 // require force-adopt). forceAdopt is the operator's explicit override
 // for a cluster that isn't obviously safe to adopt.

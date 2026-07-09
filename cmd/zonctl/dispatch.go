@@ -106,7 +106,7 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 		logger.Warn("interrupted prior operation detected", "transactionId", current.ID, "operation", current.Type)
 		return finish(result, "failed", 1, msg, nil)
 	}
-	priorInstallAttempted := current != nil && current.Type == "install"
+	priorInstallAttempted := current != nil && current.Type == "install" && current.Interrupted()
 
 	txn, err := journal.Begin(spec.name, "", "")
 	if err != nil {

@@ -46,10 +46,10 @@ type Options struct {
 	// belongs to, recorded into the persisted installed-state.
 	TransactionID string
 
-	// PriorInstallAttempted should be true if the transaction journal
-	// shows this host has ever begun an install before (regardless of
-	// outcome). It disambiguates a leftover K3s service from a crashed
-	// install versus a truly unrelated cluster; see
+	// PriorInstallAttempted should be true only when the transaction
+	// journal shows an interrupted in-progress install on this host. It
+	// disambiguates a leftover K3s service from a crashed install versus a
+	// truly unrelated cluster; see
 	// internal/k3s.DecideOwnership.
 	PriorInstallAttempted bool
 
