@@ -15,6 +15,7 @@ var systemNamespaces = map[string]bool{
 	"kube-system":     true,
 	"kube-public":     true,
 	"kube-node-lease": true,
+	"traefik":         true,
 }
 
 // InspectCluster queries an already-active K3s cluster via kubectl for

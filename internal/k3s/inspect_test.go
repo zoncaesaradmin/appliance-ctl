@@ -49,6 +49,22 @@ func TestInspectCluster_HealthyNoForeignWorkloads(t *testing.T) {
 	}
 }
 
+func TestInspectCluster_TreatsTraefikAsSystemNamespace(t *testing.T) {
+	nodes := "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n"
+	pods := "kube-system\ntraefik\nzon\n"
+
+	healthy, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "zon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !healthy {
+		t.Error("expected the cluster to be reported healthy")
+	}
+	if len(foreign) != 0 {
+		t.Errorf("expected no foreign namespaces when only traefik is present, got %v", foreign)
+	}
+}
+
 func TestInspectCluster_DetectsForeignWorkloads(t *testing.T) {
 	nodes := "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n"
 	pods := "kube-system\ncustomer-app\ncustomer-app\nzon\n"

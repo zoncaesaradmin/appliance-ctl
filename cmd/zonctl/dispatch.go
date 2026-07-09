@@ -12,6 +12,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/manifest"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
@@ -148,10 +149,19 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 }
 
 func runPreflight(opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
+	signal, err := k3s.DetectService(defaultK3sUnitName)
+	if err != nil {
+		logger.Error("failed to detect k3s service", "error", err)
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
+
 	facts, err := host.Detect(host.Options{DataDir: opts.stateDir, RequiredPorts: preflight.RequiredPorts})
 	if err != nil {
 		logger.Error("failed to detect host facts", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
+	}
+	if signal.Detected && signal.Active {
+		facts.PortsInUse = map[int]string{}
 	}
 
 	checks := preflight.Run(facts)

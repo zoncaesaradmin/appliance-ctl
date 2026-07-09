@@ -46,6 +46,19 @@ func healthyHostFacts(host.Options) (host.Facts, error) {
 	}, nil
 }
 
+func healthyHostFactsWithK3SPortsInUse(host.Options) (host.Facts, error) {
+	facts, err := healthyHostFacts(host.Options{})
+	if err != nil {
+		return host.Facts{}, err
+	}
+	facts.PortsInUse = map[int]string{
+		6443:  "k3s-server",
+		10250: "k3s-server",
+		8472:  "k3s-server",
+	}
+	return facts, nil
+}
+
 // fixtureEntry is one file the fixture bundle writes and describes in its
 // manifest.
 type fixtureEntry struct {
@@ -349,6 +362,29 @@ func TestInstall_AutoAdoptsSafeExistingCluster(t *testing.T) {
 		if c == "write-config" || c == "install-binary" || c == "enable-and-start" {
 			t.Errorf("expected no K3s reinstall when the running version already matches the target, got calls: %v", fk3s.calls)
 		}
+	}
+}
+
+func TestInstall_AutoAdoptsSafeExistingClusterWhenK3SPortsAreAlreadyBound(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{
+		detected:       k3s.ServiceSignal{Detected: true, Active: true},
+		runningVersion: "v1.30.4+k3s1",
+	}
+	fcli := &fakeCLI{
+		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
+		kubectlPods:  "kube-system\ntraefik\nappliance\n",
+	}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFactsWithK3SPortsInUse}
+
+	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("expected adoption of a safe existing cluster with K3s-owned ports already bound to succeed, got: %v", err)
+	}
+	if !installed.K3sOwnership.Owned {
+		t.Error("expected the adopted cluster to be recorded as owned")
 	}
 }
 

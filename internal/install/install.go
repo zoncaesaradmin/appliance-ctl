@@ -95,9 +95,17 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, err
 	}
 
+	signal, err := o.K3s.DetectService(opts.K3sUnitName)
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: detect k3s service: %w", err)
+	}
+
 	facts, err := o.DetectHost(host.Options{DataDir: opts.K3sDataDir, RequiredPorts: preflight.RequiredPorts})
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: detect host: %w", err)
+	}
+	if signal.Detected && signal.Active {
+		facts.PortsInUse = map[int]string{}
 	}
 	preflightChecks := preflight.Run(facts)
 	checks = append(checks, toEvidenceChecks(preflightChecks)...)
@@ -108,10 +116,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	existing, err := state.Load(opts.InstalledStatePath)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
-	}
-	signal, err := o.K3s.DetectService(opts.K3sUnitName)
-	if err != nil {
-		return nil, checks, fmt.Errorf("install: detect k3s service: %w", err)
 	}
 	if existing == nil && signal.Detected && signal.Active {
 		healthy, foreignNamespaces, inspectErr := k3s.InspectCluster(ctx, o.ClusterRun, opts.KubeconfigPath, opts.ChartNamespace)
