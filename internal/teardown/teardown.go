@@ -45,6 +45,22 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath string) (
 		ID: "teardown-remove-k3s-files", Category: "k3s", Status: evidence.StatusPass,
 		Message: "k3s unit, binary, and config removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
+
+	// Without this, systemd's cached unit-file list (what DetectService's
+	// presence check reads) keeps reporting the just-deleted unit as
+	// present, and every subsequent install permanently sees an
+	// "existing K3s cluster" and refuses to proceed without force-adopt.
+	if err := ops.DaemonReload(); err != nil {
+		checks = append(checks, evidence.Check{
+			ID: "teardown-daemon-reload", Category: "k3s", Status: evidence.StatusFail,
+			Message: err.Error(), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+		return checks, fmt.Errorf("teardown: daemon-reload: %w", err)
+	}
+	checks = append(checks, evidence.Check{
+		ID: "teardown-daemon-reload", Category: "k3s", Status: evidence.StatusPass,
+		Message: "systemd unit-file cache refreshed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
 	return checks, nil
 }
 

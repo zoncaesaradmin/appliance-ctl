@@ -12,6 +12,11 @@ type Ops struct {
 	EnableAndStart func(unitName string) error
 	Stop           func(unitName string) error
 	Restart        func(unitName string) error
+	// DaemonReload refreshes systemd's cached unit-file list. Required
+	// after removing a unit file (teardown) — DetectService's presence
+	// check reads that cache, not the filesystem, so without this a
+	// removed unit keeps reporting as detected indefinitely.
+	DaemonReload func() error
 	// Version reports the K3s version currently installed at binaryPath.
 	// Used when adopting an existing cluster to decide whether K3s needs
 	// upgrading to the target release's pinned version.
@@ -28,6 +33,7 @@ func DefaultOps() Ops {
 		EnableAndStart: EnableAndStart,
 		Stop:           Stop,
 		Restart:        Restart,
+		DaemonReload:   DaemonReload,
 		Version:        Version,
 	}
 }

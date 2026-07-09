@@ -49,6 +49,14 @@ func EnableAndStart(unitName string) error {
 func Stop(unitName string) error    { return runSystemctl("stop", unitName) }
 func Restart(unitName string) error { return runSystemctl("restart", unitName) }
 
+// DaemonReload refreshes systemd's cached unit-file list. `systemctl
+// list-unit-files` (what DetectService's unitFileExists uses) reads that
+// cache, not the filesystem directly — deleting a unit file without a
+// following daemon-reload leaves it reporting the unit as still present
+// indefinitely. Any code path that removes a unit file (teardown) must
+// call this afterward, the same way EnableAndStart does before starting one.
+func DaemonReload() error { return runSystemctl("daemon-reload") }
+
 func runSystemctl(args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

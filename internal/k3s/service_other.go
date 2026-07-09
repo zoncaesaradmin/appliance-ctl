@@ -23,6 +23,10 @@ func Restart(unitName string) error {
 	return fmt.Errorf("k3s: service management requires a Linux host with systemd")
 }
 
+func DaemonReload() error {
+	return fmt.Errorf("k3s: service management requires a Linux host with systemd")
+}
+
 func Version(binaryPath string) (string, error) {
 	return "", fmt.Errorf("k3s: version detection requires a Linux host")
 }

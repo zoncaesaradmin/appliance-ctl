@@ -11,8 +11,10 @@ import (
 )
 
 type fakeK3s struct {
-	stopCalls int
-	stopErr   error
+	stopCalls         int
+	stopErr           error
+	daemonReloadCalls int
+	daemonReloadErr   error
 }
 
 func (f *fakeK3s) ops() k3s.Ops {
@@ -20,6 +22,10 @@ func (f *fakeK3s) ops() k3s.Ops {
 		Stop: func(string) error {
 			f.stopCalls++
 			return f.stopErr
+		},
+		DaemonReload: func() error {
+			f.daemonReloadCalls++
+			return f.daemonReloadErr
 		},
 	}
 }
@@ -62,6 +68,9 @@ func TestUninstall_PreservesDataDirectory(t *testing.T) {
 	}
 	if fake.stopCalls != 1 {
 		t.Errorf("expected k3s to be stopped exactly once, got %d", fake.stopCalls)
+	}
+	if fake.daemonReloadCalls != 1 {
+		t.Errorf("expected systemd daemon-reload exactly once after removing the unit file, got %d", fake.daemonReloadCalls)
 	}
 	if len(checks) == 0 {
 		t.Error("expected evidence checks")
