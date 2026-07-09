@@ -60,6 +60,16 @@ func TestChecks_HealthyHostAllPass(t *testing.T) {
 	}
 }
 
+func TestChecks_MemoryMinimumBoundaryPasses(t *testing.T) {
+	facts := baseFacts()
+	facts.MemTotalBytes = preflight.MinMemoryBytes
+
+	checks := preflight.Run(facts)
+	if got := statusOf(t, checks, "memory-min"); got != preflight.StatusPass {
+		t.Errorf("memory-min: expected pass at exact minimum, got %s", got)
+	}
+}
+
 func TestChecks_SupportedOSVersions(t *testing.T) {
 	for _, version := range []string{"22.04", "24.04"} {
 		t.Run(version, func(t *testing.T) {
