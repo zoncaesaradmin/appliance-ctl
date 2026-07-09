@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
@@ -15,6 +16,16 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
+)
+
+// containerdReadyTimeout/containerdReadyPollInterval bound how long
+// Install waits for K3s's embedded containerd to accept connections
+// after (re)starting the service, before giving up. K3s startup is
+// normally a few seconds; this leaves generous headroom for a loaded or
+// slow-disk host without hanging indefinitely on a truly dead service.
+const (
+	containerdReadyTimeout      = 60 * time.Second
+	containerdReadyPollInterval = 1 * time.Second
 )
 
 // Options fully parameterizes a fresh install. Every path is explicit
@@ -164,10 +175,32 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		if err := o.K3s.EnableAndStart(opts.K3sUnitName); err != nil {
 			return nil, checks, fmt.Errorf("install: start k3s: %w", err)
 		}
-		rollbacks = append(rollbacks, func() { _ = o.K3s.Stop(opts.K3sUnitName) })
+		// A later failure must revert the host all the way back to "no
+		// K3s detected," not just stopped: DetectService's presence
+		// check reads systemd's unit-file cache, which stays populated
+		// (and DecideOwnership keeps rejecting future install attempts
+		// with requires-force-adopt) unless the unit file is actually
+		// removed and the cache refreshed, exactly like teardown does.
+		rollbacks = append(rollbacks, func() {
+			_ = o.K3s.Stop(opts.K3sUnitName)
+			for _, path := range []string{opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath} {
+				_ = os.Remove(path)
+			}
+			_ = o.K3s.DaemonReload()
+		})
 	}
 
 	importer := &images.Importer{Run: o.ImagesRun, Namespace: "k8s.io"}
+
+	// systemd reports the unit "started" as soon as the process launches,
+	// well before K3s's embedded containerd actually accepts connections
+	// on its socket; without this wait, PreloadAll below can hit a raw
+	// "connection refused" on a freshly (re)started K3s.
+	if err := importer.WaitReady(ctx, containerdReadyTimeout, containerdReadyPollInterval); err != nil {
+		runRollbacks()
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
+
 	imgs := append(append([]images.Image{}, resolved.K3sImages...), resolved.OCIImages...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)

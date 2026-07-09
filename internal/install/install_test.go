@@ -142,11 +142,12 @@ func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 // fakeK3s simulates the K3s adapter without systemd, recording every call
 // and optionally failing one named step.
 type fakeK3s struct {
-	detected       k3s.ServiceSignal
-	failStep       string
-	calls          []string
-	stopCalls      int
-	runningVersion string
+	detected          k3s.ServiceSignal
+	failStep          string
+	calls             []string
+	stopCalls         int
+	daemonReloadCalls int
+	runningVersion    string
 }
 
 func (f *fakeK3s) ops() k3s.Ops {
@@ -199,6 +200,11 @@ func (f *fakeK3s) ops() k3s.Ops {
 		Stop: func(unit string) error {
 			f.stopCalls++
 			f.calls = append(f.calls, "stop")
+			return nil
+		},
+		DaemonReload: func() error {
+			f.daemonReloadCalls++
+			f.calls = append(f.calls, "daemon-reload")
 			return nil
 		},
 		Version: func(path string) (string, error) {
@@ -431,6 +437,14 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 	}
 	if fk3s.stopCalls == 0 {
 		t.Error("expected k3s to be stopped as part of rollback")
+	}
+	if fk3s.daemonReloadCalls == 0 {
+		t.Error("expected a systemd daemon-reload as part of rollback, so a retried install doesn't see a stale 'existing K3s' signal")
+	}
+	for _, path := range []string{opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed as part of rollback, stat err=%v", path, err)
+		}
 	}
 
 	var rmCalls int
