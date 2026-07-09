@@ -68,7 +68,7 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 
 	for _, img := range Ordered(images) {
 		check := evidence.Check{
-			ID:              "image-preload-" + img.Name,
+			ID:              "image-preload-" + evidence.SanitizeIDSegment(img.Name),
 			Category:        "dependency",
 			Timestamp:       time.Now().UTC(),
 			Idempotent:      true,

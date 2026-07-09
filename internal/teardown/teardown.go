@@ -35,7 +35,7 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath string) (
 	for _, path := range []string{unitPath, binaryPath, configPath} {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			checks = append(checks, evidence.Check{
-				ID: "teardown-remove-" + filepath.Base(path), Category: "k3s", Status: evidence.StatusFail,
+				ID: "teardown-remove-" + evidence.SanitizeIDSegment(filepath.Base(path)), Category: "k3s", Status: evidence.StatusFail,
 				Message: err.Error(), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 			})
 			return checks, fmt.Errorf("teardown: remove %s: %w", path, err)

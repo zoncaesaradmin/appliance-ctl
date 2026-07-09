@@ -7,10 +7,37 @@ package evidence
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/manifest"
 )
+
+// nonKebabRun matches any run of characters not allowed inside an
+// evidence.v1 check ID segment (schemas/evidence.v1.schema.json pins
+// ^[a-z][a-z0-9]*(-[a-z0-9]+)*$).
+var nonKebabRun = regexp.MustCompile(`[^a-z0-9]+`)
+
+// SanitizeIDSegment converts an arbitrary, externally-sourced string (an
+// image reference, a file path, a CVE ID, ...) into a value safe to embed
+// in an evidence.v1 check ID: lowercased, every run of non-[a-z0-9]
+// characters collapsed to a single hyphen, and leading/trailing hyphens
+// trimmed. Every check ID built by concatenating a literal prefix with a
+// dynamic name or path MUST sanitize that dynamic part first — none of
+// image references (contain "/" and ":"), file paths (contain "/" and
+// "."), or CVE-style IDs (contain uppercase letters) are valid check-ID
+// characters on their own, and a raw concatenation fails schema
+// validation for the whole report, not just one check.
+func SanitizeIDSegment(s string) string {
+	s = strings.ToLower(s)
+	s = nonKebabRun.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
 
 // Status mirrors the full evidence.v1 check status enum.
 type Status string

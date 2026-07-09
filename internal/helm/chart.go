@@ -25,7 +25,7 @@ type ChartRelease struct {
 // missing.
 func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evidence.Check, error) {
 	check := evidence.Check{
-		ID:              "helm-release-" + rel.Name,
+		ID:              "helm-release-" + evidence.SanitizeIDSegment(rel.Name),
 		Category:        "chart",
 		Timestamp:       time.Now().UTC(),
 		Idempotent:      true,

@@ -30,10 +30,11 @@ func VerifyArtifacts(pub *PublicKey, artifacts []Artifact) ([]evidence.Check, er
 	var failures []error
 
 	for _, a := range artifacts {
+		sanitizedName := evidence.SanitizeIDSegment(a.Name)
 		now := time.Now()
 
 		digestCheck := evidence.Check{
-			ID:              a.Name + "-digest",
+			ID:              sanitizedName + "-digest",
 			Category:        "manifest",
 			Timestamp:       now.UTC(),
 			Idempotent:      true,
@@ -52,7 +53,7 @@ func VerifyArtifacts(pub *PublicKey, artifacts []Artifact) ([]evidence.Check, er
 
 		now = time.Now()
 		sizeCheck := evidence.Check{
-			ID:              a.Name + "-size",
+			ID:              sanitizedName + "-size",
 			Category:        "manifest",
 			Timestamp:       now.UTC(),
 			Idempotent:      true,
@@ -75,7 +76,7 @@ func VerifyArtifacts(pub *PublicKey, artifacts []Artifact) ([]evidence.Check, er
 
 		now = time.Now()
 		sigCheck := evidence.Check{
-			ID:              a.Name + "-signature",
+			ID:              sanitizedName + "-signature",
 			Category:        "security",
 			Timestamp:       now.UTC(),
 			Idempotent:      true,

@@ -99,7 +99,7 @@ func TestPreloadAll_DigestMismatchFailsClosed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected digest mismatch to fail")
 	}
-	if got := statusOfCheck(t, result.Checks, "image-preload-app:v1"); got != evidence.StatusFail {
+	if got := statusOfCheck(t, result.Checks, "image-preload-app-v1"); got != evidence.StatusFail {
 		t.Errorf("expected fail status, got %s", got)
 	}
 	for _, c := range fake.calls {
@@ -180,7 +180,7 @@ func TestPreloadAll_Idempotency(t *testing.T) {
 	if len(result.NewlyImported) != 0 {
 		t.Errorf("expected NewlyImported to be empty, got %v", result.NewlyImported)
 	}
-	if got := statusOfCheck(t, result.Checks, "image-preload-application:v1"); got != evidence.StatusPass {
+	if got := statusOfCheck(t, result.Checks, "image-preload-application-v1"); got != evidence.StatusPass {
 		t.Errorf("expected pass, got %s", got)
 	}
 }

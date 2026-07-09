@@ -95,7 +95,7 @@ func Verify(backupDir string) ([]evidence.Check, error) {
 	for _, f := range manifest.Files {
 		path := filepath.Join(dataDir, f.Path)
 		check := evidence.Check{
-			ID: "backup-verify-" + f.Path, Category: "backup-restore",
+			ID: "backup-verify-" + evidence.SanitizeIDSegment(f.Path), Category: "backup-restore",
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		}
 		if err := verify.VerifyDigest(path, f.Digest); err != nil {

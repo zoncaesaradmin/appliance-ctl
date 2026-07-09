@@ -159,7 +159,7 @@ func verifyDirArtifacts(artifacts []namedDirArtifact) ([]evidence.Check, error) 
 	for _, artifact := range artifacts {
 		now := time.Now().UTC()
 		check := evidence.Check{
-			ID:              artifact.Name + "-manifest",
+			ID:              evidence.SanitizeIDSegment(artifact.Name) + "-manifest",
 			Category:        "manifest",
 			Timestamp:       now,
 			Idempotent:      true,
