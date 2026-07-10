@@ -61,7 +61,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 		"releaseId":     "release-" + codeVersion,
 		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
-			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes")},
+			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
@@ -95,6 +95,9 @@ func TestLoad_ValidReleaseInput(t *testing.T) {
 	}
 	if in.CodeVersion != "2.4.0" || in.ReleaseID != "release-2.4.0" {
 		t.Fatalf("unexpected parsed metadata: %+v", in)
+	}
+	if in.Artifacts.ControlPlaneImage.ImageReference != "localhost/appliance-control-plane:2.4.0" {
+		t.Fatalf("unexpected control-plane image reference: %+v", in.Artifacts.ControlPlaneImage)
 	}
 	if len(checks) == 0 {
 		t.Fatal("expected evidence checks")
@@ -155,7 +158,7 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 		"releaseId":     "release-2.4.0",
 		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
-			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes")},
+			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},

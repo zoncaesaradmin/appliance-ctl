@@ -99,7 +99,8 @@
         "path": { "type": "string", "minLength": 1 },
         "digest": { "$ref": "#/$defs/digest" },
         "sizeBytes": { "type": "integer", "minimum": 0 },
-        "signature": { "type": "string", "minLength": 1 }
+        "signature": { "type": "string", "minLength": 1 },
+        "imageReference": { "type": "string", "minLength": 1 }
       }
     },
     "artifactDirectory": {

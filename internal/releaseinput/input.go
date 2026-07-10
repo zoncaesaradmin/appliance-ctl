@@ -34,10 +34,11 @@ type Compatibility struct {
 }
 
 type FileArtifact struct {
-	Path      string
-	Digest    string
-	SizeBytes int64
-	Signature string
+	Path           string
+	Digest         string
+	SizeBytes      int64
+	Signature      string
+	ImageReference string
 }
 
 type DirArtifact struct {
@@ -75,10 +76,11 @@ type doc struct {
 }
 
 type fileArtifact struct {
-	Path      string `json:"path"`
-	Digest    string `json:"digest"`
-	SizeBytes int64  `json:"sizeBytes"`
-	Signature string `json:"signature"`
+	Path           string `json:"path"`
+	Digest         string `json:"digest"`
+	SizeBytes      int64  `json:"sizeBytes"`
+	Signature      string `json:"signature"`
+	ImageReference string `json:"imageReference"`
 }
 
 type dirArtifact struct {
@@ -237,10 +239,11 @@ func DirectoryManifestDigest(root string) (string, error) {
 
 func toFileArtifact(rootDir string, artifact fileArtifact) FileArtifact {
 	return FileArtifact{
-		Path:      filepath.Join(rootDir, artifact.Path),
-		Digest:    artifact.Digest,
-		SizeBytes: artifact.SizeBytes,
-		Signature: strings.TrimSpace(artifact.Signature),
+		Path:           filepath.Join(rootDir, artifact.Path),
+		Digest:         artifact.Digest,
+		SizeBytes:      artifact.SizeBytes,
+		Signature:      strings.TrimSpace(artifact.Signature),
+		ImageReference: strings.TrimSpace(artifact.ImageReference),
 	}
 }
 
