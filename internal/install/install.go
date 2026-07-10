@@ -210,6 +210,23 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, func() { _ = importer.Rollback(ctx, preloadResult.NewlyImported) })
 
+	prereqs, err := loadChartPrereqs(resolved.ConfigurationPath)
+	if err != nil {
+		runRollbacks()
+		return nil, checks, err
+	}
+	keysSecretCreated, secretCheck, err := ensureKeysSecret(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, prereqs.KeysSecretName)
+	checks = append(checks, secretCheck)
+	if err != nil {
+		runRollbacks()
+		return nil, checks, err
+	}
+	if keysSecretCreated {
+		rollbacks = append(rollbacks, func() {
+			_ = deleteSecret(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, prereqs.KeysSecretName)
+		})
+	}
+
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,

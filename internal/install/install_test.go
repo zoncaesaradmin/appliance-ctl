@@ -78,7 +78,7 @@ func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 	entries := []fixtureEntry{
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary bytes", ""},
 		{"charts/appliance-chart-2.4.0.tgz", "chart", "fake chart bytes", ""},
-		{"configuration/values.yaml", "configuration", "replicaCount: 1\n", ""},
+		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"k3s/images/coredns.tar", "k3s-images", "fake coredns image tar", "docker.io/rancher/mirrored-coredns-coredns:1.11.3"},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
 	}
@@ -219,6 +219,7 @@ type fakeCLI struct {
 	failOn       map[string]bool // substring of the joined args -> fail
 	kubectlNodes string          // `kubectl get nodes` output, for cluster-adoption tests
 	kubectlPods  string          // `kubectl get pods` output, for cluster-adoption tests
+	secretExists bool
 	calls        []string
 }
 
@@ -234,6 +235,20 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 
 	if name == "ctr" && contains(args, "ls") {
 		return "", nil // nothing pre-imported
+	}
+	if name == "kubectl" && contains(args, "get") && contains(args, "secret") {
+		if f.secretExists {
+			return "", nil
+		}
+		return "", errors.New("simulated missing secret")
+	}
+	if name == "kubectl" && contains(args, "create") && contains(args, "secret") {
+		f.secretExists = true
+		return "", nil
+	}
+	if name == "kubectl" && contains(args, "delete") && contains(args, "secret") {
+		f.secretExists = false
+		return "", nil
 	}
 	if name == "kubectl" && contains(args, "nodes") {
 		return f.kubectlNodes, nil
@@ -308,13 +323,20 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 
 	var importCalls int
+	var secretCreateCalls int
 	for _, c := range fcli.calls {
 		if strings.Contains(c, "image import") {
 			importCalls++
 		}
+		if strings.Contains(c, "create secret generic appliance-keys") {
+			secretCreateCalls++
+		}
 	}
 	if importCalls != 2 {
 		t.Errorf("expected 2 image import calls (k3s-images + oci-images), got %d: %v", importCalls, fcli.calls)
+	}
+	if secretCreateCalls != 1 {
+		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
 	}
 }
 
@@ -368,6 +390,40 @@ func TestInstall_AutoAdoptsSafeExistingCluster(t *testing.T) {
 		if c == "write-config" || c == "install-binary" || c == "enable-and-start" {
 			t.Errorf("expected no K3s reinstall when the running version already matches the target, got calls: %v", fk3s.calls)
 		}
+	}
+}
+
+func TestInstall_RollsBackCreatedSecretWhenHelmFails(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{failOn: map[string]bool{" upgrade --install ": true}}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil {
+		t.Fatal("expected simulated helm failure to abort install")
+	}
+	if len(checks) == 0 {
+		t.Fatal("expected evidence checks on failure")
+	}
+
+	var sawCreateSecret bool
+	var sawDeleteSecret bool
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "create secret generic appliance-keys") {
+			sawCreateSecret = true
+		}
+		if strings.Contains(call, "delete secret appliance-keys --ignore-not-found") {
+			sawDeleteSecret = true
+		}
+	}
+	if !sawCreateSecret {
+		t.Fatalf("expected installer-managed keys secret creation before helm, got calls: %v", fcli.calls)
+	}
+	if !sawDeleteSecret {
+		t.Fatalf("expected installer-managed keys secret rollback after helm failure, got calls: %v", fcli.calls)
 	}
 }
 
