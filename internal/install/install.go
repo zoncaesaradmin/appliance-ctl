@@ -242,8 +242,8 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	})
 	checks = append(checks, chartCheck)
 	if err != nil {
-		cleanupErr := runRollbacks()
-		cleanupErr = errors.Join(cleanupErr, applier.Rollback(ctx, opts.ChartReleaseName, true))
+		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
+		cleanupErr = errors.Join(cleanupErr, runRollbacks())
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 
@@ -269,8 +269,8 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		UpdatedAt: now,
 	}
 	if err := state.Save(opts.InstalledStatePath, installed); err != nil {
-		cleanupErr := runRollbacks()
-		cleanupErr = errors.Join(cleanupErr, applier.Rollback(ctx, opts.ChartReleaseName, true))
+		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
+		cleanupErr = errors.Join(cleanupErr, runRollbacks())
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 
