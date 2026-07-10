@@ -256,6 +256,12 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	if name == "kubectl" && contains(args, "pods") {
 		return f.kubectlPods, nil
 	}
+	if name == "kubectl" && contains(args, "storageclass") {
+		return "storageclass.storage.k8s.io/local-path", nil
+	}
+	if name == "kubectl" && contains(args, "deployment") && contains(args, "local-path-provisioner") {
+		return "1", nil
+	}
 	return "", nil
 }
 
@@ -292,7 +298,7 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	opts := baseOptions(t, dir, pub)
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
-	fcli := &fakeCLI{}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
 
 	installed, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
@@ -398,7 +404,10 @@ func TestInstall_RollsBackCreatedSecretWhenHelmFails(t *testing.T) {
 	opts := baseOptions(t, dir, pub)
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
-	fcli := &fakeCLI{failOn: map[string]bool{" upgrade --install ": true}}
+	fcli := &fakeCLI{
+		failOn:       map[string]bool{" upgrade --install ": true},
+		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
+	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
 
 	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
@@ -484,7 +493,10 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 	opts := baseOptions(t, dir, pub)
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
-	fcli := &fakeCLI{failOn: map[string]bool{"upgrade --install": true}}
+	fcli := &fakeCLI{
+		failOn:       map[string]bool{"upgrade --install": true},
+		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
+	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
 
 	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
@@ -556,7 +568,7 @@ func TestInstall_RequiresNoNetworkAccess(t *testing.T) {
 	opts := baseOptions(t, dir, pub)
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
-	fcli := &fakeCLI{}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
 
 	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {

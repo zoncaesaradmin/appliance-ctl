@@ -14,7 +14,6 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -24,12 +23,6 @@ const (
 	refreshPepperFile   = "refresh_pepper.key"
 	pepperLength        = 32
 )
-
-type chartValues struct {
-	Secrets struct {
-		KeysSecretName string `yaml:"keysSecretName"`
-	} `yaml:"secrets"`
-}
 
 type chartPrereqs struct {
 	KeysSecretName string
@@ -84,18 +77,13 @@ func EnsureReleasePrereqs(ctx context.Context, run cli.Runner, kubeconfig string
 }
 
 func loadChartPrereqs(valuesPath string) (chartPrereqs, error) {
-	data, err := os.ReadFile(valuesPath)
+	values, err := loadChartValues(valuesPath)
 	if err != nil {
-		return chartPrereqs{}, fmt.Errorf("helm: read chart values %s: %w", valuesPath, err)
-	}
-
-	var values chartValues
-	if err := yaml.Unmarshal(data, &values); err != nil {
-		return chartPrereqs{}, fmt.Errorf("helm: parse chart values %s: %w", valuesPath, err)
+		return chartPrereqs{}, err
 	}
 
 	return chartPrereqs{
-		KeysSecretName: strings.TrimSpace(values.Secrets.KeysSecretName),
+		KeysSecretName: values.Secrets.KeysSecretName,
 	}, nil
 }
 

@@ -221,6 +221,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, func() error { return importer.Rollback(ctx, preloadResult.NewlyImported) })
 
+	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, resolved.ConfigurationPath)
+	checks = append(checks, readinessChecks...)
+	if err != nil {
+		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
+	}
+
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  resolved.ChartPath,
@@ -242,6 +248,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	})
 	checks = append(checks, chartCheck)
 	if err != nil {
+		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+			Name:       opts.ChartReleaseName,
+			ChartPath:  resolved.ChartPath,
+			Namespace:  opts.ChartNamespace,
+			ValuesPath: resolved.ConfigurationPath,
+		})...)
 		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
 		cleanupErr = errors.Join(cleanupErr, runRollbacks())
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)

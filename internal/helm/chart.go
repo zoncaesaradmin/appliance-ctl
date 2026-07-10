@@ -19,6 +19,8 @@ type ChartRelease struct {
 	ValuesPath string
 }
 
+const chartApplyTimeout = 10 * time.Minute
+
 // InstallOrUpgrade applies rel via `helm upgrade --install`, which is
 // idempotent by construction: a fresh cluster gets an install, an
 // existing release gets an upgrade, and re-running it with unchanged
@@ -53,6 +55,7 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 		"--namespace", rel.Namespace,
 		"--values", rel.ValuesPath,
 		"--wait",
+		"--timeout", chartApplyTimeout.String(),
 	}
 	if _, err := a.Run(ctx, "helm", args...); err != nil {
 		check.Status = evidence.StatusFail

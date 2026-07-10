@@ -198,6 +198,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
 	}
 
+	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, configSchemaPath)
+	checks = append(checks, readinessChecks...)
+	if err != nil {
+		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+		checks = append(checks, rollback()...)
+		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
+	}
+
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
@@ -207,6 +215,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	})
 	checks = append(checks, chartCheck)
 	if err != nil {
+		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+			Name:       opts.ChartReleaseName,
+			ChartPath:  chartPath,
+			Namespace:  opts.ChartNamespace,
+			ValuesPath: configSchemaPath,
+		})...)
 		_ = prepared.Cleanup()
 		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
 		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
