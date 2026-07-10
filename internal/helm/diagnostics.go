@@ -10,7 +10,10 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 )
 
-const maxDiagnosticMessageBytes = 4000
+const (
+	maxDiagnosticMessageBytes = 4000
+	diagnosticRemediation     = "Inspect the captured Helm and Kubernetes diagnostic output for the blocking workload condition, resolve it on the target cluster, and rerun zonctl install or zonctl upgrade."
+)
 
 // CollectFailureDiagnostics captures high-signal release state before a
 // rollback tears it down, so a failed install/upgrade returns actionable
@@ -63,6 +66,7 @@ func CollectFailureDiagnostics(ctx context.Context, run cli.Runner, kubeconfig s
 			Category:        cmd.category,
 			Status:          evidence.StatusOperatorAction,
 			Message:         truncateDiagnostic(msg),
+			Remediation:     diagnosticRemediation,
 			Timestamp:       time.Now().UTC(),
 			Idempotent:      true,
 			SecretsRedacted: true,
