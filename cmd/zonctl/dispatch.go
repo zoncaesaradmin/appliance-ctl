@@ -63,13 +63,13 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 		case "preflight":
 			return runPreflight(opts, logger, result)
 		case "status":
-			return runStatus(opts, logger, result)
+			return runStatus(context.Background(), opts, logger, result)
 		case "verify":
-			return runVerify(opts, logger, result)
+			return runVerify(context.Background(), opts, logger, result)
 		case "verify-bundle":
 			return runVerifyBundle(opts, logger, result)
 		case "support-bundle":
-			return runSupportBundle(opts, logger, result)
+			return runSupportBundle(context.Background(), opts, logger, result)
 		}
 		logger.Info("running read-only command", "command", spec.name, "dryRun", opts.dryRun)
 		return finish(result, "failed", 1, notImplemented, nil)
@@ -249,12 +249,6 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		}
 		return finish(result, "failed", 1, "install: "+err.Error(), nil)
 	}
-	bootstrapCreds, err := resolveBootstrapCredentials(opts)
-	if err != nil {
-		logger.Error("failed to collect bootstrap credentials", "error", err)
-		return finish(result, "failed", 1, err.Error(), nil)
-	}
-
 	installOpts := install.Options{
 		ApplianceVersion:       version,
 		InstalledStatePath:     filepath.Join(opts.stateDir, "installed-state.json"),
@@ -269,11 +263,22 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,
 		ChartReleaseName:       "zon",
 		ChartNamespace:         "zon",
-		BootstrapAdminUser:     bootstrapCreds.username,
-		BootstrapAdminPassword: bootstrapCreds.password,
-		TransactionID:          txn.ID,
-		PriorInstallAttempted:  priorInstallAttempted,
-		ForceAdopt:             opts.forceAdopt,
+		// Deliberately not resolved here: this closure only actually runs
+		// inside Install, right before the bootstrap step — after K3s,
+		// the chart, and the host zonctl binary are already fully in
+		// place. Prompting (or reading --bootstrap-password-stdin) any
+		// earlier than that would ask the operator for credentials
+		// before the multi-minute install has even started.
+		ResolveBootstrapCredentials: func() (string, []byte, error) {
+			creds, err := resolveBootstrapCredentials(opts)
+			if err != nil {
+				return "", nil, err
+			}
+			return creds.username, creds.password, nil
+		},
+		TransactionID:         txn.ID,
+		PriorInstallAttempted: priorInstallAttempted,
+		ForceAdopt:            opts.forceAdopt,
 	}
 
 	orch := install.NewOrchestrator()

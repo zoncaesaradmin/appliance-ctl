@@ -55,8 +55,16 @@ type Options struct {
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
-	BootstrapAdminUser     string
-	BootstrapAdminPassword []byte
+	// ResolveBootstrapCredentials is called once, right before the
+	// first-admin bootstrap step — after K3s, the chart, the host
+	// zonctl binary, and installed-state are already fully in place,
+	// never earlier. This is deliberately a callback rather than a
+	// pre-resolved username/password: collecting credentials (an
+	// interactive terminal prompt, or a stdin read) upfront, before the
+	// multi-minute install even starts, is exactly the ordering bug
+	// this exists to prevent. A nil error here is only ever meaningful
+	// once this has actually been invoked at the right moment.
+	ResolveBootstrapCredentials func() (username string, password []byte, err error)
 
 	ChartReleaseName string
 	ChartNamespace   string
@@ -330,13 +338,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			bootstrapRun = cli.ExecInput
 		}
 	}
+	if opts.ResolveBootstrapCredentials == nil {
+		return installed, checks, fmt.Errorf("%w: %w", ErrBootstrapFailed, fmt.Errorf("install: no bootstrap credential source configured"))
+	}
+	bootstrapUsername, bootstrapPassword, credErr := opts.ResolveBootstrapCredentials()
+	if credErr != nil {
+		return installed, checks, fmt.Errorf("%w: %w", ErrBootstrapFailed, credErr)
+	}
 	bootstrapCheck, err := bootstrapadmin.Init(ctx, bootstrapadmin.Options{
 		Run:           bootstrapRun,
 		Kubeconfig:    opts.KubeconfigPath,
 		Namespace:     opts.ChartNamespace,
 		ReleaseName:   opts.ChartReleaseName,
-		AdminUsername: opts.BootstrapAdminUser,
-		AdminPassword: opts.BootstrapAdminPassword,
+		AdminUsername: bootstrapUsername,
+		AdminPassword: bootstrapPassword,
 	})
 	checks = append(checks, bootstrapCheck)
 	if err != nil {

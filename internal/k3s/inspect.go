@@ -58,6 +58,19 @@ func allNodesReady(output string) bool {
 	return true
 }
 
+// IngressRouteExists reports whether at least one Traefik IngressRoute
+// object exists in namespace. A false result with a nil error is exactly
+// the "chart says healthy but nothing routes traffic here" gap this
+// check exists to catch.
+func IngressRouteExists(ctx context.Context, run cli.Runner, kubeconfig, namespace string) (bool, error) {
+	out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "-n", namespace, "get", "ingressroute",
+		"-o", `jsonpath={.items[*].metadata.name}`)
+	if err != nil {
+		return false, fmt.Errorf("k3s: list ingressroutes: %w", err)
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
 func foreignNamespacesFrom(output, ownedNamespace string) []string {
 	seen := map[string]bool{}
 	for _, ns := range strings.Fields(output) {

@@ -23,6 +23,30 @@ type Signals struct {
 	// failed to load or validate (corruption, schema drift).
 	InstalledStateErr error
 	K3sHealth         k3s.HealthStatus
+	// ChartHealth and IngressHealth are only populated when the caller
+	// actually reached far enough to check them (installed-state present
+	// and K3s active). Checked distinguishes "not checked" from "checked
+	// and unhealthy" so a not-yet-installed or K3s-down host doesn't get
+	// a misleading chart/ingress failure on top of the real cause.
+	ChartHealth   ChartHealth
+	IngressHealth IngressHealth
+}
+
+// ChartHealth reports whether the appliance's Helm release is deployed.
+type ChartHealth struct {
+	Checked bool
+	Healthy bool
+	Message string
+}
+
+// IngressHealth reports whether at least one IngressRoute exists for the
+// appliance's namespace — the exact signal that was missing in the
+// incident that motivated this check: Helm and K3s both reported
+// healthy while no route existed to send traffic to the appliance pod.
+type IngressHealth struct {
+	Checked bool
+	Present bool
+	Message string
 }
 
 // Evaluate turns Signals into a list of evidence checks: one for
@@ -60,6 +84,28 @@ func Evaluate(sig Signals) []evidence.Check {
 		ID: "k3s-health", Category: "k3s", Status: k3sStatus,
 		Message: message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
 	})
+
+	if sig.ChartHealth.Checked {
+		status := evidence.StatusPass
+		if !sig.ChartHealth.Healthy {
+			status = evidence.StatusFail
+		}
+		checks = append(checks, evidence.Check{
+			ID: "chart-release-health", Category: "chart", Status: status,
+			Message: sig.ChartHealth.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
+		})
+	}
+
+	if sig.IngressHealth.Checked {
+		status := evidence.StatusPass
+		if !sig.IngressHealth.Present {
+			status = evidence.StatusFail
+		}
+		checks = append(checks, evidence.Check{
+			ID: "ingress-route-present", Category: "chart", Status: status,
+			Message: sig.IngressHealth.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	return checks
 }

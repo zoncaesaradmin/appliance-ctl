@@ -31,6 +31,8 @@ const (
 	defaultKubeconfigPath     = "/etc/rancher/k3s/k3s.yaml"
 	defaultK3sUnitName        = "k3s.service"
 	defaultPublicKeyPath      = "/etc/zon/keys/release-signing.pub"
+	defaultChartReleaseName   = "zon"
+	defaultChartNamespace     = "zon"
 )
 
 // cliOptions carries every flag value dispatch needs. Only bundleDir and

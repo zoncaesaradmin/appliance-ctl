@@ -105,3 +105,43 @@ func TestInspectCluster_PropagatesKubectlFailure(t *testing.T) {
 		t.Errorf("expected the kubectl failure to propagate, got: %v", err)
 	}
 }
+
+func fakeIngressRoutes(names string, err error) func(context.Context, string, ...string) (string, error) {
+	return func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "kubectl" || !containsArg(args, "ingressroute") {
+			return "", errors.New("unexpected invocation")
+		}
+		return names, err
+	}
+}
+
+// This is the exact scenario that motivated the check: helm and K3s both
+// report healthy while the chart never rendered an IngressRoute, so no
+// traffic can reach the appliance pod. IngressRouteExists is what lets
+// zonctl status/verify catch it.
+func TestIngressRouteExists_ReportsAbsence(t *testing.T) {
+	present, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("", nil), "/etc/rancher/k3s/k3s.yaml", "zon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present {
+		t.Error("expected no ingress route to be reported present")
+	}
+}
+
+func TestIngressRouteExists_ReportsPresence(t *testing.T) {
+	present, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("zon-web", nil), "/etc/rancher/k3s/k3s.yaml", "zon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present {
+		t.Error("expected the ingress route to be reported present")
+	}
+}
+
+func TestIngressRouteExists_PropagatesKubectlFailure(t *testing.T) {
+	_, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("", errors.New("connection refused")), "/etc/rancher/k3s/k3s.yaml", "zon")
+	if err == nil || !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("expected the kubectl failure to propagate, got: %v", err)
+	}
+}

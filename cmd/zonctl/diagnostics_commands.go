@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/diagnostics"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/redact"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/repair"
@@ -23,12 +25,15 @@ func installedStatePath(stateDir string) string {
 	return filepath.Join(stateDir, "installed-state.json")
 }
 
-// dependencySignals loads installed-state and the K3s service signal, the
-// two inputs internal/diagnostics needs. It never fails outright: a
-// missing/invalid installed-state or an undetectable service both become
-// evidence findings, since "unhealthy" is a legitimate, reportable
-// outcome for status/verify, not a command error.
-func dependencySignals(stateDir, unitName string) (diagnostics.Signals, error) {
+// dependencySignals loads installed-state and the K3s service signal, then
+// (only when something is actually installed and K3s is active) checks
+// the Helm release's status and whether an IngressRoute exists, so
+// status/verify stop falsely reporting "healthy" when the chart or
+// ingress layer is broken even though K3s itself is fine. It never fails
+// outright: every one of these is a legitimate, reportable finding for
+// status/verify, not a command error — except a k3s detection error,
+// which signals something more fundamentally wrong with the host.
+func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, kubeconfig, releaseName, namespace string) (diagnostics.Signals, error) {
 	installed, stateErr := state.Load(installedStatePath(stateDir))
 	signal, err := k3s.DetectService(unitName)
 	if err != nil {
@@ -40,11 +45,33 @@ func dependencySignals(stateDir, unitName string) (diagnostics.Signals, error) {
 		health.Reasons = []string{"k3s service is not active"}
 	}
 
-	return diagnostics.Signals{InstalledState: installed, InstalledStateErr: stateErr, K3sHealth: health}, nil
+	sig := diagnostics.Signals{InstalledState: installed, InstalledStateErr: stateErr, K3sHealth: health}
+
+	if installed == nil || !signal.Active {
+		return sig, nil
+	}
+
+	if chartHealthy, chartMsg, chartErr := helm.CheckReleaseHealth(ctx, run, kubeconfig, releaseName, namespace); chartErr != nil {
+		sig.ChartHealth = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: chartErr.Error()}
+	} else {
+		sig.ChartHealth = diagnostics.ChartHealth{Checked: true, Healthy: chartHealthy, Message: chartMsg}
+	}
+
+	if ingressPresent, ingressErr := k3s.IngressRouteExists(ctx, run, kubeconfig, namespace); ingressErr != nil {
+		sig.IngressHealth = diagnostics.IngressHealth{Checked: true, Present: false, Message: ingressErr.Error()}
+	} else {
+		msg := fmt.Sprintf("ingress route present in namespace %s", namespace)
+		if !ingressPresent {
+			msg = fmt.Sprintf("no ingress route found in namespace %s", namespace)
+		}
+		sig.IngressHealth = diagnostics.IngressHealth{Checked: true, Present: ingressPresent, Message: msg}
+	}
+
+	return sig, nil
 }
 
-func runStatus(opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
-	sig, err := dependencySignals(opts.stateDir, defaultK3sUnitName)
+func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
+	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
 	if err != nil {
 		logger.Error("failed to gather status signals", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
@@ -70,6 +97,20 @@ func runStatus(opts cliOptions, logger *slog.Logger, result commandResult) comma
 	if !sig.K3sHealth.Healthy {
 		componentHealth[0]["detail"] = sig.K3sHealth.Reasons[0]
 	}
+	if sig.ChartHealth.Checked {
+		entry := map[string]any{"name": "chart", "healthy": sig.ChartHealth.Healthy}
+		if !sig.ChartHealth.Healthy {
+			entry["detail"] = sig.ChartHealth.Message
+		}
+		componentHealth = append(componentHealth, entry)
+	}
+	if sig.IngressHealth.Checked {
+		entry := map[string]any{"name": "ingress", "healthy": sig.IngressHealth.Present}
+		if !sig.IngressHealth.Present {
+			entry["detail"] = sig.IngressHealth.Message
+		}
+		componentHealth = append(componentHealth, entry)
+	}
 	data, _ := json.Marshal(map[string]any{
 		"installedVersion": installedVersion,
 		"k3sHealthy":       sig.K3sHealth.Healthy,
@@ -84,8 +125,8 @@ func runStatus(opts cliOptions, logger *slog.Logger, result commandResult) comma
 	return finish(result, "succeeded", exitCode, fmt.Sprintf("status: %s", overall), data)
 }
 
-func runVerify(opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
-	sig, err := dependencySignals(opts.stateDir, defaultK3sUnitName)
+func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
+	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
 	if err != nil {
 		logger.Error("failed to gather verify signals", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
@@ -165,8 +206,8 @@ func runRepair(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	return finish(result, "succeeded", 0, "repair complete", data)
 }
 
-func runSupportBundle(opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
-	sig, err := dependencySignals(opts.stateDir, defaultK3sUnitName)
+func runSupportBundle(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
+	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
 	if err != nil {
 		logger.Error("failed to gather support-bundle diagnostics", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)

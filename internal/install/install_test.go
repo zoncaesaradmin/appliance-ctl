@@ -293,11 +293,12 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		NodeName:               "appliance-node",
 		ZonctlRealDestPath:     filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath: filepath.Join(stateDir, "usr-local-bin", "zonctl"),
-		BootstrapAdminUser:     "admin",
-		BootstrapAdminPassword: []byte("ChangeMeNow123!"),
-		ChartReleaseName:       "appliance",
-		ChartNamespace:         "appliance",
-		TransactionID:          "txn-test-0000000000000000000000",
+		ResolveBootstrapCredentials: func() (string, []byte, error) {
+			return "admin", []byte("ChangeMeNow123!"), nil
+		},
+		ChartReleaseName: "appliance",
+		ChartNamespace:   "appliance",
+		TransactionID:    "txn-test-0000000000000000000000",
 	}
 }
 
@@ -364,6 +365,50 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 	if bootstrapCalls != 1 {
 		t.Errorf("expected first-admin bootstrap to run once, got %d: %v", bootstrapCalls, fcli.calls)
+	}
+}
+
+// ResolveBootstrapCredentials must only be invoked once the K3s install,
+// image preload, and chart rollout are already done — never upfront,
+// before the (multi-minute) install even starts. Otherwise an operator
+// piping the install script gets prompted for a password immediately,
+// then has to wait several minutes for a "prompt" that already happened.
+func TestInstall_OnlyResolvesBootstrapCredentialsAfterChartInstalled(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+
+	var resolveCalls int
+	var callsBeforeResolve int
+	opts.ResolveBootstrapCredentials = func() (string, []byte, error) {
+		resolveCalls++
+		callsBeforeResolve = len(fcli.calls)
+		return "admin", []byte("ChangeMeNow123!"), nil
+	}
+
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("expected credentials to be resolved exactly once, got %d", resolveCalls)
+	}
+
+	var chartInstallIndex = -1
+	for i, c := range fcli.calls {
+		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install") {
+			chartInstallIndex = i
+			break
+		}
+	}
+	if chartInstallIndex == -1 {
+		t.Fatal("expected a helm upgrade --install call to have happened")
+	}
+	if callsBeforeResolve <= chartInstallIndex {
+		t.Errorf("expected bootstrap credentials to be resolved only after the chart was installed (call index %d), but only %d CLI calls had happened by then", chartInstallIndex, callsBeforeResolve)
 	}
 }
 
