@@ -15,6 +15,7 @@ import (
 func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
+		"bin/zonctl-real":                         "fake zonctl binary",
 		"k3s/binary/k3s":                          "fake k3s binary",
 		"charts/appliance-chart-2.4.0.tgz":        "fake chart",
 		"configuration/configuration.schema.json": `{"type":"object"}`,
@@ -36,6 +37,8 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 		}
 		component := "configuration"
 		switch {
+		case rel == "bin/zonctl-real":
+			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"
 		case rel == "charts/appliance-chart-2.4.0.tgz":
@@ -86,6 +89,9 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	}
 	if resolved.BundleVersion != "2.4.0" {
 		t.Fatalf("expected bundle version 2.4.0, got %s", resolved.BundleVersion)
+	}
+	if filepath.Base(resolved.ZonctlBinaryPath) != "zonctl-real" {
+		t.Fatalf("expected zonctl-real to be selected, got %s", resolved.ZonctlBinaryPath)
 	}
 	if filepath.Base(resolved.ConfigurationPath) != "values.yaml" {
 		t.Fatalf("expected values.yaml to be selected, got %s", resolved.ConfigurationPath)

@@ -76,6 +76,7 @@ func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 	dir = t.TempDir()
 
 	entries := []fixtureEntry{
+		{"bin/zonctl-real", "appliance", "fake zonctl binary bytes", ""},
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary bytes", ""},
 		{"charts/appliance-chart-2.4.0.tgz", "chart", "fake chart bytes", ""},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
@@ -262,6 +263,9 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	if name == "kubectl" && contains(args, "deployment") && contains(args, "local-path-provisioner") {
 		return "1", nil
 	}
+	if name == "kubectl" && contains(args, "exec") && contains(args, "bootstrap") {
+		return `bootstrap: created administrator "admin" (id user-admin)`, nil
+	}
 	return "", nil
 }
 
@@ -278,18 +282,22 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 	t.Helper()
 	stateDir := t.TempDir()
 	return install.Options{
-		ApplianceVersion:   "2.4.0",
-		InstalledStatePath: filepath.Join(stateDir, "installed-state.json"),
-		K3sConfigPath:      filepath.Join(stateDir, "k3s", "config.yaml"),
-		K3sDataDir:         filepath.Join(stateDir, "k3s", "data"),
-		K3sUnitPath:        filepath.Join(stateDir, "systemd", "k3s.service"),
-		K3sBinaryDestPath:  filepath.Join(stateDir, "bin", "k3s"),
-		K3sUnitName:        "k3s.service",
-		KubeconfigPath:     filepath.Join(stateDir, "k3s.yaml"),
-		NodeName:           "appliance-node",
-		ChartReleaseName:   "appliance",
-		ChartNamespace:     "appliance",
-		TransactionID:      "txn-test-0000000000000000000000",
+		ApplianceVersion:       "2.4.0",
+		InstalledStatePath:     filepath.Join(stateDir, "installed-state.json"),
+		K3sConfigPath:          filepath.Join(stateDir, "k3s", "config.yaml"),
+		K3sDataDir:             filepath.Join(stateDir, "k3s", "data"),
+		K3sUnitPath:            filepath.Join(stateDir, "systemd", "k3s.service"),
+		K3sBinaryDestPath:      filepath.Join(stateDir, "bin", "k3s"),
+		K3sUnitName:            "k3s.service",
+		KubeconfigPath:         filepath.Join(stateDir, "k3s.yaml"),
+		NodeName:               "appliance-node",
+		ZonctlRealDestPath:     filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
+		ZonctlLauncherDestPath: filepath.Join(stateDir, "usr-local-bin", "zonctl"),
+		BootstrapAdminUser:     "admin",
+		BootstrapAdminPassword: []byte("ChangeMeNow123!"),
+		ChartReleaseName:       "appliance",
+		ChartNamespace:         "appliance",
+		TransactionID:          "txn-test-0000000000000000000000",
 	}
 }
 
@@ -318,6 +326,12 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	if _, err := os.Stat(opts.K3sBinaryDestPath); err != nil {
 		t.Errorf("expected k3s binary to be installed: %v", err)
 	}
+	if _, err := os.Stat(opts.ZonctlRealDestPath); err != nil {
+		t.Errorf("expected host zonctl binary to be installed: %v", err)
+	}
+	if _, err := os.Stat(opts.ZonctlLauncherDestPath); err != nil {
+		t.Errorf("expected host zonctl launcher to be installed: %v", err)
+	}
 
 	// Round-trip through the real schema-validated loader too.
 	reloaded, err := state.Load(opts.InstalledStatePath)
@@ -330,6 +344,7 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 
 	var importCalls int
 	var secretCreateCalls int
+	var bootstrapCalls int
 	for _, c := range fcli.calls {
 		if strings.Contains(c, "image import") {
 			importCalls++
@@ -337,12 +352,18 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 		if strings.Contains(c, "create secret generic appliance-keys") {
 			secretCreateCalls++
 		}
+		if strings.Contains(c, " bootstrap init ") {
+			bootstrapCalls++
+		}
 	}
 	if importCalls != 2 {
 		t.Errorf("expected 2 image import calls (k3s-images + oci-images), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
+	}
+	if bootstrapCalls != 1 {
+		t.Errorf("expected first-admin bootstrap to run once, got %d: %v", bootstrapCalls, fcli.calls)
 	}
 }
 
@@ -454,6 +475,37 @@ func TestInstall_RollsBackCreatedSecretWhenHelmFails(t *testing.T) {
 	}
 	if !sawDeleteSecret {
 		t.Fatalf("expected installer-managed keys secret rollback after helm failure, got calls: %v", fcli.calls)
+	}
+}
+
+func TestInstall_RollsBackWhenBootstrapFails(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{
+		failOn:       map[string]bool{" bootstrap init ": true},
+		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
+	}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil {
+		t.Fatal("expected bootstrap failure to abort install")
+	}
+	if _, err := os.Stat(opts.InstalledStatePath); !os.IsNotExist(err) {
+		t.Errorf("expected no installed-state to be persisted on bootstrap failure, stat err=%v", err)
+	}
+
+	var sawHelmUninstall bool
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall appliance") {
+			sawHelmUninstall = true
+			break
+		}
+	}
+	if !sawHelmUninstall {
+		t.Fatalf("expected bootstrap failure to uninstall the fresh chart release, got calls: %v", fcli.calls)
 	}
 }
 

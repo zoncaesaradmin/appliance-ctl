@@ -34,6 +34,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		component string
 		content   string
 	}{
+		{"bin/zonctl-real", "appliance", "fake zonctl binary " + spec.bundleVersion},
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion},
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n"},
@@ -202,6 +203,8 @@ func (env environment) options(targetVersion string) upgrade.Options {
 		K3sDataDir:             env.dataDir,
 		KubeconfigPath:         env.kubeconfigPath,
 		NodeName:               "appliance-node",
+		ZonctlRealDestPath:     filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
+		ZonctlLauncherDestPath: filepath.Join(env.stateDir, "usr-local-bin", "zonctl"),
 		ChartReleaseName:       "appliance",
 		ChartNamespace:         "appliance",
 		BackupRoot:             env.backupRoot,

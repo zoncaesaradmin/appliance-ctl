@@ -22,13 +22,15 @@ const defaultStateDir = "/var/lib/zon"
 // locations (not derived from --state-dir), matching where a production
 // host actually needs them.
 const (
-	defaultK3sConfigPath     = "/etc/rancher/k3s/config.yaml"
-	defaultK3sDataDir        = "/var/lib/rancher/k3s"
-	defaultK3sUnitPath       = "/etc/systemd/system/k3s.service"
-	defaultK3sBinaryDestPath = "/usr/local/bin/k3s"
-	defaultKubeconfigPath    = "/etc/rancher/k3s/k3s.yaml"
-	defaultK3sUnitName       = "k3s.service"
-	defaultPublicKeyPath     = "/etc/zon/keys/release-signing.pub"
+	defaultK3sConfigPath      = "/etc/rancher/k3s/config.yaml"
+	defaultK3sDataDir         = "/var/lib/rancher/k3s"
+	defaultK3sUnitPath        = "/etc/systemd/system/k3s.service"
+	defaultK3sBinaryDestPath  = "/usr/local/bin/k3s"
+	defaultZonctlLauncherPath = "/usr/local/bin/zonctl"
+	defaultZonctlRealPath     = "/usr/local/lib/zon/bin/zonctl-real"
+	defaultKubeconfigPath     = "/etc/rancher/k3s/k3s.yaml"
+	defaultK3sUnitName        = "k3s.service"
+	defaultPublicKeyPath      = "/etc/zon/keys/release-signing.pub"
 )
 
 // cliOptions carries every flag value dispatch needs. Only bundleDir and
@@ -42,6 +44,8 @@ type cliOptions struct {
 	bundleDir           string
 	publicKey           string
 	nodeName            string
+	bootstrapAdminUser  string
+	bootstrapPassStdin  bool
 	backupID            string
 	confirm             string
 	acknowledgeDataLoss bool
@@ -115,6 +119,8 @@ func run(args []string) int {
 	bundleDir := fs.String("bundle-dir", "", "path to an extracted signed appliance bundle directory (required for install/upgrade)")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
+	bootstrapAdminUser := fs.String("bootstrap-admin-username", "admin", "username for the first administrator created during install")
+	bootstrapPassStdin := fs.Bool("bootstrap-password-stdin", false, "read the first administrator password from stdin instead of prompting on the terminal")
 	backupID := fs.String("backup-id", "", "backup identifier to restore from (required for restore; optionally the verified recovery point for factory-reset)")
 	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall/factory-reset)")
 	acknowledgeDataLoss := fs.Bool("acknowledge-data-loss", false, "explicitly acknowledge permanent data loss (required for factory-reset)")
@@ -141,6 +147,8 @@ func run(args []string) int {
 		bundleDir:           *bundleDir,
 		publicKey:           *publicKey,
 		nodeName:            *nodeName,
+		bootstrapAdminUser:  *bootstrapAdminUser,
+		bootstrapPassStdin:  *bootstrapPassStdin,
 		backupID:            *backupID,
 		confirm:             *confirm,
 		acknowledgeDataLoss: *acknowledgeDataLoss,

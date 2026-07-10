@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/bootstrapadmin"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
@@ -18,6 +19,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
 
 // containerdReadyTimeout/containerdReadyPollInterval bound how long
@@ -47,10 +49,14 @@ type Options struct {
 	// distinct from K3sConfigPath. It backs the "data-dir" config key,
 	// the preflight disk-space check, and is what `zonctl backup`
 	// snapshots.
-	K3sDataDir     string
-	KubeconfigPath string
-	NodeName       string
-	TLSSANs        []string
+	K3sDataDir             string
+	KubeconfigPath         string
+	NodeName               string
+	TLSSANs                []string
+	ZonctlRealDestPath     string
+	ZonctlLauncherDestPath string
+	BootstrapAdminUser     string
+	BootstrapAdminPassword []byte
 
 	ChartReleaseName string
 	ChartNamespace   string
@@ -75,17 +81,18 @@ type Options struct {
 // Orchestrator holds the injectable adapters Install drives. Tests
 // construct one with fakes; production code uses NewOrchestrator.
 type Orchestrator struct {
-	K3s        k3s.Ops
-	ImagesRun  cli.Runner
-	HelmRun    cli.Runner
-	ClusterRun cli.Runner // kubectl calls used to inspect an existing cluster before adopting it
-	DetectHost func(host.Options) (host.Facts, error)
+	K3s             k3s.Ops
+	ImagesRun       cli.Runner
+	HelmRun         cli.Runner
+	ClusterRun      cli.Runner      // kubectl calls used to inspect an existing cluster before adopting it
+	ClusterRunInput cli.InputRunner // kubectl calls that must pass protected stdin
+	DetectHost      func(host.Options) (host.Facts, error)
 }
 
 // NewOrchestrator wires an Orchestrator to the real K3s, ctr, helm/kubectl,
 // and host-detection adapters.
 func NewOrchestrator() *Orchestrator {
-	return &Orchestrator{K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec, ClusterRun: cli.Exec, DetectHost: host.Detect}
+	return &Orchestrator{K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec, ClusterRun: cli.Exec, ClusterRunInput: cli.ExecInput, DetectHost: host.Detect}
 }
 
 // Install runs the fresh-install sequence end to end against a verified
@@ -266,6 +273,47 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		cleanupErr = errors.Join(cleanupErr, runRollbacks())
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
 	}
+	bootstrapRun := o.ClusterRunInput
+	if bootstrapRun == nil {
+		if o.ClusterRun != nil {
+			bootstrapRun = func(ctx context.Context, _ []byte, name string, args ...string) (string, error) {
+				return o.ClusterRun(ctx, name, args...)
+			}
+		} else {
+			bootstrapRun = cli.ExecInput
+		}
+	}
+	bootstrapCheck, err := bootstrapadmin.Init(ctx, bootstrapadmin.Options{
+		Run:           bootstrapRun,
+		Kubeconfig:    opts.KubeconfigPath,
+		Namespace:     opts.ChartNamespace,
+		ReleaseName:   opts.ChartReleaseName,
+		AdminUsername: opts.BootstrapAdminUser,
+		AdminPassword: opts.BootstrapAdminPassword,
+	})
+	checks = append(checks, bootstrapCheck)
+	if err != nil {
+		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+			Name:       opts.ChartReleaseName,
+			ChartPath:  resolved.ChartPath,
+			Namespace:  opts.ChartNamespace,
+			ValuesPath: resolved.ConfigurationPath,
+		})...)
+		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
+		cleanupErr = errors.Join(cleanupErr, runRollbacks())
+		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
+	}
+	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
+		SourceBinaryPath: resolved.ZonctlBinaryPath,
+		RealDestPath:     opts.ZonctlRealDestPath,
+		LauncherDestPath: opts.ZonctlLauncherDestPath,
+	})
+	if err != nil {
+		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
+		cleanupErr = errors.Join(cleanupErr, runRollbacks())
+		return nil, checks, joinCleanupError(fmt.Errorf("install: install host zonctl: %w", err), cleanupErr)
+	}
+	rollbacks = append(rollbacks, zonctlRollback)
 
 	now := time.Now().UTC()
 	installed := &state.InstalledState{

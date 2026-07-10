@@ -17,9 +17,10 @@ import (
 // Install and Upgrade consume these paths without caring about bundle
 // layout details.
 type Resolved struct {
-	BundleVersion string
-	ReleaseID     string
-	Compatibility bundle.Compatibility
+	BundleVersion    string
+	ReleaseID        string
+	Compatibility    bundle.Compatibility
+	ZonctlBinaryPath string
 
 	K3sBinaryPath     string
 	ChartPath         string
@@ -59,6 +60,10 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	if !ok {
 		return Resolved{}, checks, fmt.Errorf("install: bundle has no chart entry")
 	}
+	zonctlBinaryPath, err := applianceBinaryPath(b, "zonctl-real")
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: %w", err)
+	}
 	configurationPath, err := configurationPath(b)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -76,6 +81,7 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		BundleVersion:     b.BundleVersion,
 		ReleaseID:         b.ReleaseID,
 		Compatibility:     b.Compatibility,
+		ZonctlBinaryPath:  zonctlBinaryPath,
 		K3sBinaryPath:     k3sBinaryPath,
 		ChartPath:         chartPath,
 		ConfigurationPath: configurationPath,
@@ -106,4 +112,13 @@ func configurationPath(b *bundle.Bundle) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("bundle has multiple configuration entries but none is values.yaml/values.yml")
+}
+
+func applianceBinaryPath(b *bundle.Bundle, baseName string) (string, error) {
+	for _, e := range b.Entries("appliance") {
+		if strings.EqualFold(filepath.Base(e.Path), baseName) {
+			return e.Path, nil
+		}
+	}
+	return "", fmt.Errorf("bundle has no appliance entry named %s", baseName)
 }

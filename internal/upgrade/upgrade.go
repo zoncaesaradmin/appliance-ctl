@@ -18,6 +18,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
 
 // Options fully parameterizes an upgrade. Every path is explicit, as in
@@ -27,15 +28,17 @@ import (
 type Options struct {
 	TargetApplianceVersion string
 
-	InstalledStatePath string
-	K3sConfigPath      string
-	K3sUnitPath        string
-	K3sBinaryDestPath  string
-	K3sUnitName        string
-	K3sDataDir         string
-	KubeconfigPath     string
-	NodeName           string
-	TLSSANs            []string
+	InstalledStatePath     string
+	K3sConfigPath          string
+	K3sUnitPath            string
+	K3sBinaryDestPath      string
+	K3sUnitName            string
+	K3sDataDir             string
+	KubeconfigPath         string
+	NodeName               string
+	TLSSANs                []string
+	ZonctlRealDestPath     string
+	ZonctlLauncherDestPath string
 
 	ChartReleaseName string
 	ChartNamespace   string
@@ -235,6 +238,18 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, rollback()...)
 		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
 	}
+	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
+		SourceBinaryPath: resolved.ZonctlBinaryPath,
+		RealDestPath:     opts.ZonctlRealDestPath,
+		LauncherDestPath: opts.ZonctlLauncherDestPath,
+	})
+	if err != nil {
+		_ = prepared.Cleanup()
+		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
+		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+		checks = append(checks, rollback()...)
+		return nil, checks, fmt.Errorf("upgrade: install host zonctl: %w (rolled back to pre-upgrade backup)", err)
+	}
 
 	now := time.Now().UTC()
 	updated := &state.InstalledState{
@@ -260,6 +275,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		UpdatedAt: now,
 	}
 	if err := state.Save(opts.InstalledStatePath, updated); err != nil {
+		_ = zonctlRollback()
 		_ = prepared.Cleanup()
 		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
 		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
