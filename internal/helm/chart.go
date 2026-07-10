@@ -40,10 +40,18 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 		}
 	}
 
+	if _, err := a.Run(ctx, "kubectl", "--kubeconfig", a.Kubeconfig, "get", "namespace", rel.Namespace); err != nil {
+		if _, createErr := a.Run(ctx, "kubectl", "--kubeconfig", a.Kubeconfig, "create", "namespace", rel.Namespace); createErr != nil {
+			check.Status = evidence.StatusFail
+			check.Message = createErr.Error()
+			return check, fmt.Errorf("helm: ensure namespace %s: %w", rel.Namespace, createErr)
+		}
+	}
+
 	args := []string{
 		"--kubeconfig", a.Kubeconfig,
 		"upgrade", "--install", rel.Name, rel.ChartPath,
-		"--namespace", rel.Namespace, "--create-namespace",
+		"--namespace", rel.Namespace,
 		"--values", rel.ValuesPath,
 		"--wait",
 	}

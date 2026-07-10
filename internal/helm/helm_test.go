@@ -17,16 +17,24 @@ import (
 // fakeCLI simulates kubectl/helm invocations without a real cluster,
 // recording every call for ordering/idempotency/rollback assertions.
 type fakeCLI struct {
-	failApply    bool
-	failUpgrade  bool
-	failRollback bool
-	calls        [][]string
+	missingNamespace bool
+	failApply        bool
+	failUpgrade      bool
+	failRollback     bool
+	calls            [][]string
 }
 
 func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, error) {
 	f.calls = append(f.calls, append([]string{name}, args...))
 
 	switch {
+	case name == "kubectl" && contains(args, "get") && contains(args, "namespace"):
+		if f.missingNamespace {
+			return "", errors.New("simulated missing namespace")
+		}
+		return "", nil
+	case name == "kubectl" && contains(args, "create") && contains(args, "namespace"):
+		return "", nil
 	case name == "kubectl" && contains(args, "apply"):
 		if f.failApply {
 			return "", errors.New("simulated apply failure")
@@ -87,12 +95,46 @@ func TestInstallOrUpgrade_UsesUpgradeInstall(t *testing.T) {
 	if check.Status != evidence.StatusPass {
 		t.Errorf("expected pass, got %s: %s", check.Status, check.Message)
 	}
-	if len(fake.calls) != 1 {
-		t.Fatalf("expected exactly one helm invocation, got %v", fake.calls)
+	if len(fake.calls) != 2 {
+		t.Fatalf("expected namespace check plus one helm invocation, got %v", fake.calls)
 	}
 	call := joinCall(fake.calls[0])
+	if !strings.Contains(call, "kubectl --kubeconfig kubeconfig get namespace appliance") {
+		t.Fatalf("expected namespace existence check first, got: %s", call)
+	}
+	call = joinCall(fake.calls[len(fake.calls)-1])
 	if !strings.Contains(call, "upgrade --install") {
 		t.Errorf("expected an idempotent `upgrade --install` invocation, got: %s", call)
+	}
+	if strings.Contains(call, "--create-namespace") {
+		t.Errorf("expected namespace handling outside Helm, got: %s", call)
+	}
+}
+
+func TestInstallOrUpgrade_CreatesNamespaceWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	rel := sampleRelease(t, dir)
+
+	fake := &fakeCLI{missingNamespace: true}
+	a := &helm.Applier{Run: fake.Run, Kubeconfig: "kubeconfig"}
+
+	check, err := a.InstallOrUpgrade(context.Background(), rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Status != evidence.StatusPass {
+		t.Errorf("expected pass, got %s: %s", check.Status, check.Message)
+	}
+
+	var sawCreate bool
+	for _, call := range fake.calls {
+		if len(call) > 0 && call[0] == "kubectl" && contains(call, "create") && contains(call, "namespace") {
+			sawCreate = true
+			break
+		}
+	}
+	if !sawCreate {
+		t.Fatalf("expected namespace creation when missing, got calls: %v", fake.calls)
 	}
 }
 
