@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
@@ -66,6 +67,39 @@ func writeArchive(t *testing.T, dir, name, content string) (path, digest string)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	d, err := verify.Digest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path, d
+}
+
+func writeCompressedArchive(t *testing.T, dir, name, content string) (path, digest string) {
+	t.Helper()
+	path = filepath.Join(dir, name)
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoder, err := zstd.NewWriter(file)
+	if err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if _, err := encoder.Write([]byte(content)); err != nil {
+		_ = encoder.Close()
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := encoder.Close(); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	d, err := verify.Digest(path)
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +216,38 @@ func TestPreloadAll_Idempotency(t *testing.T) {
 	}
 	if got := statusOfCheck(t, result.Checks, "image-preload-application-v1"); got != evidence.StatusPass {
 		t.Errorf("expected pass, got %s", got)
+	}
+}
+
+func TestPreloadAll_DecompressesTarZstBeforeImport(t *testing.T) {
+	dir := t.TempDir()
+	path, digest := writeCompressedArchive(t, dir, "k3s-airgap-images-amd64.tar.zst", "not-a-real-tar-but-good-enough-for-unit-test")
+
+	fake := &fakeCtr{}
+	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
+
+	result, err := imp.PreloadAll(context.Background(), []images.Image{
+		{Name: "k3s-airgap-images:v1", ArchivePath: path, ExpectedDigest: digest, Category: images.CategoryK3sPlatform},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.NewlyImported) != 1 {
+		t.Fatalf("expected one imported image, got %v", result.NewlyImported)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("expected one import call, got %v", fake.calls)
+	}
+
+	importedPath := strings.TrimPrefix(fake.calls[0], "import:")
+	if importedPath == path {
+		t.Fatalf("expected compressed archive to be decompressed to a temp tar before import, got original path %q", importedPath)
+	}
+	if !strings.HasSuffix(importedPath, ".tar") {
+		t.Fatalf("expected decompressed import path to end with .tar, got %q", importedPath)
+	}
+	if _, err := os.Stat(importedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected temp import archive to be removed after import, stat err=%v", err)
 	}
 }
 

@@ -1,5 +1,10 @@
 module github.com/zoncaesaradmin/appliance-ctl
 
-go 1.22.2
+go 1.23
 
-require github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
+toolchain go1.24.6
+
+require (
+	github.com/klauspost/compress v1.18.1
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
+)

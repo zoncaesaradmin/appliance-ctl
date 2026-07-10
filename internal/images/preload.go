@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
@@ -118,7 +122,19 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 			continue
 		}
 
-		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "import", img.ArchivePath); err != nil {
+		importPath, cleanup, err := imp.prepareArchiveForImport(img.ArchivePath)
+		if err != nil {
+			check.Status = evidence.StatusFail
+			check.Message = fmt.Sprintf("prepare %s for import: %v", img.Name, err)
+			failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+			result.Checks = append(result.Checks, check)
+			continue
+		}
+		if cleanup != nil {
+			defer cleanup()
+		}
+
+		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "import", importPath); err != nil {
 			check.Status = evidence.StatusFail
 			check.Message = fmt.Sprintf("import %s: %v", img.Name, err)
 			failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
@@ -136,6 +152,46 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 		return result, fmt.Errorf("images: %d image(s) failed to preload: %w", len(failures), errors.Join(failures...))
 	}
 	return result, nil
+}
+
+func (imp *Importer) prepareArchiveForImport(path string) (string, func(), error) {
+	if !strings.HasSuffix(path, ".tar.zst") {
+		return path, nil, nil
+	}
+
+	src, err := os.Open(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("open compressed archive %s: %w", path, err)
+	}
+	defer src.Close()
+
+	reader, err := zstd.NewReader(src)
+	if err != nil {
+		return "", nil, fmt.Errorf("open zstd reader for %s: %w", path, err)
+	}
+	defer reader.Close()
+
+	tmp, err := os.CreateTemp("", "zonctl-image-import-*.tar")
+	if err != nil {
+		return "", nil, fmt.Errorf("create temp archive for %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}
+
+	if _, err := io.Copy(tmp, reader); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("decompress %s to %s: %w", path, filepath.Base(tmpPath), err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("close temp archive %s: %w", tmpPath, err)
+	}
+
+	return tmpPath, cleanup, nil
 }
 
 // Rollback removes each named image from the store. It is intended for
