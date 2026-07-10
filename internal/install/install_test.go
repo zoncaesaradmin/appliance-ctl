@@ -346,6 +346,27 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 }
 
+func TestInstall_UsesBundleVersionForInstalledState(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceVersion = "v9.9.9"
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+	if installed.InstalledVersion != "2.4.0" {
+		t.Fatalf("expected installed version from bundle, got %s", installed.InstalledVersion)
+	}
+	if installed.K3sOwnership.OwnerApplianceVersion != "2.4.0" {
+		t.Fatalf("expected ownership version from bundle, got %s", installed.K3sOwnership.OwnerApplianceVersion)
+	}
+}
+
 // Conflict: an existing K3s service this appliance never installed must
 // block install before any host mutation happens.
 func TestInstall_RejectsUnrelatedCluster(t *testing.T) {

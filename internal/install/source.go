@@ -17,6 +17,7 @@ import (
 // Install and Upgrade consume these paths without caring about bundle
 // layout details.
 type Resolved struct {
+	BundleVersion string
 	ReleaseID     string
 	Compatibility bundle.Compatibility
 
@@ -72,6 +73,7 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	}
 
 	return Resolved{
+		BundleVersion:     b.BundleVersion,
 		ReleaseID:         b.ReleaseID,
 		Compatibility:     b.Compatibility,
 		K3sBinaryPath:     k3sBinaryPath,

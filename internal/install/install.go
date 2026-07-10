@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
@@ -110,6 +111,13 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, err
 	}
+	targetVersion := strings.TrimSpace(resolved.BundleVersion)
+	if targetVersion == "" {
+		targetVersion = strings.TrimSpace(opts.ApplianceVersion)
+	}
+	if targetVersion == "" {
+		return nil, checks, fmt.Errorf("install: resolved bundle version is empty")
+	}
 
 	signal, err := o.K3s.DetectService(opts.K3sUnitName)
 	if err != nil {
@@ -144,7 +152,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			signal.RunningVersion = runningVersion
 		}
 	}
-	decision, reason := k3s.DecideOwnership(opts.ApplianceVersion, existing, signal, opts.PriorInstallAttempted, opts.ForceAdopt)
+	decision, reason := k3s.DecideOwnership(targetVersion, existing, signal, opts.PriorInstallAttempted, opts.ForceAdopt)
 	if decision != k3s.DecisionFreshInstall && decision != k3s.DecisionAdoptExisting {
 		return nil, checks, fmt.Errorf("install: refusing to install (%s): %s", decision, reason)
 	}
@@ -263,13 +271,13 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	installed := &state.InstalledState{
 		SchemaVersion:       1,
 		ApplianceInstanceID: newApplianceInstanceID(),
-		InstalledVersion:    opts.ApplianceVersion,
+		InstalledVersion:    targetVersion,
 		InstalledReleaseID:  resolved.ReleaseID,
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
 		},
-		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: opts.ApplianceVersion},
+		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
 			Type:          "install",
 			Status:        "completed",

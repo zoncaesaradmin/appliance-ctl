@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
@@ -87,9 +88,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
+	targetVersion := strings.TrimSpace(resolved.BundleVersion)
+	if targetVersion == "" {
+		targetVersion = strings.TrimSpace(opts.TargetApplianceVersion)
+	}
+	if targetVersion == "" {
+		return nil, checks, fmt.Errorf("upgrade: resolved bundle version is empty")
+	}
 
 	if !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
-		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, opts.TargetApplianceVersion, resolved.Compatibility.SupportedUpgradeSources)
+		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, targetVersion, resolved.Compatibility.SupportedUpgradeSources)
 	}
 	k3sBinarySrc := resolved.K3sBinaryPath
 	chartPath := resolved.ChartPath
@@ -232,13 +240,13 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	updated := &state.InstalledState{
 		SchemaVersion:       1,
 		ApplianceInstanceID: installed.ApplianceInstanceID,
-		InstalledVersion:    opts.TargetApplianceVersion,
+		InstalledVersion:    targetVersion,
 		InstalledReleaseID:  resolved.ReleaseID,
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
 		},
-		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: opts.TargetApplianceVersion},
+		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
 			Type:          "upgrade",
 			Status:        "completed",
@@ -246,7 +254,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			StartedAt:     now,
 			CompletedAt:   &now,
 			SourceVersion: installed.InstalledVersion,
-			TargetVersion: opts.TargetApplianceVersion,
+			TargetVersion: targetVersion,
 		},
 		CreatedAt: installed.CreatedAt,
 		UpdatedAt: now,

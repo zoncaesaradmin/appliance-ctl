@@ -13,9 +13,24 @@ import (
 )
 
 func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction, logger *slog.Logger, result commandResult) commandResult {
-	source, err := resolveInstallSource(opts)
+	source, resolved, resolveChecks, err := resolveVerifiedInstallSource(ctx, opts)
+	upgradeVersion := version
+	if trimmed := strings.TrimSpace(resolved.BundleVersion); trimmed != "" {
+		upgradeVersion = trimmed
+	}
+	result.ApplianceVersion = upgradeVersion
 	if err != nil {
 		logger.Error("failed to resolve upgrade source", "error", err)
+		reportID := "evidence-" + txn.ID
+		if len(resolveChecks) > 0 {
+			if report, buildErr := evidence.BuildReport("upgrade", upgradeVersion, reportID, resolveChecks, time.Now()); buildErr == nil {
+				if !opts.dryRun {
+					if persistErr := persistEvidence(opts.stateDir, reportID, report); persistErr != nil {
+						logger.Warn("failed to persist evidence report", "error", persistErr)
+					}
+				}
+			}
+		}
 		return finish(result, "failed", 1, "upgrade: "+err.Error(), nil)
 	}
 
@@ -39,7 +54,7 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	updated, checks, err := orch.Upgrade(ctx, source, upgradeOpts)
 
 	reportID := "evidence-" + txn.ID
-	if report, buildErr := evidence.BuildReport("upgrade", version, reportID, checks, time.Now()); buildErr == nil {
+	if report, buildErr := evidence.BuildReport("upgrade", upgradeVersion, reportID, checks, time.Now()); buildErr == nil {
 		if !opts.dryRun {
 			if persistErr := persistEvidence(opts.stateDir, reportID, report); persistErr != nil {
 				logger.Warn("failed to persist evidence report", "error", persistErr)

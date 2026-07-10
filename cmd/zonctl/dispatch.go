@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
@@ -205,10 +206,46 @@ func resolveInstallSource(opts cliOptions) (install.Source, error) {
 	return install.OfflineSource{BundleDir: opts.bundleDir, PublicKey: &pub}, nil
 }
 
-func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction, priorInstallAttempted bool, logger *slog.Logger, result commandResult) commandResult {
+type resolvedInstallSource struct {
+	resolved install.Resolved
+	checks   []evidence.Check
+}
+
+func (s resolvedInstallSource) Resolve(context.Context) (install.Resolved, []evidence.Check, error) {
+	return s.resolved, s.checks, nil
+}
+
+func resolveVerifiedInstallSource(ctx context.Context, opts cliOptions) (install.Source, install.Resolved, []evidence.Check, error) {
 	source, err := resolveInstallSource(opts)
 	if err != nil {
+		return nil, install.Resolved{}, nil, err
+	}
+	resolved, checks, err := source.Resolve(ctx)
+	if err != nil {
+		return nil, resolved, checks, err
+	}
+	return resolvedInstallSource{resolved: resolved, checks: checks}, resolved, checks, nil
+}
+
+func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction, priorInstallAttempted bool, logger *slog.Logger, result commandResult) commandResult {
+	source, resolved, resolveChecks, err := resolveVerifiedInstallSource(ctx, opts)
+	installVersion := version
+	if trimmed := strings.TrimSpace(resolved.BundleVersion); trimmed != "" {
+		installVersion = trimmed
+	}
+	result.ApplianceVersion = installVersion
+	if err != nil {
 		logger.Error("failed to resolve install source", "error", err)
+		reportID := "evidence-" + txn.ID
+		if len(resolveChecks) > 0 {
+			if report, buildErr := evidence.BuildReport("install", installVersion, reportID, resolveChecks, time.Now()); buildErr == nil {
+				if !opts.dryRun {
+					if persistErr := persistEvidence(opts.stateDir, reportID, report); persistErr != nil {
+						logger.Warn("failed to persist evidence report", "error", persistErr)
+					}
+				}
+			}
+		}
 		return finish(result, "failed", 1, "install: "+err.Error(), nil)
 	}
 
@@ -233,7 +270,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	installed, checks, err := orch.Install(ctx, source, installOpts)
 
 	reportID := "evidence-" + txn.ID
-	if report, buildErr := evidence.BuildReport("install", version, reportID, checks, time.Now()); buildErr == nil {
+	if report, buildErr := evidence.BuildReport("install", installVersion, reportID, checks, time.Now()); buildErr == nil {
 		if !opts.dryRun {
 			if persistErr := persistEvidence(opts.stateDir, reportID, report); persistErr != nil {
 				logger.Warn("failed to persist evidence report", "error", persistErr)

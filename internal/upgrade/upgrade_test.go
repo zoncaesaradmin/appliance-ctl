@@ -238,6 +238,30 @@ func TestUpgrade_SupportedSourceMatrix(t *testing.T) {
 	}
 }
 
+func TestUpgrade_UsesBundleVersionAsTargetVersion(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	updated, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("v9.9.9"))
+	if err != nil {
+		t.Fatalf("expected upgrade to succeed, got: %v", err)
+	}
+	if updated.InstalledVersion != "2.4.0" {
+		t.Fatalf("expected installed version from bundle, got %s", updated.InstalledVersion)
+	}
+	if updated.LastOperation.TargetVersion != "2.4.0" {
+		t.Fatalf("expected target version from bundle, got %s", updated.LastOperation.TargetVersion)
+	}
+}
+
 // Unsupported source version must be refused before any mutation.
 func TestUpgrade_RefusesUnsupportedSource(t *testing.T) {
 	env := setupEnvironment(t, "2.1.0", "v1.29.0+k3s1", "2.1.0")

@@ -84,6 +84,9 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	if err != nil {
 		t.Fatalf("expected bundle to resolve, got: %v", err)
 	}
+	if resolved.BundleVersion != "2.4.0" {
+		t.Fatalf("expected bundle version 2.4.0, got %s", resolved.BundleVersion)
+	}
 	if filepath.Base(resolved.ConfigurationPath) != "values.yaml" {
 		t.Fatalf("expected values.yaml to be selected, got %s", resolved.ConfigurationPath)
 	}
