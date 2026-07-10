@@ -27,8 +27,16 @@ type Options struct {
 // bootstrap command already packaged into the control-plane container.
 func Init(ctx context.Context, opts Options) (evidence.Check, error) {
 	check := evidence.Check{
-		ID:              "application-bootstrap-first-admin",
-		Category:        "application",
+		ID: "application-bootstrap-first-admin",
+		// "application" is not one of evidence.v1's fixed categories
+		// (host, network, storage, security, manifest, k3s, chart,
+		// dependency, backup-restore, upgrade, conformance) — any other
+		// value fails the whole report's schema validation, not just
+		// this one check. "chart" matches what the immediately-preceding
+		// chart-install step already uses (internal/helm.Applier); this
+		// is squarely a continuation of getting that same chart/
+		// application into a usable state.
+		Category:        "chart",
 		Timestamp:       time.Now().UTC(),
 		Idempotent:      true,
 		SecretsRedacted: true,

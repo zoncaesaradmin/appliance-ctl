@@ -12,6 +12,27 @@ import (
 
 const defaultBootstrapAdminUsername = "admin"
 
+// Mirrors appliance-code's internal/authn.ValidatePasswordPolicy (ADR
+// 0010) so a too-short/too-long password is rejected here, before the
+// (multi-minute) K3s + chart install runs, instead of only surfacing
+// after all of that succeeds, at the very last step. Keep in sync with
+// that policy if it ever changes.
+const (
+	minBootstrapPasswordLength = 14
+	maxBootstrapPasswordLength = 128
+)
+
+func validateBootstrapPasswordLength(password []byte) error {
+	length := len([]rune(string(password)))
+	if length < minBootstrapPasswordLength {
+		return fmt.Errorf("install: bootstrap password must be at least %d characters", minBootstrapPasswordLength)
+	}
+	if length > maxBootstrapPasswordLength {
+		return fmt.Errorf("install: bootstrap password must be at most %d characters", maxBootstrapPasswordLength)
+	}
+	return nil
+}
+
 type bootstrapCredentials struct {
 	username string
 	password []byte
@@ -53,6 +74,9 @@ func readBootstrapPassword(r io.Reader) ([]byte, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("install: bootstrap password is empty")
 	}
+	if err := validateBootstrapPasswordLength(data); err != nil {
+		return nil, err
+	}
 	return data, nil
 }
 
@@ -74,6 +98,9 @@ func promptBootstrapPassword(tty *os.File, username string) ([]byte, error) {
 	}
 	if len(bytes.TrimSpace(password)) == 0 {
 		return nil, fmt.Errorf("install: bootstrap password is empty")
+	}
+	if err := validateBootstrapPasswordLength(password); err != nil {
+		return nil, err
 	}
 	return password, nil
 }

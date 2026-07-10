@@ -478,7 +478,16 @@ func TestInstall_RollsBackCreatedSecretWhenHelmFails(t *testing.T) {
 	}
 }
 
-func TestInstall_RollsBackWhenBootstrapFails(t *testing.T) {
+// A bootstrap failure happens after K3s, the chart, the host zonctl
+// binary, and installed-state are all already successfully in place —
+// there is a real, running appliance by that point, so it must not be
+// rolled back just because the first-admin step failed (e.g. a
+// server-side password policy rejection, or a transient `kubectl exec`
+// failure). Install must instead return the installed state alongside a
+// distinguishable error (ErrBootstrapFailed) so callers can report a
+// successful install with a bootstrap warning, and let the operator
+// retry just that step.
+func TestInstall_PreservesInstallWhenBootstrapFails(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
 
@@ -489,23 +498,27 @@ func TestInstall_RollsBackWhenBootstrapFails(t *testing.T) {
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
 
-	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err == nil {
-		t.Fatal("expected bootstrap failure to abort install")
+		t.Fatal("expected the bootstrap failure to be reported as an error")
 	}
-	if _, err := os.Stat(opts.InstalledStatePath); !os.IsNotExist(err) {
-		t.Errorf("expected no installed-state to be persisted on bootstrap failure, stat err=%v", err)
+	if !errors.Is(err, install.ErrBootstrapFailed) {
+		t.Errorf("expected err to wrap install.ErrBootstrapFailed, got: %v", err)
+	}
+	if installed == nil {
+		t.Fatal("expected the installed state to still be returned despite the bootstrap failure")
+	}
+	if _, err := os.Stat(opts.InstalledStatePath); err != nil {
+		t.Errorf("expected installed-state to be persisted despite the bootstrap failure, stat err=%v", err)
 	}
 
-	var sawHelmUninstall bool
 	for _, call := range fcli.calls {
 		if strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall appliance") {
-			sawHelmUninstall = true
-			break
+			t.Fatalf("expected a bootstrap failure to leave the chart release installed, but it was uninstalled: %v", fcli.calls)
 		}
 	}
-	if !sawHelmUninstall {
-		t.Fatalf("expected bootstrap failure to uninstall the fresh chart release, got calls: %v", fcli.calls)
+	if fk3s.stopCalls != 0 {
+		t.Errorf("expected a bootstrap failure to leave K3s running, but it was stopped %d time(s)", fk3s.stopCalls)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -289,6 +290,23 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		logger.Warn("failed to build install evidence report", "error", buildErr)
 	}
 
+	if err != nil && errors.Is(err, install.ErrBootstrapFailed) {
+		// K3s, the chart, the host zonctl binary, and installed-state are
+		// all genuinely in place — this is a successful install with a
+		// bootstrap step still to retry, not a failed install. Rolling
+		// back or reporting this as "failed" would be wrong; it would
+		// either discard a working appliance or tell the operator to
+		// re-run the whole (multi-minute) install when only the
+		// first-admin step actually needs retrying.
+		logger.Warn("install succeeded but first-admin bootstrap failed; retry bootstrap separately", "error", err, "transactionId", txn.ID)
+		data, _ := json.Marshal(map[string]string{
+			"installedVersion": installed.InstalledVersion,
+			"releaseId":        installed.InstalledReleaseID,
+			"transactionId":    txn.ID,
+			"warning":          "first-admin bootstrap failed: " + err.Error(),
+		})
+		return finish(result, "succeeded", 0, fmt.Sprintf("installed version %s (first-admin bootstrap failed, retry separately: %s)", installed.InstalledVersion, err.Error()), data)
+	}
 	if err != nil {
 		logger.Error("install failed", "error", err, "transactionId", txn.ID)
 		return finish(result, "failed", 1, err.Error(), nil)

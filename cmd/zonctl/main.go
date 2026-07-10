@@ -162,11 +162,12 @@ func run(args []string) int {
 }
 
 func newLogger(r *redact.Redactor, output string) *slog.Logger {
+	handlerOpts := &slog.HandlerOptions{Level: slog.LevelWarn}
 	var base slog.Handler
 	if output == "json" {
-		base = slog.NewJSONHandler(os.Stderr, nil)
+		base = slog.NewJSONHandler(os.Stderr, handlerOpts)
 	} else {
-		base = slog.NewTextHandler(os.Stderr, nil)
+		base = slog.NewTextHandler(os.Stderr, handlerOpts)
 	}
 	return slog.New(redact.NewHandler(base, r))
 }

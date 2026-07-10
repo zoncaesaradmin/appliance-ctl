@@ -273,36 +273,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		cleanupErr = errors.Join(cleanupErr, runRollbacks())
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
 	}
-	bootstrapRun := o.ClusterRunInput
-	if bootstrapRun == nil {
-		if o.ClusterRun != nil {
-			bootstrapRun = func(ctx context.Context, _ []byte, name string, args ...string) (string, error) {
-				return o.ClusterRun(ctx, name, args...)
-			}
-		} else {
-			bootstrapRun = cli.ExecInput
-		}
-	}
-	bootstrapCheck, err := bootstrapadmin.Init(ctx, bootstrapadmin.Options{
-		Run:           bootstrapRun,
-		Kubeconfig:    opts.KubeconfigPath,
-		Namespace:     opts.ChartNamespace,
-		ReleaseName:   opts.ChartReleaseName,
-		AdminUsername: opts.BootstrapAdminUser,
-		AdminPassword: opts.BootstrapAdminPassword,
-	})
-	checks = append(checks, bootstrapCheck)
-	if err != nil {
-		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-			Name:       opts.ChartReleaseName,
-			ChartPath:  resolved.ChartPath,
-			Namespace:  opts.ChartNamespace,
-			ValuesPath: resolved.ConfigurationPath,
-		})...)
-		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
-		cleanupErr = errors.Join(cleanupErr, runRollbacks())
-		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
-	}
 	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
 		SourceBinaryPath: resolved.ZonctlBinaryPath,
 		RealDestPath:     opts.ZonctlRealDestPath,
@@ -342,8 +312,49 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 
+	// K3s, the chart, the host zonctl binary, and the installed-state
+	// record are all fully in place at this point — there is a real,
+	// running appliance to preserve from here on. A bootstrap failure
+	// (e.g. a password rejected by the server's policy, or a transient
+	// `kubectl exec` failure) must not roll any of that back; it's a
+	// separately retriable step, not a reason to discard a successful
+	// install. See ErrBootstrapFailed's doc comment for how callers
+	// should treat this case.
+	bootstrapRun := o.ClusterRunInput
+	if bootstrapRun == nil {
+		if o.ClusterRun != nil {
+			bootstrapRun = func(ctx context.Context, _ []byte, name string, args ...string) (string, error) {
+				return o.ClusterRun(ctx, name, args...)
+			}
+		} else {
+			bootstrapRun = cli.ExecInput
+		}
+	}
+	bootstrapCheck, err := bootstrapadmin.Init(ctx, bootstrapadmin.Options{
+		Run:           bootstrapRun,
+		Kubeconfig:    opts.KubeconfigPath,
+		Namespace:     opts.ChartNamespace,
+		ReleaseName:   opts.ChartReleaseName,
+		AdminUsername: opts.BootstrapAdminUser,
+		AdminPassword: opts.BootstrapAdminPassword,
+	})
+	checks = append(checks, bootstrapCheck)
+	if err != nil {
+		return installed, checks, fmt.Errorf("%w: %w", ErrBootstrapFailed, err)
+	}
+
 	return installed, checks, nil
 }
+
+// ErrBootstrapFailed marks a first-admin bootstrap failure that happened
+// after K3s, the chart, the host zonctl binary, and the installed-state
+// record were already successfully put in place. Unlike every other
+// error Install can return, this one comes with a non-nil
+// *state.InstalledState — the appliance genuinely is installed and
+// running. Callers (cmd/zonctl) should report this as a successful
+// install with a bootstrap warning, not a failed install, and point the
+// operator at retrying just the bootstrap step.
+var ErrBootstrapFailed = errors.New("first-admin bootstrap failed")
 
 func joinCleanupError(primary, cleanup error) error {
 	if cleanup == nil {
