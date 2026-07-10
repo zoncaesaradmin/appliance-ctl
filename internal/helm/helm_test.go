@@ -17,11 +17,13 @@ import (
 // fakeCLI simulates kubectl/helm invocations without a real cluster,
 // recording every call for ordering/idempotency/rollback assertions.
 type fakeCLI struct {
-	missingNamespace bool
-	failApply        bool
-	failUpgrade      bool
-	failRollback     bool
-	calls            [][]string
+	missingNamespace     bool
+	namespaceTerminating bool
+	namespacePolls       int
+	failApply            bool
+	failUpgrade          bool
+	failRollback         bool
+	calls                [][]string
 }
 
 func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, error) {
@@ -29,11 +31,21 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 
 	switch {
 	case name == "kubectl" && contains(args, "get") && contains(args, "namespace"):
-		if f.missingNamespace {
-			return "", errors.New("simulated missing namespace")
+		if f.namespaceTerminating {
+			f.namespacePolls++
+			if f.namespacePolls < 2 {
+				return "Terminating", nil
+			}
+			f.namespaceTerminating = false
+			f.missingNamespace = true
+			return "", errors.New("simulated namespace not found after terminating")
 		}
-		return "", nil
+		if f.missingNamespace {
+			return "", errors.New("simulated namespace not found")
+		}
+		return "Active", nil
 	case name == "kubectl" && contains(args, "create") && contains(args, "namespace"):
+		f.missingNamespace = false
 		return "", nil
 	case name == "kubectl" && contains(args, "apply"):
 		if f.failApply {
@@ -135,6 +147,33 @@ func TestInstallOrUpgrade_CreatesNamespaceWhenMissing(t *testing.T) {
 	}
 	if !sawCreate {
 		t.Fatalf("expected namespace creation when missing, got calls: %v", fake.calls)
+	}
+}
+
+func TestInstallOrUpgrade_WaitsForTerminatingNamespaceThenRecreates(t *testing.T) {
+	dir := t.TempDir()
+	rel := sampleRelease(t, dir)
+
+	fake := &fakeCLI{namespaceTerminating: true}
+	a := &helm.Applier{Run: fake.Run, Kubeconfig: "kubeconfig"}
+
+	check, err := a.InstallOrUpgrade(context.Background(), rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Status != evidence.StatusPass {
+		t.Errorf("expected pass, got %s: %s", check.Status, check.Message)
+	}
+
+	var sawCreate bool
+	for _, call := range fake.calls {
+		if len(call) > 0 && call[0] == "kubectl" && contains(call, "create") && contains(call, "namespace") {
+			sawCreate = true
+			break
+		}
+	}
+	if !sawCreate {
+		t.Fatalf("expected namespace recreation after terminating state, got calls: %v", fake.calls)
 	}
 }
 

@@ -36,7 +36,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 	}{
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion},
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion},
-		{"configuration/values.yaml", "configuration", "replicaCount: 1\n"},
+		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n"},
 	}
 
 	var manifestEntries []map[string]any
@@ -314,10 +314,76 @@ func TestUpgrade_FailedChartApplyRollsBackToPreUpgradeBackup(t *testing.T) {
 	}
 }
 
+func TestUpgrade_RecreatesNamespaceAfterPriorTermination(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{namespaceTerminating: true}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	if _, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0")); err != nil {
+		t.Fatalf("expected upgrade to tolerate a terminating namespace and continue, got: %v", err)
+	}
+
+	var sawNamespaceCreate bool
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "create namespace appliance") {
+			sawNamespaceCreate = true
+			break
+		}
+	}
+	if !sawNamespaceCreate {
+		t.Fatalf("expected namespace recreation after terminating state, got calls: %v", fcli.calls)
+	}
+}
+
+func TestUpgrade_FailedChartApplyCleansInstallerManagedSecret(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{failOn: map[string]bool{"upgrade --install": true}}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	if _, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0")); err == nil {
+		t.Fatal("expected simulated chart failure to fail the upgrade")
+	}
+
+	var sawSecretCreate bool
+	var sawSecretDelete bool
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "create secret generic appliance-keys") {
+			sawSecretCreate = true
+		}
+		if strings.Contains(call, "delete secret appliance-keys --ignore-not-found") {
+			sawSecretDelete = true
+		}
+	}
+	if !sawSecretCreate {
+		t.Fatalf("expected installer-managed secret creation before chart apply, got calls: %v", fcli.calls)
+	}
+	if !sawSecretDelete {
+		t.Fatalf("expected installer-managed secret cleanup on chart failure, got calls: %v", fcli.calls)
+	}
+}
+
 // fakeCLI simulates ctr/helm/kubectl for the images and helm adapters.
 type fakeCLI struct {
-	failOn map[string]bool
-	calls  []string
+	failOn               map[string]bool
+	calls                []string
+	missingNamespace     bool
+	namespaceTerminating bool
+	namespacePolls       int
+	secretExists         bool
 }
 
 func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, error) {
@@ -328,5 +394,44 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 			return "", fmt.Errorf("simulated failure for %q", substr)
 		}
 	}
+	switch {
+	case name == "kubectl" && contains(args, "get") && contains(args, "namespace"):
+		if f.namespaceTerminating {
+			f.namespacePolls++
+			if f.namespacePolls < 2 {
+				return "Terminating", nil
+			}
+			f.namespaceTerminating = false
+			f.missingNamespace = true
+			return "", fmt.Errorf("simulated namespace not found after terminating")
+		}
+		if f.missingNamespace {
+			return "", fmt.Errorf("simulated namespace not found")
+		}
+		return "Active", nil
+	case name == "kubectl" && contains(args, "create") && contains(args, "namespace"):
+		f.missingNamespace = false
+		return "", nil
+	case name == "kubectl" && contains(args, "get") && contains(args, "secret"):
+		if f.secretExists {
+			return "", nil
+		}
+		return "", fmt.Errorf("simulated secret not found")
+	case name == "kubectl" && contains(args, "create") && contains(args, "secret"):
+		f.secretExists = true
+		return "", nil
+	case name == "kubectl" && contains(args, "delete") && contains(args, "secret"):
+		f.secretExists = false
+		return "", nil
+	}
 	return "", nil
+}
+
+func contains(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
 }

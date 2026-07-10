@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
@@ -40,12 +41,10 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 		}
 	}
 
-	if _, err := a.Run(ctx, "kubectl", "--kubeconfig", a.Kubeconfig, "get", "namespace", rel.Namespace); err != nil {
-		if _, createErr := a.Run(ctx, "kubectl", "--kubeconfig", a.Kubeconfig, "create", "namespace", rel.Namespace); createErr != nil {
-			check.Status = evidence.StatusFail
-			check.Message = createErr.Error()
-			return check, fmt.Errorf("helm: ensure namespace %s: %w", rel.Namespace, createErr)
-		}
+	if err := EnsureNamespace(ctx, a.Run, a.Kubeconfig, rel.Namespace); err != nil {
+		check.Status = evidence.StatusFail
+		check.Message = err.Error()
+		return check, err
 	}
 
 	args := []string{
@@ -73,13 +72,30 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 func (a *Applier) Rollback(ctx context.Context, releaseName string, wasFreshInstall bool) error {
 	if wasFreshInstall {
 		if _, err := a.Run(ctx, "helm", "--kubeconfig", a.Kubeconfig, "uninstall", releaseName); err != nil {
+			if helmReleaseMissing(err) {
+				return nil
+			}
 			return fmt.Errorf("helm: rollback (uninstall) %s: %w", releaseName, err)
 		}
 		return nil
 	}
 
 	if _, err := a.Run(ctx, "helm", "--kubeconfig", a.Kubeconfig, "rollback", releaseName); err != nil {
+		if helmReleaseMissing(err) {
+			return nil
+		}
 		return fmt.Errorf("helm: rollback %s: %w", releaseName, err)
 	}
 	return nil
+}
+
+func helmReleaseMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "release: not found") ||
+		strings.Contains(msg, "release not loaded") ||
+		strings.Contains(msg, "has no deployed releases") ||
+		strings.Contains(msg, "release: no deployed releases")
 }

@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -110,13 +111,27 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	binaryReverted := false
 	rollback := func() []evidence.Check {
 		var rc []evidence.Check
+		var rollbackErrs []error
 		if binaryReverted {
-			_ = revertFile(opts.K3sBinaryDestPath)
-			_ = revertFile(opts.K3sConfigPath)
-			_ = revertFile(opts.K3sUnitPath)
+			for _, path := range []string{opts.K3sBinaryDestPath, opts.K3sConfigPath, opts.K3sUnitPath} {
+				if err := revertFile(path); err != nil {
+					rollbackErrs = append(rollbackErrs, err)
+				}
+			}
 		}
-		restoreChecks, _ := backup.Restore(ctx, o.K3s, opts.K3sUnitName, backupDir, opts.K3sDataDir)
-		return append(rc, restoreChecks...)
+		restoreChecks, restoreErr := backup.Restore(ctx, o.K3s, opts.K3sUnitName, backupDir, opts.K3sDataDir)
+		rc = append(rc, restoreChecks...)
+		if restoreErr != nil {
+			rollbackErrs = append(rollbackErrs, restoreErr)
+		}
+		if len(rollbackErrs) > 0 {
+			rc = append(rc, evidence.Check{
+				ID: "upgrade-rollback", Category: "backup-restore", Status: evidence.StatusFail,
+				Message: errors.Join(rollbackErrs...).Error(), Timestamp: time.Now().UTC(),
+				Idempotent: true, SecretsRedacted: true,
+			})
+		}
+		return rc
 	}
 
 	importer := &images.Importer{Run: o.ImagesRun, Namespace: "k8s.io"}
@@ -170,6 +185,19 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 	checks = append(checks, binaryCheck)
 
+	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+		Name:       opts.ChartReleaseName,
+		ChartPath:  chartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: configSchemaPath,
+	})
+	checks = append(checks, prepared.Checks...)
+	if err != nil {
+		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+		checks = append(checks, rollback()...)
+		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
+	}
+
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
@@ -179,6 +207,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	})
 	checks = append(checks, chartCheck)
 	if err != nil {
+		_ = prepared.Cleanup()
 		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
 		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
 		checks = append(checks, rollback()...)
@@ -209,6 +238,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		UpdatedAt: now,
 	}
 	if err := state.Save(opts.InstalledStatePath, updated); err != nil {
+		_ = prepared.Cleanup()
+		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
+		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
 		checks = append(checks, rollback()...)
 		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
 	}

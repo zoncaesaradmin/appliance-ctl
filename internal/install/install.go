@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -93,11 +94,15 @@ func NewOrchestrator() *Orchestrator {
 // rollback that runs, in reverse order, on any later failure.
 func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options) (*state.InstalledState, []evidence.Check, error) {
 	var checks []evidence.Check
-	var rollbacks []func()
-	runRollbacks := func() {
+	var rollbacks []func() error
+	runRollbacks := func() error {
+		var errs []error
 		for i := len(rollbacks) - 1; i >= 0; i-- {
-			rollbacks[i]()
+			if err := rollbacks[i](); err != nil {
+				errs = append(errs, err)
+			}
 		}
+		return errors.Join(errs...)
 	}
 
 	resolved, resolveChecks, err := source.Resolve(ctx)
@@ -181,12 +186,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		// (and DecideOwnership keeps rejecting future install attempts
 		// with requires-force-adopt) unless the unit file is actually
 		// removed and the cache refreshed, exactly like teardown does.
-		rollbacks = append(rollbacks, func() {
-			_ = o.K3s.Stop(opts.K3sUnitName)
-			for _, path := range []string{opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath} {
-				_ = os.Remove(path)
+		rollbacks = append(rollbacks, func() error {
+			var errs []error
+			if err := o.K3s.Stop(opts.K3sUnitName); err != nil {
+				errs = append(errs, err)
 			}
-			_ = o.K3s.DaemonReload()
+			for _, path := range []string{opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath} {
+				if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+					errs = append(errs, err)
+				}
+			}
+			if err := o.K3s.DaemonReload(); err != nil {
+				errs = append(errs, err)
+			}
+			return errors.Join(errs...)
 		})
 	}
 
@@ -197,35 +210,28 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// on its socket; without this wait, PreloadAll below can hit a raw
 	// "connection refused" on a freshly (re)started K3s.
 	if err := importer.WaitReady(ctx, containerdReadyTimeout, containerdReadyPollInterval); err != nil {
-		runRollbacks()
-		return nil, checks, fmt.Errorf("install: %w", err)
+		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
 	}
 
 	imgs := append(append([]images.Image{}, resolved.K3sImages...), resolved.OCIImages...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
-		runRollbacks()
-		return nil, checks, fmt.Errorf("install: %w", err)
+		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
 	}
-	rollbacks = append(rollbacks, func() { _ = importer.Rollback(ctx, preloadResult.NewlyImported) })
+	rollbacks = append(rollbacks, func() error { return importer.Rollback(ctx, preloadResult.NewlyImported) })
 
-	prereqs, err := loadChartPrereqs(resolved.ConfigurationPath)
+	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+		Name:       opts.ChartReleaseName,
+		ChartPath:  resolved.ChartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: resolved.ConfigurationPath,
+	})
+	checks = append(checks, prepared.Checks...)
 	if err != nil {
-		runRollbacks()
-		return nil, checks, err
+		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
 	}
-	keysSecretCreated, secretCheck, err := ensureKeysSecret(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, prereqs.KeysSecretName)
-	checks = append(checks, secretCheck)
-	if err != nil {
-		runRollbacks()
-		return nil, checks, err
-	}
-	if keysSecretCreated {
-		rollbacks = append(rollbacks, func() {
-			_ = deleteSecret(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, prereqs.KeysSecretName)
-		})
-	}
+	rollbacks = append(rollbacks, prepared.Cleanup)
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
@@ -236,9 +242,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	})
 	checks = append(checks, chartCheck)
 	if err != nil {
-		runRollbacks()
-		_ = applier.Rollback(ctx, opts.ChartReleaseName, true)
-		return nil, checks, fmt.Errorf("install: %w", err)
+		cleanupErr := runRollbacks()
+		cleanupErr = errors.Join(cleanupErr, applier.Rollback(ctx, opts.ChartReleaseName, true))
+		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 
 	now := time.Now().UTC()
@@ -263,12 +269,19 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		UpdatedAt: now,
 	}
 	if err := state.Save(opts.InstalledStatePath, installed); err != nil {
-		runRollbacks()
-		_ = applier.Rollback(ctx, opts.ChartReleaseName, true)
-		return nil, checks, fmt.Errorf("install: %w", err)
+		cleanupErr := runRollbacks()
+		cleanupErr = errors.Join(cleanupErr, applier.Rollback(ctx, opts.ChartReleaseName, true))
+		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 
 	return installed, checks, nil
+}
+
+func joinCleanupError(primary, cleanup error) error {
+	if cleanup == nil {
+		return primary
+	}
+	return errors.Join(primary, fmt.Errorf("install cleanup failed: %w", cleanup))
 }
 
 func newApplianceInstanceID() string {
