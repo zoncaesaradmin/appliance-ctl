@@ -54,7 +54,11 @@
         "sbom": { "$ref": "#/$defs/artifactDirectory" },
         "provenance": { "$ref": "#/$defs/artifactDirectory" },
         "notices": { "$ref": "#/$defs/artifactDirectory" },
-        "tests": { "$ref": "#/$defs/artifactDirectory" }
+        "tests": { "$ref": "#/$defs/artifactDirectory" },
+        "argoWorkflowsChart": { "$ref": "#/$defs/artifact" },
+        "argoCRDs": { "$ref": "#/$defs/artifactDirectory" },
+        "argoControllerImage": { "$ref": "#/$defs/artifact" },
+        "argoExecutorImage": { "$ref": "#/$defs/artifact" }
       }
     },
     "compatibility": {
@@ -64,6 +68,7 @@
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },
+        "argoVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",
           "items": { "type": "string" },

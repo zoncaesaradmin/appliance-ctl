@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,6 +31,8 @@ import (
 const (
 	containerdReadyTimeout      = 60 * time.Second
 	containerdReadyPollInterval = 1 * time.Second
+	argoReleaseName             = "appliance-argo-workflows"
+	argoNamespace               = "appliance-workflows"
 )
 
 // Options fully parameterizes a fresh install. Every path is explicit
@@ -249,6 +252,51 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
 	}
+	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
+
+	clusterRun := o.ClusterRun
+	if clusterRun == nil {
+		clusterRun = cli.Exec
+	}
+	if len(resolved.ArgoCRDPaths) > 0 {
+		argoCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.ArgoCRDPaths, "argo-crd")
+		checks = append(checks, argoCRDChecks...)
+		if applyErr != nil {
+			return nil, checks, joinCleanupError(fmt.Errorf("install: %w", applyErr), runRollbacks())
+		}
+	}
+
+	if resolved.ArgoChartPath != "" {
+		argoPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+			Name:      argoReleaseName,
+			ChartPath: resolved.ArgoChartPath,
+			Namespace: argoNamespace,
+		})
+		checks = append(checks, argoPrepared.Checks...)
+		if prepErr != nil {
+			return nil, checks, joinCleanupError(fmt.Errorf("install: %w", prepErr), runRollbacks())
+		}
+		rollbacks = append(rollbacks, argoPrepared.Cleanup)
+
+		argoChartCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+			Name:      argoReleaseName,
+			ChartPath: resolved.ArgoChartPath,
+			Namespace: argoNamespace,
+		})
+		checks = append(checks, argoChartCheck)
+		if applyErr != nil {
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+				Name:      argoReleaseName,
+				ChartPath: resolved.ArgoChartPath,
+				Namespace: argoNamespace,
+			})...)
+			cleanupErr := errors.Join(applier.Rollback(ctx, argoReleaseName, true), runRollbacks())
+			return nil, checks, joinCleanupError(fmt.Errorf("install: %w", applyErr), cleanupErr)
+		}
+		rollbacks = append(rollbacks, func() error {
+			return applier.Rollback(ctx, argoReleaseName, true)
+		})
+	}
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
@@ -262,7 +310,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, prepared.Cleanup)
 
-	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  resolved.ChartPath,
@@ -359,6 +406,35 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	return installed, checks, nil
+}
+
+func applyManifestFiles(ctx context.Context, run cli.Runner, kubeconfig string, manifestPaths []string, checkPrefix string) ([]evidence.Check, error) {
+	checks := make([]evidence.Check, 0, len(manifestPaths))
+	for _, manifestPath := range manifestPaths {
+		check := evidence.Check{
+			ID:              checkPrefix + "-" + evidence.SanitizeIDSegment(filepath.Base(manifestPath)),
+			Category:        "kubernetes",
+			Timestamp:       time.Now().UTC(),
+			Idempotent:      true,
+			SecretsRedacted: true,
+		}
+		if _, err := os.Stat(manifestPath); err != nil {
+			check.Status = evidence.StatusFail
+			check.Message = fmt.Sprintf("required artifact missing: %v", err)
+			checks = append(checks, check)
+			return checks, fmt.Errorf("apply kubernetes manifest %s: %w", manifestPath, err)
+		}
+		if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "apply", "-f", manifestPath); err != nil {
+			check.Status = evidence.StatusFail
+			check.Message = err.Error()
+			checks = append(checks, check)
+			return checks, fmt.Errorf("apply kubernetes manifest %s: %w", manifestPath, err)
+		}
+		check.Status = evidence.StatusPass
+		check.Message = fmt.Sprintf("applied %s", filepath.Base(manifestPath))
+		checks = append(checks, check)
+	}
+	return checks, nil
 }
 
 // ErrBootstrapFailed marks a first-admin bootstrap failure that happened

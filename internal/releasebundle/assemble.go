@@ -190,6 +190,14 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	if supportedUpgradeSources == nil {
 		supportedUpgradeSources = []string{}
 	}
+	compatibility := map[string]any{
+		"k3sVersion":              input.Compatibility.K3sVersion,
+		"chartVersion":            input.Compatibility.ChartVersion,
+		"supportedUpgradeSources": supportedUpgradeSources,
+	}
+	if strings.TrimSpace(input.Compatibility.ArgoVersion) != "" {
+		compatibility["argoVersion"] = input.Compatibility.ArgoVersion
+	}
 
 	doc := manifestDoc{
 		SchemaVersion: 1,
@@ -197,13 +205,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		ReleaseID:     input.ReleaseID,
 		HostBaseline:  cfg.HostBaseline,
 		BuiltAt:       time.Now().UTC().Format(time.RFC3339),
-		Compatibility: map[string]any{
-			"k3sVersion":              input.Compatibility.K3sVersion,
-			"chartVersion":            input.Compatibility.ChartVersion,
-			"supportedUpgradeSources": supportedUpgradeSources,
-		},
-		SigningKeyID: cfg.SigningKeyID,
-		Entries:      manifestEntries,
+		Compatibility: compatibility,
+		SigningKeyID:  cfg.SigningKeyID,
+		Entries:       manifestEntries,
 	}
 	manifestBytes, err := json.Marshal(doc)
 	if err != nil {
@@ -269,7 +273,7 @@ func validateConfiguredEntry(entry EntryConfig) error {
 		return fmt.Errorf("releasebundle: every entry requires sourcePath, targetPath, and component")
 	}
 	switch entry.Component {
-	case "appliance", "k3s-binary", "k3s-install", "k3s-images", "oci-images", "chart", "configuration", "scanner-data", "sbom", "provenance", "notices", "public-keys", "tests":
+	case "appliance", "k3s-binary", "k3s-install", "k3s-images", "oci-images", "chart", "kubernetes-crds", "configuration", "scanner-data", "sbom", "provenance", "notices", "public-keys", "tests":
 	default:
 		return fmt.Errorf("releasebundle: unsupported component %q", entry.Component)
 	}

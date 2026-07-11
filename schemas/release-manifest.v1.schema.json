@@ -40,6 +40,7 @@
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },
+        "argoVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",
           "items": { "type": "string" },
@@ -67,6 +68,7 @@
         "k3s-images",
         "oci-images",
         "chart",
+        "kubernetes-crds",
         "configuration",
         "scanner-data",
         "sbom",

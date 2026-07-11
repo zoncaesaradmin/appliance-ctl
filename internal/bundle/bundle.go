@@ -35,6 +35,7 @@ type Entry struct {
 type Compatibility struct {
 	K3sVersion   string
 	ChartVersion string
+	ArgoVersion  string
 	// SupportedUpgradeSources lists appliance versions this release may
 	// upgrade from (the N-1 policy).
 	SupportedUpgradeSources []string
@@ -58,6 +59,7 @@ type manifestDoc struct {
 	Compatibility struct {
 		K3sVersion              string   `json:"k3sVersion"`
 		ChartVersion            string   `json:"chartVersion"`
+		ArgoVersion             string   `json:"argoVersion"`
 		SupportedUpgradeSources []string `json:"supportedUpgradeSources"`
 	} `json:"compatibility"`
 	SigningKeyID string `json:"signingKeyId"`
@@ -110,6 +112,7 @@ func Load(rootDir string, pub *verify.PublicKey) (*Bundle, []evidence.Check, err
 		Compatibility: Compatibility{
 			K3sVersion:              doc.Compatibility.K3sVersion,
 			ChartVersion:            doc.Compatibility.ChartVersion,
+			ArgoVersion:             doc.Compatibility.ArgoVersion,
 			SupportedUpgradeSources: doc.Compatibility.SupportedUpgradeSources,
 		},
 	}

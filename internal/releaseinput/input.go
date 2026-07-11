@@ -30,6 +30,7 @@ type Input struct {
 type Compatibility struct {
 	K3sVersion              string
 	ChartVersion            string
+	ArgoVersion             string
 	SupportedUpgradeSources []string
 }
 
@@ -49,9 +50,13 @@ type DirArtifact struct {
 type Artifacts struct {
 	ControlPlaneImage   FileArtifact
 	ApplianceChart      FileArtifact
+	ArgoWorkflowsChart  FileArtifact
+	ArgoControllerImage FileArtifact
+	ArgoExecutorImage   FileArtifact
 	ConfigurationSchema FileArtifact
 	Compatibility       FileArtifact
 	Checksums           FileArtifact
+	ArgoCRDs            DirArtifact
 	SBOM                DirArtifact
 	Provenance          DirArtifact
 	Notices             DirArtifact
@@ -64,9 +69,13 @@ type doc struct {
 	Artifacts   struct {
 		ControlPlaneImage   fileArtifact `json:"controlPlaneImage"`
 		ApplianceChart      fileArtifact `json:"applianceChart"`
+		ArgoWorkflowsChart  fileArtifact `json:"argoWorkflowsChart"`
+		ArgoControllerImage fileArtifact `json:"argoControllerImage"`
+		ArgoExecutorImage   fileArtifact `json:"argoExecutorImage"`
 		ConfigurationSchema fileArtifact `json:"configurationSchema"`
 		Compatibility       fileArtifact `json:"compatibility"`
 		Checksums           fileArtifact `json:"checksums"`
+		ArgoCRDs            dirArtifact  `json:"argoCRDs"`
 		SBOM                dirArtifact  `json:"sbom"`
 		Provenance          dirArtifact  `json:"provenance"`
 		Notices             dirArtifact  `json:"notices"`
@@ -114,9 +123,13 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		Artifacts: Artifacts{
 			ControlPlaneImage:   toFileArtifact(rootDir, parsed.Artifacts.ControlPlaneImage),
 			ApplianceChart:      toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
+			ArgoWorkflowsChart:  toFileArtifact(rootDir, parsed.Artifacts.ArgoWorkflowsChart),
+			ArgoControllerImage: toFileArtifact(rootDir, parsed.Artifacts.ArgoControllerImage),
+			ArgoExecutorImage:   toFileArtifact(rootDir, parsed.Artifacts.ArgoExecutorImage),
 			ConfigurationSchema: toFileArtifact(rootDir, parsed.Artifacts.ConfigurationSchema),
 			Compatibility:       toFileArtifact(rootDir, parsed.Artifacts.Compatibility),
 			Checksums:           toFileArtifact(rootDir, parsed.Artifacts.Checksums),
+			ArgoCRDs:            toDirArtifact(rootDir, parsed.Artifacts.ArgoCRDs),
 			SBOM:                toDirArtifact(rootDir, parsed.Artifacts.SBOM),
 			Provenance:          toDirArtifact(rootDir, parsed.Artifacts.Provenance),
 			Notices:             toDirArtifact(rootDir, parsed.Artifacts.Notices),
@@ -131,6 +144,30 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
 		{Name: "checksums", Path: input.Artifacts.Checksums.Path, ExpectedDigest: input.Artifacts.Checksums.Digest, ExpectedSizeBytes: input.Artifacts.Checksums.SizeBytes},
 	}
+	if input.Artifacts.ArgoWorkflowsChart.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "argo-workflows-chart",
+			Path:              input.Artifacts.ArgoWorkflowsChart.Path,
+			ExpectedDigest:    input.Artifacts.ArgoWorkflowsChart.Digest,
+			ExpectedSizeBytes: input.Artifacts.ArgoWorkflowsChart.SizeBytes,
+		})
+	}
+	if input.Artifacts.ArgoControllerImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "argo-controller-image",
+			Path:              input.Artifacts.ArgoControllerImage.Path,
+			ExpectedDigest:    input.Artifacts.ArgoControllerImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.ArgoControllerImage.SizeBytes,
+		})
+	}
+	if input.Artifacts.ArgoExecutorImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "argo-executor-image",
+			Path:              input.Artifacts.ArgoExecutorImage.Path,
+			ExpectedDigest:    input.Artifacts.ArgoExecutorImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.ArgoExecutorImage.SizeBytes,
+		})
+	}
 	checks, err := verify.VerifyArtifacts(nil, artifacts)
 	if err != nil {
 		return nil, checks, fmt.Errorf("release-input: %w", err)
@@ -142,6 +179,16 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "notices", DirArtifact: input.Artifacts.Notices},
 		{Name: "tests", DirArtifact: input.Artifacts.Tests},
 	})
+	if input.Artifacts.ArgoCRDs.Path != "" {
+		var argoChecks []evidence.Check
+		argoChecks, err = verifyDirArtifacts([]namedDirArtifact{
+			{Name: "argo-crds", DirArtifact: input.Artifacts.ArgoCRDs},
+		})
+		checks = append(checks, argoChecks...)
+		if err != nil {
+			return nil, checks, fmt.Errorf("release-input: %w", err)
+		}
+	}
 	checks = append(checks, dirChecks...)
 	if err != nil {
 		return nil, checks, fmt.Errorf("release-input: %w", err)
@@ -238,6 +285,9 @@ func DirectoryManifestDigest(root string) (string, error) {
 }
 
 func toFileArtifact(rootDir string, artifact fileArtifact) FileArtifact {
+	if strings.TrimSpace(artifact.Path) == "" {
+		return FileArtifact{}
+	}
 	return FileArtifact{
 		Path:           filepath.Join(rootDir, artifact.Path),
 		Digest:         artifact.Digest,
@@ -248,6 +298,9 @@ func toFileArtifact(rootDir string, artifact fileArtifact) FileArtifact {
 }
 
 func toDirArtifact(rootDir string, artifact dirArtifact) DirArtifact {
+	if strings.TrimSpace(artifact.Path) == "" {
+		return DirArtifact{}
+	}
 	return DirArtifact{
 		Path:           filepath.Join(rootDir, artifact.Path),
 		ManifestDigest: artifact.ManifestDigest,

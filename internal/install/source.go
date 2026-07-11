@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/bundle"
@@ -24,6 +25,8 @@ type Resolved struct {
 
 	K3sBinaryPath     string
 	ChartPath         string
+	ArgoChartPath     string
+	ArgoCRDPaths      []string
 	ConfigurationPath string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
@@ -56,10 +59,11 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	if !ok {
 		return Resolved{}, checks, fmt.Errorf("install: bundle has no k3s-binary entry")
 	}
-	chartPath, ok := b.Path("chart")
-	if !ok {
-		return Resolved{}, checks, fmt.Errorf("install: bundle has no chart entry")
+	chartPath, err := applianceChartPath(b)
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
+	argoChartPath := optionalArgoChartPath(b)
 	zonctlBinaryPath, err := applianceBinaryPath(b, "zonctl-real")
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -68,6 +72,7 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
+	argoCRDPaths := crdPaths(b)
 
 	var k3sImages, ociImages []images.Image
 	for _, e := range b.Entries("k3s-images") {
@@ -84,6 +89,8 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		ZonctlBinaryPath:  zonctlBinaryPath,
 		K3sBinaryPath:     k3sBinaryPath,
 		ChartPath:         chartPath,
+		ArgoChartPath:     argoChartPath,
+		ArgoCRDPaths:      argoCRDPaths,
 		ConfigurationPath: configurationPath,
 		K3sImages:         k3sImages,
 		OCIImages:         ociImages,
@@ -95,6 +102,43 @@ func imageName(e bundle.Entry) string {
 		return e.ImageReference
 	}
 	return e.Path
+}
+
+func applianceChartPath(b *bundle.Bundle) (string, error) {
+	entries := b.Entries("chart")
+	if len(entries) == 0 {
+		return "", fmt.Errorf("bundle has no chart entry")
+	}
+	if len(entries) == 1 {
+		return entries[0].Path, nil
+	}
+	for _, e := range entries {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if strings.HasPrefix(base, "appliance-chart-") {
+			return e.Path, nil
+		}
+	}
+	return "", fmt.Errorf("bundle has multiple chart entries but none named appliance-chart-*")
+}
+
+func optionalArgoChartPath(b *bundle.Bundle) string {
+	for _, e := range b.Entries("chart") {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if strings.HasPrefix(base, "appliance-argo-workflows") {
+			return e.Path
+		}
+	}
+	return ""
+}
+
+func crdPaths(b *bundle.Bundle) []string {
+	entries := b.Entries("kubernetes-crds")
+	paths := make([]string, 0, len(entries))
+	for _, e := range entries {
+		paths = append(paths, e.Path)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func configurationPath(b *bundle.Bundle) (string, error) {

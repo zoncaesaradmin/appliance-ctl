@@ -35,7 +35,11 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 		SecretsRedacted: true,
 	}
 
-	for _, path := range []string{rel.ChartPath, rel.ValuesPath} {
+	requiredPaths := []string{rel.ChartPath}
+	if strings.TrimSpace(rel.ValuesPath) != "" {
+		requiredPaths = append(requiredPaths, rel.ValuesPath)
+	}
+	for _, path := range requiredPaths {
 		if _, err := os.Stat(path); err != nil {
 			check.Status = evidence.StatusFail
 			check.Message = fmt.Sprintf("required artifact missing: %v", err)
@@ -53,9 +57,11 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 		"--kubeconfig", a.Kubeconfig,
 		"upgrade", "--install", rel.Name, rel.ChartPath,
 		"--namespace", rel.Namespace,
-		"--values", rel.ValuesPath,
 		"--wait",
 		"--timeout", chartApplyTimeout.String(),
+	}
+	if strings.TrimSpace(rel.ValuesPath) != "" {
+		args = append(args, "--values", rel.ValuesPath)
 	}
 	if _, err := a.Run(ctx, "helm", args...); err != nil {
 		check.Status = evidence.StatusFail

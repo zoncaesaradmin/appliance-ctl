@@ -73,6 +73,11 @@ type fixtureEntry struct {
 // release-manifest.json describing them, and a valid detached signature.
 func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 	t.Helper()
+	return buildFixtureBundleWithArgo(t, false)
+}
+
+func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub verify.PublicKey) {
+	t.Helper()
 	dir = t.TempDir()
 
 	entries := []fixtureEntry{
@@ -82,6 +87,14 @@ func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"k3s/images/coredns.tar", "k3s-images", "fake coredns image tar", "docker.io/rancher/mirrored-coredns-coredns:1.11.3"},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
+	}
+	if includeArgo {
+		entries = append(entries,
+			fixtureEntry{"charts/appliance-argo-workflows-chart-3.5.10.tgz", "chart", "fake argo chart bytes", ""},
+			fixtureEntry{"kubernetes/crds/workflows.argoproj.io.yaml", "kubernetes-crds", "kind: CustomResourceDefinition\n", ""},
+			fixtureEntry{"oci-images/argo-controller.tar", "oci-images", "fake argo controller image tar", "quay.io/argoproj/workflow-controller:v3.5.10"},
+			fixtureEntry{"oci-images/argo-executor.tar", "oci-images", "fake argo executor image tar", "quay.io/argoproj/argoexec:v3.5.10"},
+		)
 	}
 
 	var manifestEntries []map[string]any
@@ -118,6 +131,9 @@ func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
+	}
+	if includeArgo {
+		doc["compatibility"].(map[string]any)["argoVersion"] = "3.5.10"
 	}
 	manifestBytes, err := json.Marshal(doc)
 	if err != nil {
@@ -365,6 +381,40 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 	if bootstrapCalls != 1 {
 		t.Errorf("expected first-admin bootstrap to run once, got %d: %v", bootstrapCalls, fcli.calls)
+	}
+}
+
+func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
+	dir, pub := buildFixtureBundleWithArgo(t, true)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	installed, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("expected install with optional Argo artifacts to succeed, got: %v (checks: %+v)", err, checks)
+	}
+	if installed.InstalledVersion != "2.4.0" {
+		t.Fatalf("unexpected installed state: %+v", installed)
+	}
+
+	var sawCRDApply bool
+	var sawArgoHelm bool
+	for _, c := range fcli.calls {
+		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "apply -f") && strings.Contains(c, "workflows.argoproj.io.yaml") {
+			sawCRDApply = true
+		}
+		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install appliance-argo-workflows") {
+			sawArgoHelm = true
+		}
+	}
+	if !sawCRDApply {
+		t.Fatalf("expected Argo CRDs to be applied, got calls: %v", fcli.calls)
+	}
+	if !sawArgoHelm {
+		t.Fatalf("expected Argo Helm release to be installed, got calls: %v", fcli.calls)
 	}
 }
 

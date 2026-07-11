@@ -55,6 +55,9 @@ func EnsureReleasePrereqs(ctx context.Context, run cli.Runner, kubeconfig string
 	if err := EnsureNamespace(ctx, run, kubeconfig, rel.Namespace); err != nil {
 		return PreparedRelease{}, err
 	}
+	if strings.TrimSpace(rel.ValuesPath) == "" {
+		return PreparedRelease{}, nil
+	}
 
 	prereqs, err := loadChartPrereqs(rel.ValuesPath)
 	if err != nil {
