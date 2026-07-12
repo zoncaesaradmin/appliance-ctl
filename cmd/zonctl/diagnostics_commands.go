@@ -152,7 +152,7 @@ func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	// here).
 	manifestValid := sig.InstalledStateErr == nil && sig.InstalledState != nil
 	entriesVerified := 0
-	var entriesFailed []string
+	entriesFailed := []string{}
 	if manifestValid {
 		entriesVerified = 1
 	} else {

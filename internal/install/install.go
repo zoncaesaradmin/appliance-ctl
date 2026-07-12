@@ -423,7 +423,7 @@ func applyManifestFiles(ctx context.Context, run cli.Runner, kubeconfig string, 
 	for _, manifestPath := range manifestPaths {
 		check := evidence.Check{
 			ID:              checkPrefix + "-" + evidence.SanitizeIDSegment(filepath.Base(manifestPath)),
-			Category:        "kubernetes",
+			Category:        "chart",
 			Timestamp:       time.Now().UTC(),
 			Idempotent:      true,
 			SecretsRedacted: true,
