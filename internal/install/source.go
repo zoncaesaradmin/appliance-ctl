@@ -73,6 +73,9 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
 	argoCRDPaths := crdPaths(b)
+	if argoChartPath != "" && len(argoCRDPaths) == 0 {
+		return Resolved{}, checks, fmt.Errorf("install: bundle has an argo-workflows chart but no argo-crds artifact; the workflow controller cannot start without its CRDs")
+	}
 
 	var k3sImages, ociImages []images.Image
 	for _, e := range b.Entries("k3s-images") {

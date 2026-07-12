@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
@@ -184,5 +185,92 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 	}
 	if len(resolved.ArgoCRDPaths) != 1 || filepath.Base(resolved.ArgoCRDPaths[0]) != "workflows.argoproj.io.yaml" {
 		t.Fatalf("expected one argo CRD path, got %+v", resolved.ArgoCRDPaths)
+	}
+}
+
+// This is the exact bundle-packaging bug that caused a live incident: a
+// release-input archive built without --argo-crds-dir ships the Argo
+// Workflows chart but no CRDs, so the workflow controller crash-loops
+// forever (its very first API call, "get workflows.argoproj.io", 404s)
+// until the install's --wait timeout expires and the whole install rolls
+// back — a confusing ten-minute failure instead of an immediate, clear
+// one. Resolve must reject this combination outright.
+func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"bin/zonctl-real":                        "fake zonctl binary",
+		"k3s/binary/k3s":                         "fake k3s binary",
+		"charts/argo-workflows-chart-3.5.10.tgz": "fake argo chart",
+		"charts/appliance-chart-2.4.0.tgz":       "fake appliance chart",
+		"configuration/values.yaml":              "replicaCount: 1\n",
+	}
+
+	var manifestEntries []map[string]any
+	for rel, content := range files {
+		full := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		digest, err := verify.Digest(full)
+		if err != nil {
+			t.Fatal(err)
+		}
+		component := "configuration"
+		switch {
+		case rel == "bin/zonctl-real":
+			component = "appliance"
+		case rel == "k3s/binary/k3s":
+			component = "k3s-binary"
+		case filepath.Dir(rel) == "charts":
+			component = "chart"
+		}
+		manifestEntries = append(manifestEntries, map[string]any{
+			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
+		})
+	}
+
+	doc := map[string]any{
+		"schemaVersion": 1,
+		"bundleVersion": "2.4.0",
+		"releaseId":     "release-2.4.0",
+		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
+		"builtAt":       "2026-07-06T00:00:00Z",
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "argoVersion": "3.5.10"},
+		"signingKeyId":  "release-signing-key",
+		"entries":       manifestEntries,
+	}
+	manifestBytes, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "release-manifest.json"), manifestBytes, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := verify.Sign(priv, manifestBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "release-manifest.sig"), sig, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	source := install.OfflineSource{
+		BundleDir: dir,
+		PublicKey: &verify.PublicKey{ID: "release-signing-key", Key: pub},
+	}
+	_, _, err = source.Resolve(context.Background())
+	if err == nil {
+		t.Fatal("expected Resolve to reject an argo chart with no CRD artifact, got nil error")
+	}
+	if !strings.Contains(err.Error(), "argo-crds") {
+		t.Errorf("expected error to mention the missing argo-crds artifact, got: %v", err)
 	}
 }
