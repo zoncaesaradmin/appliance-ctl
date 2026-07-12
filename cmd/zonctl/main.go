@@ -26,6 +26,7 @@ const (
 	defaultK3sDataDir         = "/var/lib/rancher/k3s"
 	defaultK3sUnitPath        = "/etc/systemd/system/k3s.service"
 	defaultK3sBinaryDestPath  = "/usr/local/bin/k3s"
+	defaultKubectlSymlinkPath = "/usr/local/bin/kubectl"
 	defaultZonctlLauncherPath = "/usr/local/bin/zonctl"
 	defaultZonctlRealPath     = "/usr/local/lib/zon/bin/zonctl-real"
 	defaultKubeconfigPath     = "/etc/rancher/k3s/k3s.yaml"

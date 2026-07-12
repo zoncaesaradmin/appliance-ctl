@@ -12,6 +12,12 @@ type Ops struct {
 	EnableAndStart func(unitName string) error
 	Stop           func(unitName string) error
 	Restart        func(unitName string) error
+	// EnsureKubectlSymlink and RemoveKubectlSymlink manage the
+	// "kubectl" convenience symlink to the installed K3s binary (see
+	// EnsureKubectlSymlink's doc comment for why zonctl owns this
+	// itself rather than relying on K3s's own best-effort behavior).
+	EnsureKubectlSymlink func(k3sBinaryPath, kubectlPath string) error
+	RemoveKubectlSymlink func(k3sBinaryPath, kubectlPath string) error
 	// DaemonReload refreshes systemd's cached unit-file list. Required
 	// after removing a unit file (teardown) — DetectService's presence
 	// check reads that cache, not the filesystem, so without this a
@@ -26,14 +32,16 @@ type Ops struct {
 // DefaultOps wires Ops to the real package-level functions above.
 func DefaultOps() Ops {
 	return Ops{
-		DetectService:  DetectService,
-		WriteConfig:    WriteConfig,
-		WriteUnit:      WriteUnit,
-		InstallBinary:  InstallBinary,
-		EnableAndStart: EnableAndStart,
-		Stop:           Stop,
-		Restart:        Restart,
-		DaemonReload:   DaemonReload,
-		Version:        Version,
+		DetectService:        DetectService,
+		WriteConfig:          WriteConfig,
+		WriteUnit:            WriteUnit,
+		InstallBinary:        InstallBinary,
+		EnableAndStart:       EnableAndStart,
+		Stop:                 Stop,
+		Restart:              Restart,
+		DaemonReload:         DaemonReload,
+		Version:              Version,
+		EnsureKubectlSymlink: EnsureKubectlSymlink,
+		RemoveKubectlSymlink: RemoveKubectlSymlink,
 	}
 }

@@ -48,6 +48,10 @@ type Options struct {
 	K3sUnitPath        string
 	K3sBinaryDestPath  string
 	K3sUnitName        string
+	// KubectlSymlinkPath is where a "kubectl" symlink to K3sBinaryDestPath
+	// is created (K3s is a multicall binary, so this makes plain
+	// `kubectl` work as a real, standalone command on the host).
+	KubectlSymlinkPath string
 	// K3sDataDir is K3s's own data directory (e.g. /var/lib/rancher/k3s),
 	// distinct from K3sConfigPath. It backs the "data-dir" config key,
 	// the preflight disk-space check, and is what `zonctl backup`
@@ -202,6 +206,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		if err := o.K3s.InstallBinary(resolved.K3sBinaryPath, opts.K3sBinaryDestPath); err != nil {
 			return nil, checks, fmt.Errorf("install: install k3s binary: %w", err)
 		}
+		if err := o.K3s.EnsureKubectlSymlink(opts.K3sBinaryDestPath, opts.KubectlSymlinkPath); err != nil {
+			return nil, checks, fmt.Errorf("install: create kubectl symlink: %w", err)
+		}
 
 		if err := o.K3s.EnableAndStart(opts.K3sUnitName); err != nil {
 			return nil, checks, fmt.Errorf("install: start k3s: %w", err)
@@ -215,6 +222,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		rollbacks = append(rollbacks, func() error {
 			var errs []error
 			if err := o.K3s.Stop(opts.K3sUnitName); err != nil {
+				errs = append(errs, err)
+			}
+			if err := o.K3s.RemoveKubectlSymlink(opts.K3sBinaryDestPath, opts.KubectlSymlinkPath); err != nil {
 				errs = append(errs, err)
 			}
 			for _, path := range []string{opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath} {

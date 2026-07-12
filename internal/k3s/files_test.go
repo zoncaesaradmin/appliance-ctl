@@ -77,3 +77,89 @@ func TestInstallBinary_MissingSourceFailsClosed(t *testing.T) {
 		t.Error("expected missing source binary to fail")
 	}
 }
+
+func TestEnsureKubectlSymlink_CreatesSymlinkToK3sBinary(t *testing.T) {
+	dir := t.TempDir()
+	k3sPath := filepath.Join(dir, "k3s")
+	kubectlPath := filepath.Join(dir, "kubectl")
+
+	if err := k3s.EnsureKubectlSymlink(k3sPath, kubectlPath); err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := os.Readlink(kubectlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != k3sPath {
+		t.Errorf("expected symlink to point at %s, got %s", k3sPath, target)
+	}
+}
+
+// This is the exact scenario that broke `kubectl` on a real appliance: a
+// stale symlink (e.g. left over from a previous install/uninstall cycle)
+// already occupies kubectlPath. EnsureKubectlSymlink must replace it, not
+// silently leave the stale target in place.
+func TestEnsureKubectlSymlink_ReplacesStaleSymlink(t *testing.T) {
+	dir := t.TempDir()
+	oldTarget := filepath.Join(dir, "old-k3s-now-gone")
+	k3sPath := filepath.Join(dir, "k3s")
+	kubectlPath := filepath.Join(dir, "kubectl")
+
+	if err := os.Symlink(oldTarget, kubectlPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := k3s.EnsureKubectlSymlink(k3sPath, kubectlPath); err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := os.Readlink(kubectlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != k3sPath {
+		t.Errorf("expected the stale symlink to be replaced with one pointing at %s, got %s", k3sPath, target)
+	}
+}
+
+func TestRemoveKubectlSymlink_RemovesOnlyIfItPointsAtK3sBinary(t *testing.T) {
+	dir := t.TempDir()
+	k3sPath := filepath.Join(dir, "k3s")
+	kubectlPath := filepath.Join(dir, "kubectl")
+
+	if err := os.Symlink(k3sPath, kubectlPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := k3s.RemoveKubectlSymlink(k3sPath, kubectlPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(kubectlPath); !os.IsNotExist(err) {
+		t.Errorf("expected the symlink to be removed, stat err=%v", err)
+	}
+}
+
+// An operator-managed kubectl (or one pointing somewhere zonctl never
+// created) is not this package's to delete.
+func TestRemoveKubectlSymlink_LeavesUnrelatedEntryAlone(t *testing.T) {
+	dir := t.TempDir()
+	k3sPath := filepath.Join(dir, "k3s")
+	kubectlPath := filepath.Join(dir, "kubectl")
+
+	if err := os.WriteFile(kubectlPath, []byte("a real, unrelated kubectl binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := k3s.RemoveKubectlSymlink(k3sPath, kubectlPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(kubectlPath); err != nil {
+		t.Errorf("expected the unrelated kubectl to survive, stat err=%v", err)
+	}
+}
+
+func TestRemoveKubectlSymlink_MissingPathIsNotAnError(t *testing.T) {
+	dir := t.TempDir()
+	if err := k3s.RemoveKubectlSymlink(filepath.Join(dir, "k3s"), filepath.Join(dir, "kubectl")); err != nil {
+		t.Errorf("expected a missing kubectl path to be a no-op, got: %v", err)
+	}
+}

@@ -27,15 +27,17 @@ func (f *fakeK3s) ops() k3s.Ops {
 			f.daemonReloadCalls++
 			return f.daemonReloadErr
 		},
+		RemoveKubectlSymlink: k3s.RemoveKubectlSymlink,
 	}
 }
 
-func setupInstalledFiles(t *testing.T) (stateDir string, binaryPath, configPath, unitPath, installedStatePath, dataDir string) {
+func setupInstalledFiles(t *testing.T) (stateDir string, binaryPath, configPath, unitPath, kubectlSymlinkPath, installedStatePath, dataDir string) {
 	t.Helper()
 	stateDir = t.TempDir()
 	binaryPath = filepath.Join(stateDir, "bin", "k3s")
 	configPath = filepath.Join(stateDir, "k3s", "config.yaml")
 	unitPath = filepath.Join(stateDir, "systemd", "k3s.service")
+	kubectlSymlinkPath = filepath.Join(stateDir, "bin", "kubectl")
 	installedStatePath = filepath.Join(stateDir, "installed-state.json")
 	dataDir = filepath.Join(stateDir, "k3s-data")
 
@@ -47,22 +49,25 @@ func setupInstalledFiles(t *testing.T) (stateDir string, binaryPath, configPath,
 			t.Fatal(err)
 		}
 	}
+	if err := os.Symlink(binaryPath, kubectlSymlinkPath); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(dataDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dataDir, "state.db"), []byte("appliance data"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	return stateDir, binaryPath, configPath, unitPath, installedStatePath, dataDir
+	return stateDir, binaryPath, configPath, unitPath, kubectlSymlinkPath, installedStatePath, dataDir
 }
 
 // Data preservation: uninstall must remove K3s and the ownership record
 // but must never touch the data directory.
 func TestUninstall_PreservesDataDirectory(t *testing.T) {
-	_, binaryPath, configPath, unitPath, installedStatePath, dataDir := setupInstalledFiles(t)
+	_, binaryPath, configPath, unitPath, kubectlSymlinkPath, installedStatePath, dataDir := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	checks, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath)
+	checks, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath)
 	if err != nil {
 		t.Fatalf("expected uninstall to succeed, got: %v", err)
 	}
@@ -91,11 +96,27 @@ func TestUninstall_PreservesDataDirectory(t *testing.T) {
 	}
 }
 
+// This is the exact incident this test guards against: a stale "kubectl"
+// symlink left pointing at a removed k3s binary silently breaks every
+// future `kubectl` invocation (zonctl's own included) until the next
+// install happens to overwrite it. Uninstall must clean it up itself.
+func TestUninstall_RemovesKubectlSymlink(t *testing.T) {
+	_, binaryPath, configPath, unitPath, kubectlSymlinkPath, installedStatePath, _ := setupInstalledFiles(t)
+	fake := &fakeK3s{}
+
+	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath); err != nil {
+		t.Fatalf("expected uninstall to succeed, got: %v", err)
+	}
+	if _, err := os.Lstat(kubectlSymlinkPath); !os.IsNotExist(err) {
+		t.Errorf("expected the kubectl symlink to be removed, stat err=%v", err)
+	}
+}
+
 func TestUninstall_StopFailurePropagatesAndPreservesFiles(t *testing.T) {
-	_, binaryPath, configPath, unitPath, installedStatePath, _ := setupInstalledFiles(t)
+	_, binaryPath, configPath, unitPath, kubectlSymlinkPath, installedStatePath, _ := setupInstalledFiles(t)
 	fake := &fakeK3s{stopErr: os.ErrPermission}
 
-	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath); err == nil {
+	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath); err == nil {
 		t.Fatal("expected a stop failure to fail the uninstall")
 	}
 	if _, err := os.Stat(binaryPath); err != nil {
@@ -106,10 +127,10 @@ func TestUninstall_StopFailurePropagatesAndPreservesFiles(t *testing.T) {
 // Destructive confirmation, at the package level: factory-reset refuses
 // outright without a verified backup or an explicit override.
 func TestFactoryReset_RefusesWithoutBackupOrOverride(t *testing.T) {
-	_, binaryPath, configPath, unitPath, installedStatePath, dataDir := setupInstalledFiles(t)
+	_, binaryPath, configPath, unitPath, kubectlSymlinkPath, installedStatePath, dataDir := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, dataDir, false, false); err == nil {
+	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath, dataDir, false, false); err == nil {
 		t.Fatal("expected factory-reset to refuse without a verified backup or override")
 	}
 	if fake.stopCalls != 0 {
@@ -121,10 +142,10 @@ func TestFactoryReset_RefusesWithoutBackupOrOverride(t *testing.T) {
 }
 
 func TestFactoryReset_WipesDataWithVerifiedBackup(t *testing.T) {
-	_, binaryPath, configPath, unitPath, installedStatePath, dataDir := setupInstalledFiles(t)
+	_, binaryPath, configPath, unitPath, kubectlSymlinkPath, installedStatePath, dataDir := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, dataDir, true, false); err != nil {
+	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath, dataDir, true, false); err != nil {
 		t.Fatalf("expected factory-reset to succeed with a verified backup, got: %v", err)
 	}
 	if _, err := os.Stat(dataDir); !os.IsNotExist(err) {
@@ -133,10 +154,10 @@ func TestFactoryReset_WipesDataWithVerifiedBackup(t *testing.T) {
 }
 
 func TestFactoryReset_WipesDataWithExplicitOverride(t *testing.T) {
-	_, binaryPath, configPath, unitPath, installedStatePath, dataDir := setupInstalledFiles(t)
+	_, binaryPath, configPath, unitPath, kubectlSymlinkPath, installedStatePath, dataDir := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, dataDir, false, true); err != nil {
+	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath, dataDir, false, true); err != nil {
 		t.Fatalf("expected factory-reset to succeed with an explicit override, got: %v", err)
 	}
 	if _, err := os.Stat(dataDir); !os.IsNotExist(err) {

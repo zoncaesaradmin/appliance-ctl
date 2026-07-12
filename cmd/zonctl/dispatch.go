@@ -256,6 +256,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		K3sDataDir:             defaultK3sDataDir,
 		K3sUnitPath:            defaultK3sUnitPath,
 		K3sBinaryDestPath:      defaultK3sBinaryDestPath,
+		KubectlSymlinkPath:     defaultKubectlSymlinkPath,
 		K3sUnitName:            defaultK3sUnitName,
 		KubeconfigPath:         defaultKubeconfigPath,
 		NodeName:               opts.nodeName,

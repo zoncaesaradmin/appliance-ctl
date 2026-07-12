@@ -19,7 +19,7 @@ import (
 // config files this appliance installed. It never touches the data
 // directory: that decision belongs to the caller (Uninstall preserves
 // it; FactoryReset wipes it).
-func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath string) ([]evidence.Check, error) {
+func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath, kubectlSymlinkPath string) ([]evidence.Check, error) {
 	var checks []evidence.Check
 
 	stopStart := time.Now()
@@ -31,6 +31,20 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath string) (
 		Message: "k3s stopped", Timestamp: stopStart.UTC(),
 		DurationMs: time.Since(stopStart).Milliseconds(), Idempotent: true, SecretsRedacted: true,
 	})
+
+	// Removed before the binary itself: RemoveKubectlSymlink only acts
+	// when the symlink still points at binaryPath, so it must run while
+	// that target still exists to identify. Left in place, it would
+	// dangle after the binary is removed below and silently break every
+	// future `kubectl` invocation — zonctl's own included — until the
+	// next install happens to recreate it.
+	if err := ops.RemoveKubectlSymlink(binaryPath, kubectlSymlinkPath); err != nil {
+		checks = append(checks, evidence.Check{
+			ID: "teardown-remove-kubectl-symlink", Category: "k3s", Status: evidence.StatusFail,
+			Message: err.Error(), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+		return checks, fmt.Errorf("teardown: remove kubectl symlink: %w", err)
+	}
 
 	for _, path := range []string{unitPath, binaryPath, configPath} {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -67,8 +81,8 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath string) (
 // Uninstall removes K3s (service, binary, config) and the
 // installed-state record, but leaves dataDir untouched: "uninstall
 // preserves appliance data by default."
-func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, binaryPath, configPath, unitPath string) ([]evidence.Check, error) {
-	checks, err := removeK3s(ops, unitName, binaryPath, configPath, unitPath)
+func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath string) ([]evidence.Check, error) {
+	checks, err := removeK3s(ops, unitName, binaryPath, configPath, unitPath, kubectlSymlinkPath)
 	if err != nil {
 		return checks, err
 	}
@@ -87,12 +101,12 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 // refuses outright unless recentBackupVerified or dataLossOverride is
 // true: "factory-reset requires a recent verified backup or a
 // separately confirmed data-loss override," never both silently assumed.
-func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, binaryPath, configPath, unitPath, dataDir string, recentBackupVerified, dataLossOverride bool) ([]evidence.Check, error) {
+func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath, dataDir string, recentBackupVerified, dataLossOverride bool) ([]evidence.Check, error) {
 	if !recentBackupVerified && !dataLossOverride {
 		return nil, fmt.Errorf("teardown: factory-reset requires a recent verified backup or an explicit data-loss override")
 	}
 
-	checks, err := removeK3s(ops, unitName, binaryPath, configPath, unitPath)
+	checks, err := removeK3s(ops, unitName, binaryPath, configPath, unitPath, kubectlSymlinkPath)
 	if err != nil {
 		return checks, err
 	}

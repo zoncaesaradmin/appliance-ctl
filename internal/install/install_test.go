@@ -228,6 +228,17 @@ func (f *fakeK3s) ops() k3s.Ops {
 			f.calls = append(f.calls, "version")
 			return f.runningVersion, nil
 		},
+		EnsureKubectlSymlink: func(k3sBinaryPath, kubectlPath string) error {
+			f.calls = append(f.calls, "ensure-kubectl-symlink")
+			if f.failStep == "ensure-kubectl-symlink" {
+				return errors.New("simulated ensure-kubectl-symlink failure")
+			}
+			return nil
+		},
+		RemoveKubectlSymlink: func(k3sBinaryPath, kubectlPath string) error {
+			f.calls = append(f.calls, "remove-kubectl-symlink")
+			return nil
+		},
 	}
 }
 
@@ -304,6 +315,7 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		K3sDataDir:             filepath.Join(stateDir, "k3s", "data"),
 		K3sUnitPath:            filepath.Join(stateDir, "systemd", "k3s.service"),
 		K3sBinaryDestPath:      filepath.Join(stateDir, "bin", "k3s"),
+		KubectlSymlinkPath:     filepath.Join(stateDir, "bin", "kubectl"),
 		K3sUnitName:            "k3s.service",
 		KubeconfigPath:         filepath.Join(stateDir, "k3s.yaml"),
 		NodeName:               "appliance-node",
