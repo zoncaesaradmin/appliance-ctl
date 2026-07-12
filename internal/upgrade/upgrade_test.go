@@ -301,6 +301,36 @@ func TestUpgrade_PreservesInstalledApplianceProfileWhenFlagOmitted(t *testing.T)
 	}
 }
 
+func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
+	env := setupEnvironment(t, "2.4.0", "v1.30.4+k3s1", "2.4.0", "builder")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	updated, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
+	if err != nil {
+		t.Fatalf("expected same-version refresh to succeed, got: %v", err)
+	}
+	if updated.InstalledVersion != "2.4.0" {
+		t.Fatalf("installed version = %q, want 2.4.0", updated.InstalledVersion)
+	}
+	if updated.ApplianceProfile != "builder" {
+		t.Fatalf("appliance profile = %q, want builder", updated.ApplianceProfile)
+	}
+	if strings.Contains(strings.Join(fake.calls, " "), "install-binary") {
+		t.Fatalf("expected same-version refresh not to replace the k3s binary, got calls %v", fake.calls)
+	}
+	if !strings.Contains(fcli.lastHelmValues, "applianceProfile: builder") {
+		t.Fatalf("prepared values file missing builder profile: %s", fcli.lastHelmValues)
+	}
+}
+
 // Unsupported source version must be refused before any mutation.
 func TestUpgrade_RefusesUnsupportedSource(t *testing.T) {
 	env := setupEnvironment(t, "2.1.0", "v1.29.0+k3s1", "2.1.0", "core")

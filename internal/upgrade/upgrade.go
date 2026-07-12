@@ -100,6 +100,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if targetVersion == "" {
 		return nil, checks, fmt.Errorf("upgrade: resolved bundle version is empty")
 	}
+	sameVersionRefresh := strings.TrimSpace(installed.InstalledVersion) == targetVersion
 
 	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, installed.ApplianceProfile)
 	if err != nil {
@@ -111,7 +112,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 	defer cleanupPreparedValues()
 
-	if !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
+	if !sameVersionRefresh && !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
 		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, targetVersion, resolved.Compatibility.SupportedUpgradeSources)
 	}
 	k3sBinarySrc := resolved.K3sBinaryPath
