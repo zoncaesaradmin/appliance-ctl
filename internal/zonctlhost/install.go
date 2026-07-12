@@ -1,6 +1,7 @@
 package zonctlhost
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,6 +50,28 @@ func Install(spec InstallSpec) (func() error, error) {
 	}
 
 	return rollback, nil
+}
+
+// Uninstall removes the launcher and real binary this appliance
+// installed. It is meant only for a deliberate, total teardown
+// (factory-reset) — routine uninstall keeps zonctl in place so the host
+// can be reinstalled with the same command that removed it.
+//
+// It is safe to call from the very process it's deleting: on Linux,
+// removing an executable's directory entry only unlinks the name — the
+// kernel keeps the already-open inode (and the running process built
+// from it) alive until every reference, including the process's own
+// mapped executable, is gone. realDestPath is what's actually running
+// (the launcher at launcherDestPath just execs into it); both are safe
+// to remove in either order.
+func Uninstall(realDestPath, launcherDestPath string) error {
+	var errs []error
+	for _, path := range []string{launcherDestPath, realDestPath} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("zonctlhost: remove %s: %w", path, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type fileBackup struct {

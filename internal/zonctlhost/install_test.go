@@ -102,3 +102,41 @@ func TestInstallRollbackRestoresPreviousFiles(t *testing.T) {
 		t.Fatalf("expected old launcher to be restored, got %q", string(launcherData))
 	}
 }
+
+func TestUninstall_RemovesBothFiles(t *testing.T) {
+	dir := t.TempDir()
+	realDest := filepath.Join(dir, "usr-local-lib", "zon", "bin", "zonctl-real")
+	launcherDest := filepath.Join(dir, "usr-local-bin", "zonctl")
+	if err := os.MkdirAll(filepath.Dir(realDest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(launcherDest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(realDest, []byte("zonctl-real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(launcherDest, []byte("launcher"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := zonctlhost.Uninstall(realDest, launcherDest); err != nil {
+		t.Fatalf("expected uninstall to succeed, got: %v", err)
+	}
+
+	for _, p := range []string{realDest, launcherDest} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed, stat err=%v", p, err)
+		}
+	}
+}
+
+func TestUninstall_MissingFilesAreNotAnError(t *testing.T) {
+	dir := t.TempDir()
+	realDest := filepath.Join(dir, "zonctl-real")
+	launcherDest := filepath.Join(dir, "zonctl")
+
+	if err := zonctlhost.Uninstall(realDest, launcherDest); err != nil {
+		t.Errorf("expected missing files to be a no-op, got: %v", err)
+	}
+}

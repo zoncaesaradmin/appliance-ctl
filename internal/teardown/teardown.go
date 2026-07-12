@@ -13,6 +13,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
 
 // removeK3s stops the K3s service and removes the unit, binary, and
@@ -97,11 +98,12 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 	return checks, nil
 }
 
-// FactoryReset does everything Uninstall does, plus wipes dataDir. It
-// refuses outright unless recentBackupVerified or dataLossOverride is
-// true: "factory-reset requires a recent verified backup or a
-// separately confirmed data-loss override," never both silently assumed.
-func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath, dataDir string, recentBackupVerified, dataLossOverride bool) ([]evidence.Check, error) {
+// FactoryReset does everything Uninstall does, plus wipes dataDir,
+// stateDir, and removes zonctl itself. It refuses outright unless
+// recentBackupVerified or dataLossOverride is true: "factory-reset
+// requires a recent verified backup or a separately confirmed
+// data-loss override," never both silently assumed.
+func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, unitPath, kubectlSymlinkPath, dataDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride bool) ([]evidence.Check, error) {
 	if !recentBackupVerified && !dataLossOverride {
 		return nil, fmt.Errorf("teardown: factory-reset requires a recent verified backup or an explicit data-loss override")
 	}
@@ -119,8 +121,38 @@ func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, installedStatePath
 		Message: "appliance data directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
 
-	if err := os.Remove(installedStatePath); err != nil && !os.IsNotExist(err) {
-		return checks, fmt.Errorf("teardown: remove installed-state: %w", err)
+	// stateDir holds more than installed-state.json: the installer lock,
+	// transaction journal, evidence history, support bundles, and —
+	// notably — zonctl backup's own snapshots of appliance data.
+	// "Factory reset" leaving old backups sitting on disk would defeat
+	// the point, so this removes the whole directory, not just the one
+	// file. The caller recreates it fresh (via MkdirAll) to persist this
+	// very operation's own evidence report immediately afterward, which
+	// is the one thing intentionally left behind: a receipt that a
+	// factory-reset happened.
+	if err := os.RemoveAll(stateDir); err != nil {
+		return checks, fmt.Errorf("teardown: remove state directory: %w", err)
 	}
+	checks = append(checks, evidence.Check{
+		ID: "teardown-wipe-state-dir", Category: "backup-restore", Status: evidence.StatusPass,
+		Message:   "state directory removed (installer lock, transaction journal, evidence history, support bundles, backups)",
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+
+	// Last step, deliberately: every other check above has already
+	// succeeded, so this is the one point of no return. Safe even though
+	// it deletes the binary this very process is running from — see
+	// zonctlhost.Uninstall's doc comment.
+	if err := zonctlhost.Uninstall(zonctlRealPath, zonctlLauncherPath); err != nil {
+		checks = append(checks, evidence.Check{
+			ID: "teardown-remove-zonctl", Category: "manifest", Status: evidence.StatusFail,
+			Message: err.Error(), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+		return checks, fmt.Errorf("teardown: remove zonctl: %w", err)
+	}
+	checks = append(checks, evidence.Check{
+		ID: "teardown-remove-zonctl", Category: "manifest", Status: evidence.StatusPass,
+		Message: "zonctl removed from host", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
 	return checks, nil
 }

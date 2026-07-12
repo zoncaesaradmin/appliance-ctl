@@ -65,7 +65,7 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	}
 
 	ops := k3s.DefaultOps()
-	checks, err := teardown.FactoryReset(ctx, ops, defaultK3sUnitName, installedStatePath(opts.stateDir), defaultK3sBinaryDestPath, defaultK3sConfigPath, defaultK3sUnitPath, defaultKubectlSymlinkPath, defaultK3sDataDir, backupVerified, opts.forceDataLoss)
+	checks, err := teardown.FactoryReset(ctx, ops, defaultK3sUnitName, opts.stateDir, defaultK3sBinaryDestPath, defaultK3sConfigPath, defaultK3sUnitPath, defaultKubectlSymlinkPath, defaultK3sDataDir, defaultZonctlRealPath, defaultZonctlLauncherPath, backupVerified, opts.forceDataLoss)
 
 	reportID := "evidence-" + time.Now().UTC().Format("20060102T150405Z0700")
 	if report, buildErr := evidence.BuildReport("factory-reset", version, reportID, checks, time.Now()); buildErr == nil {
