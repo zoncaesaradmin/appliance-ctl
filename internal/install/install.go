@@ -31,8 +31,8 @@ import (
 const (
 	containerdReadyTimeout      = 60 * time.Second
 	containerdReadyPollInterval = 1 * time.Second
-	argoReleaseName             = "appliance-argo-workflows"
-	argoNamespace               = "appliance-workflows"
+	argoReleaseName             = "argo-workflows"
+	argoNamespace               = "workflows"
 )
 
 // Options fully parameterizes a fresh install. Every path is explicit

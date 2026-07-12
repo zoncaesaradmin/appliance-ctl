@@ -90,7 +90,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 	}
 	if includeArgo {
 		entries = append(entries,
-			fixtureEntry{"charts/appliance-argo-workflows-chart-3.5.10.tgz", "chart", "fake argo chart bytes", ""},
+			fixtureEntry{"charts/argo-workflows-chart-3.5.10.tgz", "chart", "fake argo chart bytes", ""},
 			fixtureEntry{"kubernetes/crds/workflows.argoproj.io.yaml", "kubernetes-crds", "kind: CustomResourceDefinition\n", ""},
 			fixtureEntry{"oci-images/argo-controller.tar", "oci-images", "fake argo controller image tar", "quay.io/argoproj/workflow-controller:v3.5.10"},
 			fixtureEntry{"oci-images/argo-executor.tar", "oci-images", "fake argo executor image tar", "quay.io/argoproj/argoexec:v3.5.10"},
@@ -406,7 +406,7 @@ func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
 		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "apply -f") && strings.Contains(c, "workflows.argoproj.io.yaml") {
 			sawCRDApply = true
 		}
-		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install appliance-argo-workflows") {
+		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install argo-workflows") {
 			sawArgoHelm = true
 		}
 	}

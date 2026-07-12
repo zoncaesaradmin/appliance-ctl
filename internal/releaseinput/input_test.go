@@ -115,7 +115,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	writeFile(t, root, "provenance/appliance.provenance.json", "{}")
 	writeFile(t, root, "notices/THIRD-PARTY-NOTICES.txt", "notice")
 	writeFile(t, root, "tests/conformance.tar.zst", "tests")
-	writeFile(t, root, "appliance-argo-workflows-chart-3.5.10.tgz", "argo-chart-bytes")
+	writeFile(t, root, "argo-workflows-chart-3.5.10.tgz", "argo-chart-bytes")
 	writeFile(t, root, "argo-controller.oci.tar.zst", "argo-controller")
 	writeFile(t, root, "argo-executor.oci.tar.zst", "argo-executor")
 	writeFile(t, root, "argo-crds/workflows.argoproj.io.yaml", "kind: CustomResourceDefinition\n")
@@ -150,7 +150,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"provenance":          map[string]any{"path": "provenance", "manifestDigest": dirDigestOf("provenance")},
 			"notices":             map[string]any{"path": "notices", "manifestDigest": dirDigestOf("notices")},
 			"tests":               map[string]any{"path": "tests", "manifestDigest": dirDigestOf("tests")},
-			"argoWorkflowsChart":  map[string]any{"path": "appliance-argo-workflows-chart-3.5.10.tgz", "digest": digestOf("appliance-argo-workflows-chart-3.5.10.tgz"), "sizeBytes": len("argo-chart-bytes")},
+			"argoWorkflowsChart":  map[string]any{"path": "argo-workflows-chart-3.5.10.tgz", "digest": digestOf("argo-workflows-chart-3.5.10.tgz"), "sizeBytes": len("argo-chart-bytes")},
 			"argoCRDs":            map[string]any{"path": "argo-crds", "manifestDigest": dirDigestOf("argo-crds")},
 			"argoControllerImage": map[string]any{"path": "argo-controller.oci.tar.zst", "digest": digestOf("argo-controller.oci.tar.zst"), "sizeBytes": len("argo-controller"), "imageReference": "quay.io/argoproj/workflow-controller:v3.5.10"},
 			"argoExecutorImage":   map[string]any{"path": "argo-executor.oci.tar.zst", "digest": digestOf("argo-executor.oci.tar.zst"), "sizeBytes": len("argo-executor"), "imageReference": "quay.io/argoproj/argoexec:v3.5.10"},
@@ -176,7 +176,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	if in.Compatibility.ArgoVersion != "3.5.10" {
 		t.Fatalf("expected argoVersion 3.5.10, got %+v", in.Compatibility)
 	}
-	if filepath.Base(in.Artifacts.ArgoWorkflowsChart.Path) != "appliance-argo-workflows-chart-3.5.10.tgz" {
+	if filepath.Base(in.Artifacts.ArgoWorkflowsChart.Path) != "argo-workflows-chart-3.5.10.tgz" {
 		t.Fatalf("unexpected argo chart artifact: %+v", in.Artifacts.ArgoWorkflowsChart)
 	}
 	if filepath.Base(in.Artifacts.ArgoControllerImage.Path) != "argo-controller.oci.tar.zst" {

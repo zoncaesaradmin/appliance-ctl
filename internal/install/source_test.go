@@ -101,12 +101,12 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real": "fake zonctl binary",
-		"k3s/binary/k3s":  "fake k3s binary",
-		"charts/appliance-argo-workflows-chart-3.5.10.tgz": "fake argo chart",
-		"charts/appliance-chart-2.4.0.tgz":                 "fake appliance chart",
-		"configuration/values.yaml":                        "replicaCount: 1\n",
-		"kubernetes/crds/workflows.argoproj.io.yaml":       "kind: CustomResourceDefinition\n",
+		"bin/zonctl-real":                            "fake zonctl binary",
+		"k3s/binary/k3s":                             "fake k3s binary",
+		"charts/argo-workflows-chart-3.5.10.tgz":     "fake argo chart",
+		"charts/appliance-chart-2.4.0.tgz":           "fake appliance chart",
+		"configuration/values.yaml":                  "replicaCount: 1\n",
+		"kubernetes/crds/workflows.argoproj.io.yaml": "kind: CustomResourceDefinition\n",
 	}
 
 	var manifestEntries []map[string]any
@@ -179,7 +179,7 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 	if filepath.Base(resolved.ChartPath) != "appliance-chart-2.4.0.tgz" {
 		t.Fatalf("expected appliance chart to be selected, got %s", resolved.ChartPath)
 	}
-	if filepath.Base(resolved.ArgoChartPath) != "appliance-argo-workflows-chart-3.5.10.tgz" {
+	if filepath.Base(resolved.ArgoChartPath) != "argo-workflows-chart-3.5.10.tgz" {
 		t.Fatalf("expected argo chart to be selected, got %s", resolved.ArgoChartPath)
 	}
 	if len(resolved.ArgoCRDPaths) != 1 || filepath.Base(resolved.ArgoCRDPaths[0]) != "workflows.argoproj.io.yaml" {

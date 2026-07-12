@@ -124,7 +124,7 @@ func applianceChartPath(b *bundle.Bundle) (string, error) {
 func optionalArgoChartPath(b *bundle.Bundle) string {
 	for _, e := range b.Entries("chart") {
 		base := strings.ToLower(filepath.Base(e.Path))
-		if strings.HasPrefix(base, "appliance-argo-workflows") {
+		if strings.HasPrefix(base, "argo-workflows") {
 			return e.Path
 		}
 	}
