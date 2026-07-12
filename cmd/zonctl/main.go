@@ -46,6 +46,7 @@ type cliOptions struct {
 	configPath          string
 	bundleDir           string
 	publicKey           string
+	applianceProfile    string
 	nodeName            string
 	bootstrapAdminUser  string
 	bootstrapPassStdin  bool
@@ -121,6 +122,7 @@ func run(args []string) int {
 	configPath := fs.String("config", "", "path to a bundle assembly config JSON file (required for assemble-bundle)")
 	bundleDir := fs.String("bundle-dir", "", "path to an extracted signed appliance bundle directory (required for install/upgrade)")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
+	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage); install defaults to core and upgrade preserves the installed profile when omitted")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
 	bootstrapAdminUser := fs.String("bootstrap-admin-username", "admin", "username for the first administrator created during install")
 	bootstrapPassStdin := fs.Bool("bootstrap-password-stdin", false, "read the first administrator password from stdin instead of prompting on the terminal")
@@ -149,6 +151,7 @@ func run(args []string) int {
 		configPath:          *configPath,
 		bundleDir:           *bundleDir,
 		publicKey:           *publicKey,
+		applianceProfile:    *applianceProfile,
 		nodeName:            *nodeName,
 		bootstrapAdminUser:  *bootstrapAdminUser,
 		bootstrapPassStdin:  *bootstrapPassStdin,

@@ -16,6 +16,7 @@ func sampleState() *state.InstalledState {
 		ApplianceInstanceID: "9f4d6b1e-2a3c-4e5f-8b1a-7c6d5e4f3a2b",
 		InstalledVersion:    "2.4.0",
 		InstalledReleaseID:  "01J8QK3F9G7XA6P0V6ZC9N6R4T",
+		ApplianceProfile:    "builder",
 		Components: state.Components{
 			K3sVersion:   "v1.30.4+k3s1",
 			ChartVersion: "2.4.0",
@@ -59,6 +60,9 @@ func TestSaveThenLoad_RoundTrips(t *testing.T) {
 	}
 	if got.InstalledVersion != want.InstalledVersion || got.ApplianceInstanceID != want.ApplianceInstanceID {
 		t.Errorf("round-tripped state does not match: got %+v, want %+v", got, want)
+	}
+	if got.ApplianceProfile != want.ApplianceProfile {
+		t.Fatalf("appliance profile = %q, want %q", got.ApplianceProfile, want.ApplianceProfile)
 	}
 	if !got.K3sOwnership.Owned {
 		t.Error("expected K3sOwnership.Owned to survive the round trip")

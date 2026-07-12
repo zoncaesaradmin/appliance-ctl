@@ -17,6 +17,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
@@ -35,6 +36,7 @@ type Options struct {
 	K3sUnitName            string
 	K3sDataDir             string
 	KubeconfigPath         string
+	ApplianceProfile       string
 	NodeName               string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
@@ -99,12 +101,21 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: resolved bundle version is empty")
 	}
 
+	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, installed.ApplianceProfile)
+	if err != nil {
+		return nil, checks, fmt.Errorf("upgrade: %w", err)
+	}
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile)
+	if err != nil {
+		return nil, checks, fmt.Errorf("upgrade: %w", err)
+	}
+	defer cleanupPreparedValues()
+
 	if !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
 		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, targetVersion, resolved.Compatibility.SupportedUpgradeSources)
 	}
 	k3sBinarySrc := resolved.K3sBinaryPath
 	chartPath := resolved.ChartPath
-	configSchemaPath := resolved.ConfigurationPath
 
 	// Mandatory pre-upgrade recovery set.
 	backupManifest, backupChecks, err := backup.Create(ctx, o.K3s, opts.K3sUnitName, opts.K3sDataDir, opts.BackupRoot, installed.InstalledVersion)
@@ -200,7 +211,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Name:       opts.ChartReleaseName,
 		ChartPath:  chartPath,
 		Namespace:  opts.ChartNamespace,
-		ValuesPath: configSchemaPath,
+		ValuesPath: preparedValuesPath,
 	})
 	checks = append(checks, prepared.Checks...)
 	if err != nil {
@@ -209,7 +220,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
 	}
 
-	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, configSchemaPath)
+	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, preparedValuesPath)
 	checks = append(checks, readinessChecks...)
 	if err != nil {
 		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
@@ -222,7 +233,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Name:       opts.ChartReleaseName,
 		ChartPath:  chartPath,
 		Namespace:  opts.ChartNamespace,
-		ValuesPath: configSchemaPath,
+		ValuesPath: preparedValuesPath,
 	})
 	checks = append(checks, chartCheck)
 	if err != nil {
@@ -230,7 +241,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Name:       opts.ChartReleaseName,
 			ChartPath:  chartPath,
 			Namespace:  opts.ChartNamespace,
-			ValuesPath: configSchemaPath,
+			ValuesPath: preparedValuesPath,
 		})...)
 		_ = prepared.Cleanup()
 		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
@@ -257,6 +268,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		ApplianceInstanceID: installed.ApplianceInstanceID,
 		InstalledVersion:    targetVersion,
 		InstalledReleaseID:  resolved.ReleaseID,
+		ApplianceProfile:    effectiveProfile,
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,

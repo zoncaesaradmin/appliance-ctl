@@ -17,7 +17,9 @@
     "updatedAt"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": {
+      "const": 1
+    },
     "applianceInstanceId": {
       "type": "string",
       "minLength": 1,
@@ -27,38 +29,82 @@
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
     },
-    "installedReleaseId": { "type": "string", "minLength": 1 },
+    "installedReleaseId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "applianceProfile": {
+      "type": "string",
+      "enum": [
+        "core",
+        "builder",
+        "storage"
+      ],
+      "description": "Product-facing appliance profile selected for this installation."
+    },
     "components": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["k3sVersion", "chartVersion"],
+      "required": [
+        "k3sVersion",
+        "chartVersion"
+      ],
       "properties": {
-        "k3sVersion": { "type": "string", "minLength": 1 },
-        "chartVersion": { "type": "string", "minLength": 1 }
+        "k3sVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chartVersion": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "k3sOwnership": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["owned", "ownerApplianceVersion"],
+      "required": [
+        "owned",
+        "ownerApplianceVersion"
+      ],
       "properties": {
-        "owned": { "const": true },
-        "ownerApplianceVersion": { "type": "string", "minLength": 1 }
+        "owned": {
+          "const": true
+        },
+        "ownerApplianceVersion": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
-    "lastOperation": { "$ref": "#/$defs/operation" },
+    "lastOperation": {
+      "$ref": "#/$defs/operation"
+    },
     "history": {
       "type": "array",
-      "items": { "$ref": "#/$defs/operation" }
+      "items": {
+        "$ref": "#/$defs/operation"
+      }
     },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "updatedAt": { "type": "string", "format": "date-time" }
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
   },
   "$defs": {
     "operation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "status", "transactionId", "startedAt"],
+      "required": [
+        "type",
+        "status",
+        "transactionId",
+        "startedAt"
+      ],
       "properties": {
         "type": {
           "enum": [
@@ -72,11 +118,25 @@
           ]
         },
         "status": {
-          "enum": ["in-progress", "completed", "failed", "rolled-back"]
+          "enum": [
+            "in-progress",
+            "completed",
+            "failed",
+            "rolled-back"
+          ]
         },
-        "transactionId": { "type": "string", "minLength": 1 },
-        "startedAt": { "type": "string", "format": "date-time" },
-        "completedAt": { "type": "string", "format": "date-time" },
+        "transactionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
         "sourceVersion": {
           "type": "string",
           "description": "Set for upgrade operations: the version upgraded from."
@@ -89,10 +149,20 @@
       "allOf": [
         {
           "if": {
-            "properties": { "status": { "const": "completed" } },
-            "required": ["status"]
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": [
+              "status"
+            ]
           },
-          "then": { "required": ["completedAt"] }
+          "then": {
+            "required": [
+              "completedAt"
+            ]
+          }
         }
       ]
     }

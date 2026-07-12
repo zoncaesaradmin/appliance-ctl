@@ -259,6 +259,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		KubectlSymlinkPath:     defaultKubectlSymlinkPath,
 		K3sUnitName:            defaultK3sUnitName,
 		KubeconfigPath:         defaultKubeconfigPath,
+		ApplianceProfile:       opts.applianceProfile,
 		NodeName:               opts.nodeName,
 		ZonctlRealDestPath:     defaultZonctlRealPath,
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,
@@ -309,9 +310,10 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 			"installedVersion": installed.InstalledVersion,
 			"releaseId":        installed.InstalledReleaseID,
 			"transactionId":    txn.ID,
+			"applianceProfile": installed.ApplianceProfile,
 			"warning":          "first-admin bootstrap failed: " + err.Error(),
 		})
-		return finish(result, "succeeded", 0, fmt.Sprintf("installed version %s (first-admin bootstrap failed, retry separately: %s)", installed.InstalledVersion, err.Error()), data)
+		return finish(result, "succeeded", 0, fmt.Sprintf("installed version %s with appliance profile %s (first-admin bootstrap failed, retry separately: %s)", installed.InstalledVersion, installed.ApplianceProfile, err.Error()), data)
 	}
 	if err != nil {
 		logger.Error("install failed", "error", err, "transactionId", txn.ID)
@@ -323,8 +325,9 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		"installedVersion": installed.InstalledVersion,
 		"releaseId":        installed.InstalledReleaseID,
 		"transactionId":    txn.ID,
+		"applianceProfile": installed.ApplianceProfile,
 	})
-	return finish(result, "succeeded", 0, fmt.Sprintf("installed version %s", installed.InstalledVersion), data)
+	return finish(result, "succeeded", 0, fmt.Sprintf("installed version %s with appliance profile %s", installed.InstalledVersion, installed.ApplianceProfile), data)
 }
 
 func persistEvidence(stateDir, reportID string, report []byte) error {

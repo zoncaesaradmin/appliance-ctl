@@ -95,6 +95,16 @@ type fakeK3s struct {
 	calls    []string
 }
 
+func valuesPathFromHelmCall(call string) string {
+	fields := strings.Fields(call)
+	for i := 0; i < len(fields)-1; i++ {
+		if fields[i] == "--values" {
+			return fields[i+1]
+		}
+	}
+	return ""
+}
+
 func (f *fakeK3s) ops() k3s.Ops {
 	return k3s.Ops{
 		DetectService: func(string) (k3s.ServiceSignal, error) {
@@ -143,7 +153,7 @@ type environment struct {
 	kubeconfigPath     string
 }
 
-func setupEnvironment(t *testing.T, installedVersion, k3sVersion, chartVersion string) environment {
+func setupEnvironment(t *testing.T, installedVersion, k3sVersion, chartVersion, applianceProfile string) environment {
 	t.Helper()
 	stateDir := t.TempDir()
 	env := environment{
@@ -178,6 +188,7 @@ func setupEnvironment(t *testing.T, installedVersion, k3sVersion, chartVersion s
 		ApplianceInstanceID: "test-instance",
 		InstalledVersion:    installedVersion,
 		InstalledReleaseID:  "prior-release",
+		ApplianceProfile:    applianceProfile,
 		Components:          state.Components{K3sVersion: k3sVersion, ChartVersion: chartVersion},
 		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: installedVersion},
 		LastOperation: state.Operation{
@@ -219,7 +230,7 @@ func TestUpgrade_SupportedSourceMatrix(t *testing.T) {
 
 	for _, source := range matrix {
 		t.Run(source, func(t *testing.T) {
-			env := setupEnvironment(t, source, "v1.30.0+k3s1", "2.3.0")
+			env := setupEnvironment(t, source, "v1.30.0+k3s1", "2.3.0", "core")
 			bundleDir, pub := buildBundle(t, bundleSpec{
 				bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 				supportedSources: matrix,
@@ -242,7 +253,7 @@ func TestUpgrade_SupportedSourceMatrix(t *testing.T) {
 }
 
 func TestUpgrade_UsesBundleVersionAsTargetVersion(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0")
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
@@ -265,9 +276,34 @@ func TestUpgrade_UsesBundleVersionAsTargetVersion(t *testing.T) {
 	}
 }
 
+func TestUpgrade_PreservesInstalledApplianceProfileWhenFlagOmitted(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "storage")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	updated, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
+	if err != nil {
+		t.Fatalf("expected upgrade to succeed, got: %v", err)
+	}
+	if updated.ApplianceProfile != "storage" {
+		t.Fatalf("appliance profile = %q, want storage", updated.ApplianceProfile)
+	}
+
+	if !strings.Contains(fcli.lastHelmValues, "applianceProfile: storage") {
+		t.Fatalf("prepared values file missing storage profile: %s", fcli.lastHelmValues)
+	}
+}
+
 // Unsupported source version must be refused before any mutation.
 func TestUpgrade_RefusesUnsupportedSource(t *testing.T) {
-	env := setupEnvironment(t, "2.1.0", "v1.29.0+k3s1", "2.1.0")
+	env := setupEnvironment(t, "2.1.0", "v1.29.0+k3s1", "2.1.0", "core")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0", "2.3.1"},
@@ -294,7 +330,7 @@ func TestUpgrade_RefusesUnsupportedSource(t *testing.T) {
 // restore-based rollback that leaves the data directory exactly as it
 // was before the upgrade attempt.
 func TestUpgrade_FailedChartApplyRollsBackToPreUpgradeBackup(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0")
+	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0", "core")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
@@ -342,7 +378,7 @@ func TestUpgrade_FailedChartApplyRollsBackToPreUpgradeBackup(t *testing.T) {
 }
 
 func TestUpgrade_RecreatesNamespaceAfterPriorTermination(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0")
+	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0", "core")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
@@ -370,7 +406,7 @@ func TestUpgrade_RecreatesNamespaceAfterPriorTermination(t *testing.T) {
 }
 
 func TestUpgrade_FailedChartApplyCleansInstallerManagedSecret(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0")
+	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0", "core")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
@@ -411,6 +447,7 @@ type fakeCLI struct {
 	namespaceTerminating bool
 	namespacePolls       int
 	secretExists         bool
+	lastHelmValues       string
 }
 
 func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, error) {
@@ -419,6 +456,13 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	for substr, fail := range f.failOn {
 		if fail && strings.Contains(call, substr) {
 			return "", fmt.Errorf("simulated failure for %q", substr)
+		}
+	}
+	if name == "helm" {
+		if valuesPath := valuesPathFromHelmCall(call); valuesPath != "" {
+			if data, err := os.ReadFile(valuesPath); err == nil {
+				f.lastHelmValues = string(data)
+			}
 		}
 	}
 	switch {

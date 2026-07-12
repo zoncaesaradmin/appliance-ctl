@@ -19,6 +19,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
@@ -58,6 +59,7 @@ type Options struct {
 	// snapshots.
 	K3sDataDir             string
 	KubeconfigPath         string
+	ApplianceProfile       string
 	NodeName               string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
@@ -140,6 +142,16 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if targetVersion == "" {
 		return nil, checks, fmt.Errorf("install: resolved bundle version is empty")
 	}
+
+	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, "")
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile)
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
+	defer cleanupPreparedValues()
 
 	signal, err := o.K3s.DetectService(opts.K3sUnitName)
 	if err != nil {
@@ -257,7 +269,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, func() error { return importer.Rollback(ctx, preloadResult.NewlyImported) })
 
-	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, resolved.ConfigurationPath)
+	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, preparedValuesPath)
 	checks = append(checks, readinessChecks...)
 	if err != nil {
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
@@ -312,7 +324,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		Name:       opts.ChartReleaseName,
 		ChartPath:  resolved.ChartPath,
 		Namespace:  opts.ChartNamespace,
-		ValuesPath: resolved.ConfigurationPath,
+		ValuesPath: preparedValuesPath,
 	})
 	checks = append(checks, prepared.Checks...)
 	if err != nil {
@@ -324,7 +336,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		Name:       opts.ChartReleaseName,
 		ChartPath:  resolved.ChartPath,
 		Namespace:  opts.ChartNamespace,
-		ValuesPath: resolved.ConfigurationPath,
+		ValuesPath: preparedValuesPath,
 	})
 	checks = append(checks, chartCheck)
 	if err != nil {
@@ -332,7 +344,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Name:       opts.ChartReleaseName,
 			ChartPath:  resolved.ChartPath,
 			Namespace:  opts.ChartNamespace,
-			ValuesPath: resolved.ConfigurationPath,
+			ValuesPath: preparedValuesPath,
 		})...)
 		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
 		cleanupErr = errors.Join(cleanupErr, runRollbacks())
@@ -356,6 +368,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ApplianceInstanceID: newApplianceInstanceID(),
 		InstalledVersion:    targetVersion,
 		InstalledReleaseID:  resolved.ReleaseID,
+		ApplianceProfile:    effectiveProfile,
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,

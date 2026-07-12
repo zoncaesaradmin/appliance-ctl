@@ -244,11 +244,12 @@ func (f *fakeK3s) ops() k3s.Ops {
 
 // fakeCLI simulates ctr/helm/kubectl for the images and helm adapters.
 type fakeCLI struct {
-	failOn       map[string]bool // substring of the joined args -> fail
-	kubectlNodes string          // `kubectl get nodes` output, for cluster-adoption tests
-	kubectlPods  string          // `kubectl get pods` output, for cluster-adoption tests
-	secretExists bool
-	calls        []string
+	failOn         map[string]bool // substring of the joined args -> fail
+	kubectlNodes   string          // `kubectl get nodes` output, for cluster-adoption tests
+	kubectlPods    string          // `kubectl get pods` output, for cluster-adoption tests
+	secretExists   bool
+	lastHelmValues string
+	calls          []string
 }
 
 func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, error) {
@@ -258,6 +259,14 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	for substr, fail := range f.failOn {
 		if fail && strings.Contains(call, substr) {
 			return "", fmt.Errorf("simulated failure for %q", substr)
+		}
+	}
+
+	if name == "helm" {
+		if valuesPath := valuesPathFromHelmCall(call); valuesPath != "" {
+			if data, err := os.ReadFile(valuesPath); err == nil {
+				f.lastHelmValues = string(data)
+			}
 		}
 	}
 
@@ -305,6 +314,16 @@ func contains(args []string, want string) bool {
 	return false
 }
 
+func valuesPathFromHelmCall(call string) string {
+	fields := strings.Fields(call)
+	for i := 0; i < len(fields)-1; i++ {
+		if fields[i] == "--values" {
+			return fields[i+1]
+		}
+	}
+	return ""
+}
+
 func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.Options {
 	t.Helper()
 	stateDir := t.TempDir()
@@ -345,6 +364,9 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	if installed.InstalledVersion != "2.4.0" || !installed.K3sOwnership.Owned {
 		t.Errorf("unexpected installed state: %+v", installed)
 	}
+	if installed.ApplianceProfile != "core" {
+		t.Fatalf("appliance profile = %q, want core", installed.ApplianceProfile)
+	}
 	if len(checks) == 0 {
 		t.Error("expected a non-empty evidence check list")
 	}
@@ -370,6 +392,9 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	if reloaded.InstalledReleaseID != "01J8QK3F9G7XA6P0V6ZC9N6R4T" {
 		t.Errorf("unexpected release ID: %s", reloaded.InstalledReleaseID)
 	}
+	if reloaded.ApplianceProfile != "core" {
+		t.Fatalf("reloaded appliance profile = %q, want core", reloaded.ApplianceProfile)
+	}
 
 	var importCalls int
 	var secretCreateCalls int
@@ -393,6 +418,28 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 	if bootstrapCalls != 1 {
 		t.Errorf("expected first-admin bootstrap to run once, got %d: %v", bootstrapCalls, fcli.calls)
+	}
+}
+
+func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "builder"
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+	if installed.ApplianceProfile != "builder" {
+		t.Fatalf("appliance profile = %q, want builder", installed.ApplianceProfile)
+	}
+
+	if !strings.Contains(fcli.lastHelmValues, "applianceProfile: builder") {
+		t.Fatalf("prepared values file missing builder profile: %s", fcli.lastHelmValues)
 	}
 }
 

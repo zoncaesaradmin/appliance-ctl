@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -43,6 +44,7 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		K3sUnitName:            defaultK3sUnitName,
 		K3sDataDir:             defaultK3sDataDir,
 		KubeconfigPath:         defaultKubeconfigPath,
+		ApplianceProfile:       opts.applianceProfile,
 		NodeName:               opts.nodeName,
 		ZonctlRealDestPath:     defaultZonctlRealPath,
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,
@@ -79,7 +81,8 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	data, _ := json.Marshal(map[string]any{
 		"sourceVersion":     updated.LastOperation.SourceVersion,
 		"targetVersion":     updated.LastOperation.TargetVersion,
+		"applianceProfile":  updated.ApplianceProfile,
 		"rollbackPerformed": false,
 	})
-	return finish(result, "succeeded", 0, "upgraded to "+updated.InstalledVersion, data)
+	return finish(result, "succeeded", 0, fmt.Sprintf("upgraded to %s with appliance profile %s", updated.InstalledVersion, updated.ApplianceProfile), data)
 }
