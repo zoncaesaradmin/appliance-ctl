@@ -126,6 +126,16 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	// Carry the product configuration schema and evidence directories into the final bundle.
+	uiImageTarget := "oci-images/" + filepath.Base(input.Artifacts.UIImage.Path)
+	if _, exists := entryByTarget[uiImageTarget]; !exists {
+		entryByTarget[uiImageTarget] = EntryConfig{
+			SourcePath:     input.Artifacts.UIImage.Path,
+			TargetPath:     uiImageTarget,
+			Component:      "oci-images",
+			ImageReference: input.Artifacts.UIImage.ImageReference,
+		}
+	}
+
 	configSchemaTarget := "configuration/configuration.schema.json"
 	if _, exists := entryByTarget[configSchemaTarget]; !exists {
 		entryByTarget[configSchemaTarget] = EntryConfig{

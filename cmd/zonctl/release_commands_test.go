@@ -32,6 +32,7 @@ func buildReleaseInputDirForCLI(t *testing.T) string {
 	root := t.TempDir()
 	files := map[string]string{
 		"control-plane.oci.tar.zst":            "control-plane",
+		"appliance-ui.oci.tar.zst":             "ui-image",
 		"appliance-chart-2.4.0.tgz":            "chart",
 		"configuration.schema.json":            `{"type":"object"}`,
 		"compatibility.json":                   `{"k3sVersion":"v1.30.4+k3s1"}`,
@@ -66,7 +67,8 @@ func buildReleaseInputDirForCLI(t *testing.T) string {
 		"releaseId":     "release-2.4.0",
 		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
-			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane")},
+			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane"), "imageReference": "internal/control-plane:2.4.0"},
+			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-image"), "imageReference": "internal/appliance-ui:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},

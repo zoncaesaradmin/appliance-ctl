@@ -87,6 +87,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"k3s/images/coredns.tar", "k3s-images", "fake coredns image tar", "docker.io/rancher/mirrored-coredns-coredns:1.11.3"},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
+		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image tar", "internal/appliance-ui:2.4.0"},
 	}
 	if includeArgo {
 		entries = append(entries,
@@ -410,8 +411,8 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 			bootstrapCalls++
 		}
 	}
-	if importCalls != 2 {
-		t.Errorf("expected 2 image import calls (k3s-images + oci-images), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 3 {
+		t.Errorf("expected 3 image import calls (k3s platform + control-plane app + UI app), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -761,8 +762,8 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 			rmCalls++
 		}
 	}
-	if rmCalls != 2 {
-		t.Errorf("expected both newly-imported images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
+	if rmCalls != 3 {
+		t.Errorf("expected all newly-imported images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
 	}
 
 	if _, err := os.Stat(opts.InstalledStatePath); !os.IsNotExist(err) {

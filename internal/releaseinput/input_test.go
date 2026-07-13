@@ -31,6 +31,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 	t.Helper()
 	root := t.TempDir()
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
+	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1"}`)
@@ -62,6 +63,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
+			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
@@ -99,6 +101,9 @@ func TestLoad_ValidReleaseInput(t *testing.T) {
 	if in.Artifacts.ControlPlaneImage.ImageReference != "localhost/appliance-control-plane:2.4.0" {
 		t.Fatalf("unexpected control-plane image reference: %+v", in.Artifacts.ControlPlaneImage)
 	}
+	if in.Artifacts.UIImage.ImageReference != "localhost/appliance-ui:2.4.0" {
+		t.Fatalf("unexpected UI image reference: %+v", in.Artifacts.UIImage)
+	}
 	if len(checks) == 0 {
 		t.Fatal("expected evidence checks")
 	}
@@ -107,6 +112,7 @@ func TestLoad_ValidReleaseInput(t *testing.T) {
 func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
+	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1","argoVersion":"3.5.10"}`)
@@ -142,6 +148,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
+			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1","argoVersion":"3.5.10"}`)},
@@ -211,6 +218,7 @@ func TestLoad_TamperedDirectoryFailsClosed(t *testing.T) {
 func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
+	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1"}`)
@@ -242,6 +250,7 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
+			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},

@@ -36,6 +36,7 @@
       "additionalProperties": false,
       "required": [
         "controlPlaneImage",
+        "uiImage",
         "applianceChart",
         "configurationSchema",
         "compatibility",
@@ -47,6 +48,7 @@
       ],
       "properties": {
         "controlPlaneImage": { "$ref": "#/$defs/artifact" },
+        "uiImage": { "$ref": "#/$defs/artifact" },
         "applianceChart": { "$ref": "#/$defs/artifact" },
         "configurationSchema": { "$ref": "#/$defs/artifact" },
         "compatibility": { "$ref": "#/$defs/artifact" },

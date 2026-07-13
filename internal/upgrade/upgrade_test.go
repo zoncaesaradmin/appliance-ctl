@@ -30,14 +30,17 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 	dir = t.TempDir()
 
 	entries := []struct {
-		relPath   string
-		component string
-		content   string
+		relPath        string
+		component      string
+		content        string
+		imageReference string
 	}{
-		{"bin/zonctl-real", "appliance", "fake zonctl binary " + spec.bundleVersion},
-		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion},
-		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion},
-		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n"},
+		{"bin/zonctl-real", "appliance", "fake zonctl binary " + spec.bundleVersion, ""},
+		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion, ""},
+		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion, ""},
+		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
+		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image " + spec.bundleVersion, "internal/control-plane:" + spec.bundleVersion},
+		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image " + spec.bundleVersion, "internal/appliance-ui:" + spec.bundleVersion},
 	}
 
 	var manifestEntries []map[string]any
@@ -56,6 +59,9 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		manifestEntries = append(manifestEntries, map[string]any{
 			"path": e.relPath, "component": e.component, "digest": digest, "sizeBytes": len(e.content),
 		})
+		if e.imageReference != "" {
+			manifestEntries[len(manifestEntries)-1]["imageReference"] = e.imageReference
+		}
 	}
 
 	doc := map[string]any{
@@ -328,6 +334,16 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 	}
 	if !strings.Contains(fcli.lastHelmValues, "applianceProfile: builder") {
 		t.Fatalf("prepared values file missing builder profile: %s", fcli.lastHelmValues)
+	}
+
+	var importCalls int
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "image import") {
+			importCalls++
+		}
+	}
+	if importCalls != 2 {
+		t.Fatalf("expected 2 image import calls during same-version refresh (k3s-images + oci-images), got %d: %v", importCalls, fcli.calls)
 	}
 }
 

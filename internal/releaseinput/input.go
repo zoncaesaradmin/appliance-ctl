@@ -49,6 +49,7 @@ type DirArtifact struct {
 
 type Artifacts struct {
 	ControlPlaneImage   FileArtifact
+	UIImage             FileArtifact
 	ApplianceChart      FileArtifact
 	ArgoWorkflowsChart  FileArtifact
 	ArgoControllerImage FileArtifact
@@ -68,6 +69,7 @@ type doc struct {
 	ReleaseID   string `json:"releaseId"`
 	Artifacts   struct {
 		ControlPlaneImage   fileArtifact `json:"controlPlaneImage"`
+		UIImage             fileArtifact `json:"uiImage"`
 		ApplianceChart      fileArtifact `json:"applianceChart"`
 		ArgoWorkflowsChart  fileArtifact `json:"argoWorkflowsChart"`
 		ArgoControllerImage fileArtifact `json:"argoControllerImage"`
@@ -122,6 +124,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		Compatibility: parsed.Compatibility,
 		Artifacts: Artifacts{
 			ControlPlaneImage:   toFileArtifact(rootDir, parsed.Artifacts.ControlPlaneImage),
+			UIImage:             toFileArtifact(rootDir, parsed.Artifacts.UIImage),
 			ApplianceChart:      toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
 			ArgoWorkflowsChart:  toFileArtifact(rootDir, parsed.Artifacts.ArgoWorkflowsChart),
 			ArgoControllerImage: toFileArtifact(rootDir, parsed.Artifacts.ArgoControllerImage),
@@ -139,6 +142,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 
 	artifacts := []verify.Artifact{
 		{Name: "control-plane-image", Path: input.Artifacts.ControlPlaneImage.Path, ExpectedDigest: input.Artifacts.ControlPlaneImage.Digest, ExpectedSizeBytes: input.Artifacts.ControlPlaneImage.SizeBytes},
+		{Name: "ui-image", Path: input.Artifacts.UIImage.Path, ExpectedDigest: input.Artifacts.UIImage.Digest, ExpectedSizeBytes: input.Artifacts.UIImage.SizeBytes},
 		{Name: "appliance-chart", Path: input.Artifacts.ApplianceChart.Path, ExpectedDigest: input.Artifacts.ApplianceChart.Digest, ExpectedSizeBytes: input.Artifacts.ApplianceChart.SizeBytes},
 		{Name: "configuration-schema", Path: input.Artifacts.ConfigurationSchema.Path, ExpectedDigest: input.Artifacts.ConfigurationSchema.Digest, ExpectedSizeBytes: input.Artifacts.ConfigurationSchema.SizeBytes},
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
