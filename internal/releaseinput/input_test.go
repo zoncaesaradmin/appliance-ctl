@@ -124,6 +124,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	writeFile(t, root, "argo-workflows-chart-3.5.10.tgz", "argo-chart-bytes")
 	writeFile(t, root, "argo-controller.oci.tar.zst", "argo-controller")
 	writeFile(t, root, "argo-executor.oci.tar.zst", "argo-executor")
+	writeFile(t, root, "buildah.oci.tar.zst", "buildah-image")
 	writeFile(t, root, "argo-crds/workflows.argoproj.io.yaml", "kind: CustomResourceDefinition\n")
 
 	digestOf := func(rel string) string {
@@ -161,6 +162,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"argoCRDs":            map[string]any{"path": "argo-crds", "manifestDigest": dirDigestOf("argo-crds")},
 			"argoControllerImage": map[string]any{"path": "argo-controller.oci.tar.zst", "digest": digestOf("argo-controller.oci.tar.zst"), "sizeBytes": len("argo-controller"), "imageReference": "quay.io/argoproj/workflow-controller:v3.5.10"},
 			"argoExecutorImage":   map[string]any{"path": "argo-executor.oci.tar.zst", "digest": digestOf("argo-executor.oci.tar.zst"), "sizeBytes": len("argo-executor"), "imageReference": "quay.io/argoproj/argoexec:v3.5.10"},
+			"extraOCIImages":      []any{map[string]any{"path": "buildah.oci.tar.zst", "digest": digestOf("buildah.oci.tar.zst"), "sizeBytes": len("buildah-image"), "imageReference": "registry.local/buildah@sha256:approved"}},
 		},
 		"compatibility": map[string]any{
 			"k3sVersion":   "v1.30.4+k3s1",
@@ -191,6 +193,9 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	}
 	if filepath.Base(in.Artifacts.ArgoCRDs.Path) != "argo-crds" {
 		t.Fatalf("unexpected argo crd artifact: %+v", in.Artifacts.ArgoCRDs)
+	}
+	if len(in.Artifacts.ExtraOCIImages) != 1 || in.Artifacts.ExtraOCIImages[0].ImageReference != "registry.local/buildah@sha256:approved" {
+		t.Fatalf("unexpected extra OCI image artifacts: %+v", in.Artifacts.ExtraOCIImages)
 	}
 }
 

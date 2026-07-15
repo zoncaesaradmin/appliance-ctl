@@ -60,7 +60,12 @@
         "argoWorkflowsChart": { "$ref": "#/$defs/artifact" },
         "argoCRDs": { "$ref": "#/$defs/artifactDirectory" },
         "argoControllerImage": { "$ref": "#/$defs/artifact" },
-        "argoExecutorImage": { "$ref": "#/$defs/artifact" }
+        "argoExecutorImage": { "$ref": "#/$defs/artifact" },
+        "extraOCIImages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/artifact" },
+          "description": "Additional pinned OCI image archives required by optional appliance capabilities, such as builder task images."
+        }
       }
     },
     "compatibility": {

@@ -54,6 +54,7 @@ type Artifacts struct {
 	ArgoWorkflowsChart  FileArtifact
 	ArgoControllerImage FileArtifact
 	ArgoExecutorImage   FileArtifact
+	ExtraOCIImages      []FileArtifact
 	ConfigurationSchema FileArtifact
 	Compatibility       FileArtifact
 	Checksums           FileArtifact
@@ -68,20 +69,21 @@ type doc struct {
 	CodeVersion string `json:"codeVersion"`
 	ReleaseID   string `json:"releaseId"`
 	Artifacts   struct {
-		ControlPlaneImage   fileArtifact `json:"controlPlaneImage"`
-		UIImage             fileArtifact `json:"uiImage"`
-		ApplianceChart      fileArtifact `json:"applianceChart"`
-		ArgoWorkflowsChart  fileArtifact `json:"argoWorkflowsChart"`
-		ArgoControllerImage fileArtifact `json:"argoControllerImage"`
-		ArgoExecutorImage   fileArtifact `json:"argoExecutorImage"`
-		ConfigurationSchema fileArtifact `json:"configurationSchema"`
-		Compatibility       fileArtifact `json:"compatibility"`
-		Checksums           fileArtifact `json:"checksums"`
-		ArgoCRDs            dirArtifact  `json:"argoCRDs"`
-		SBOM                dirArtifact  `json:"sbom"`
-		Provenance          dirArtifact  `json:"provenance"`
-		Notices             dirArtifact  `json:"notices"`
-		Tests               dirArtifact  `json:"tests"`
+		ControlPlaneImage   fileArtifact   `json:"controlPlaneImage"`
+		UIImage             fileArtifact   `json:"uiImage"`
+		ApplianceChart      fileArtifact   `json:"applianceChart"`
+		ArgoWorkflowsChart  fileArtifact   `json:"argoWorkflowsChart"`
+		ArgoControllerImage fileArtifact   `json:"argoControllerImage"`
+		ArgoExecutorImage   fileArtifact   `json:"argoExecutorImage"`
+		ExtraOCIImages      []fileArtifact `json:"extraOCIImages"`
+		ConfigurationSchema fileArtifact   `json:"configurationSchema"`
+		Compatibility       fileArtifact   `json:"compatibility"`
+		Checksums           fileArtifact   `json:"checksums"`
+		ArgoCRDs            dirArtifact    `json:"argoCRDs"`
+		SBOM                dirArtifact    `json:"sbom"`
+		Provenance          dirArtifact    `json:"provenance"`
+		Notices             dirArtifact    `json:"notices"`
+		Tests               dirArtifact    `json:"tests"`
 	} `json:"artifacts"`
 	Compatibility Compatibility `json:"compatibility"`
 }
@@ -129,6 +131,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			ArgoWorkflowsChart:  toFileArtifact(rootDir, parsed.Artifacts.ArgoWorkflowsChart),
 			ArgoControllerImage: toFileArtifact(rootDir, parsed.Artifacts.ArgoControllerImage),
 			ArgoExecutorImage:   toFileArtifact(rootDir, parsed.Artifacts.ArgoExecutorImage),
+			ExtraOCIImages:      toFileArtifacts(rootDir, parsed.Artifacts.ExtraOCIImages),
 			ConfigurationSchema: toFileArtifact(rootDir, parsed.Artifacts.ConfigurationSchema),
 			Compatibility:       toFileArtifact(rootDir, parsed.Artifacts.Compatibility),
 			Checksums:           toFileArtifact(rootDir, parsed.Artifacts.Checksums),
@@ -170,6 +173,14 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			Path:              input.Artifacts.ArgoExecutorImage.Path,
 			ExpectedDigest:    input.Artifacts.ArgoExecutorImage.Digest,
 			ExpectedSizeBytes: input.Artifacts.ArgoExecutorImage.SizeBytes,
+		})
+	}
+	for idx, image := range input.Artifacts.ExtraOCIImages {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              fmt.Sprintf("extra-oci-image-%d", idx+1),
+			Path:              image.Path,
+			ExpectedDigest:    image.Digest,
+			ExpectedSizeBytes: image.SizeBytes,
 		})
 	}
 	checks, err := verify.VerifyArtifacts(nil, artifacts)
@@ -286,6 +297,14 @@ func DirectoryManifestDigest(root string) (string, error) {
 	}
 	sum := sha256.Sum256(manifest.Bytes())
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func toFileArtifacts(rootDir string, artifacts []fileArtifact) []FileArtifact {
+	out := make([]FileArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		out = append(out, toFileArtifact(rootDir, artifact))
+	}
+	return out
 }
 
 func toFileArtifact(rootDir string, artifact fileArtifact) FileArtifact {

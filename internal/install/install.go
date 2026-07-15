@@ -60,6 +60,8 @@ type Options struct {
 	K3sDataDir             string
 	KubeconfigPath         string
 	ApplianceProfile       string
+	BuildCatalogPath       string
+	SourceCredentialsPath  string
 	NodeName               string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
@@ -147,11 +149,19 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	defer cleanupPreparedValues()
+	productSourceCredentialSecrets, err := productconfig.LoadSourceCredentialSecrets(opts.SourceCredentialsPath, "appliance-builds")
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
+	if err := productconfig.ValidateSourceCredentialProvisioning(opts.BuildCatalogPath, productSourceCredentialSecrets); err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
+	sourceCredentialSecrets := toHelmSourceCredentialSecrets(productSourceCredentialSecrets)
 
 	signal, err := o.K3s.DetectService(opts.K3sUnitName)
 	if err != nil {
@@ -318,6 +328,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		rollbacks = append(rollbacks, func() error {
 			return applier.Rollback(ctx, argoReleaseName, true)
 		})
+	}
+
+	if len(sourceCredentialSecrets) > 0 {
+		sourcePrepared, prepErr := helm.EnsureSourceCredentialSecrets(ctx, o.HelmRun, opts.KubeconfigPath, sourceCredentialSecrets)
+		checks = append(checks, sourcePrepared.Checks...)
+		if prepErr != nil {
+			return nil, checks, joinCleanupError(fmt.Errorf("install: %w", prepErr), runRollbacks())
+		}
+		rollbacks = append(rollbacks, sourcePrepared.Cleanup)
 	}
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
@@ -497,6 +516,14 @@ func toEvidenceChecks(checks []preflight.Check) []evidence.Check {
 			Idempotent:      true,
 			SecretsRedacted: true,
 		})
+	}
+	return out
+}
+
+func toHelmSourceCredentialSecrets(loaded []productconfig.SourceCredentialSecret) []helm.SourceCredentialSecret {
+	out := make([]helm.SourceCredentialSecret, 0, len(loaded))
+	for _, cred := range loaded {
+		out = append(out, helm.SourceCredentialSecret{Namespace: cred.Namespace, SecretName: cred.SecretName, PrivateKeyPath: cred.PrivateKeyPath, KnownHostsSecretName: cred.KnownHostsSecretName, KnownHostsPath: cred.KnownHostsPath})
 	}
 	return out
 }

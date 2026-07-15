@@ -45,6 +45,8 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		K3sDataDir:             defaultK3sDataDir,
 		KubeconfigPath:         defaultKubeconfigPath,
 		ApplianceProfile:       opts.applianceProfile,
+		BuildCatalogPath:       opts.buildCatalogPath,
+		SourceCredentialsPath:  opts.sourceCredentialsPath,
 		NodeName:               opts.nodeName,
 		ZonctlRealDestPath:     defaultZonctlRealPath,
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,

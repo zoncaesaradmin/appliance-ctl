@@ -23,6 +23,7 @@ type fakeCLI struct {
 	failApply            bool
 	failUpgrade          bool
 	failRollback         bool
+	secrets              map[string]bool
 	calls                [][]string
 }
 
@@ -46,6 +47,37 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		return "Active", nil
 	case name == "kubectl" && contains(args, "create") && contains(args, "namespace"):
 		f.missingNamespace = false
+		return "", nil
+	case name == "kubectl" && contains(args, "get") && contains(args, "secret"):
+		if f.secrets == nil {
+			f.secrets = map[string]bool{}
+		}
+		secret := args[len(args)-1]
+		if f.secrets[secret] {
+			return "", nil
+		}
+		return "", errors.New("simulated missing secret")
+	case name == "kubectl" && contains(args, "create") && contains(args, "secret"):
+		if f.secrets == nil {
+			f.secrets = map[string]bool{}
+		}
+		for i, arg := range args {
+			if arg == "generic" && i+1 < len(args) {
+				f.secrets[args[i+1]] = true
+				return "", nil
+			}
+		}
+		return "", errors.New("simulated malformed secret create")
+	case name == "kubectl" && contains(args, "delete") && contains(args, "secret"):
+		if f.secrets == nil {
+			f.secrets = map[string]bool{}
+		}
+		for i, arg := range args {
+			if arg == "secret" && i+1 < len(args) {
+				delete(f.secrets, args[i+1])
+				return "", nil
+			}
+		}
 		return "", nil
 	case name == "kubectl" && contains(args, "apply"):
 		if f.failApply {
@@ -248,5 +280,69 @@ func TestHelm_RequiresNoNetworkAccess(t *testing.T) {
 	}
 	if err := a.Rollback(context.Background(), rel.Name, true); err != nil {
 		t.Fatalf("Rollback should succeed offline: %v", err)
+	}
+}
+
+func TestEnsureSourceCredentialSecrets_CreatesSSHAndKnownHostsSecrets(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id_ed25519")
+	knownHostsPath := filepath.Join(dir, "known_hosts")
+	if err := os.WriteFile(keyPath, []byte("private-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(knownHostsPath, []byte("git.internal ssh-ed25519 AAAA"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeCLI{}
+	prepared, err := helm.EnsureSourceCredentialSecrets(context.Background(), fake.Run, "kubeconfig", []helm.SourceCredentialSecret{{Namespace: "appliance-builds", SecretName: "git-main-key", PrivateKeyPath: keyPath, KnownHostsSecretName: "git-known-hosts", KnownHostsPath: knownHostsPath}})
+	if err != nil {
+		t.Fatalf("EnsureSourceCredentialSecrets returned error: %v", err)
+	}
+	if len(prepared.Checks) != 2 {
+		t.Fatalf("expected two evidence checks, got %+v", prepared.Checks)
+	}
+	var sawKey, sawKnownHosts bool
+	for _, call := range fake.calls {
+		joined := joinCall(call)
+		if strings.Contains(joined, "create secret generic git-main-key") && strings.Contains(joined, "--from-file=ssh-privatekey=") {
+			sawKey = true
+		}
+		if strings.Contains(joined, "create secret generic git-known-hosts") && strings.Contains(joined, "--from-file=known_hosts=") {
+			sawKnownHosts = true
+		}
+	}
+	if !sawKey || !sawKnownHosts {
+		t.Fatalf("expected key and known_hosts secret creation, got calls: %v", fake.calls)
+	}
+	if err := prepared.Cleanup(); err != nil {
+		t.Fatalf("cleanup returned error: %v", err)
+	}
+}
+
+func TestEnsureSourceCredentialSecrets_MissingPrivateKeyFailsBeforeSecretCreate(t *testing.T) {
+	fake := &fakeCLI{}
+	missingKeyPath := filepath.Join(t.TempDir(), "missing-id-ed25519")
+
+	prepared, err := helm.EnsureSourceCredentialSecrets(context.Background(), fake.Run, "kubeconfig", []helm.SourceCredentialSecret{{
+		Namespace: "appliance-builds", SecretName: "git-main-key", PrivateKeyPath: missingKeyPath,
+	}})
+	if err == nil {
+		t.Fatal("expected missing private key to fail")
+	}
+	if len(prepared.Checks) != 1 {
+		t.Fatalf("expected one failed evidence check, got %+v", prepared.Checks)
+	}
+	check := prepared.Checks[0]
+	if check.Status != evidence.StatusFail {
+		t.Fatalf("check status = %s, want fail", check.Status)
+	}
+	if !check.SecretsRedacted {
+		t.Fatal("source credential evidence should be marked SecretsRedacted")
+	}
+	for _, call := range fake.calls {
+		if len(call) > 0 && call[0] == "kubectl" && contains(call, "create") && contains(call, "secret") {
+			t.Fatalf("missing private key should not create Kubernetes secrets, got calls: %v", fake.calls)
+		}
 	}
 }

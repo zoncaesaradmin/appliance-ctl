@@ -485,6 +485,53 @@ func TestUpgrade_FailedChartApplyCleansInstallerManagedSecret(t *testing.T) {
 	}
 }
 
+func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0", "builder")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+	keyPath := filepath.Join(env.stateDir, "git-main-key")
+	if err := os.WriteFile(keyPath, []byte("private-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sourceCredentialsPath := filepath.Join(env.stateDir, "source-credentials.yaml")
+	if err := os.WriteFile(sourceCredentialsPath, []byte("credentials:\n  - secretName: git-main-key\n    privateKeyPath: "+keyPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
+
+	opts := env.options("2.4.0")
+	opts.SourceCredentialsPath = sourceCredentialsPath
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
+		t.Fatalf("expected upgrade to succeed, got: %v", err)
+	}
+
+	var sawSourceSecretCreate bool
+	var sawSourceSecretDelete bool
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "create secret generic git-main-key") {
+			sawSourceSecretCreate = true
+		}
+		if strings.Contains(call, "delete secret git-main-key --ignore-not-found") {
+			sawSourceSecretDelete = true
+		}
+	}
+	if !sawSourceSecretCreate {
+		t.Fatalf("expected source credential secret creation, got calls: %v", fcli.calls)
+	}
+	if sawSourceSecretDelete {
+		t.Fatalf("source credential secret should survive a successful upgrade, got calls: %v", fcli.calls)
+	}
+	if !fcli.secrets["git-main-key"] {
+		t.Fatalf("expected fake cluster to retain source credential secret, got secrets: %+v", fcli.secrets)
+	}
+}
+
 // fakeCLI simulates ctr/helm/kubectl for the images and helm adapters.
 type fakeCLI struct {
 	failOn               map[string]bool
@@ -492,7 +539,7 @@ type fakeCLI struct {
 	missingNamespace     bool
 	namespaceTerminating bool
 	namespacePolls       int
-	secretExists         bool
+	secrets              map[string]bool
 	lastHelmValues       string
 }
 
@@ -530,15 +577,34 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		f.missingNamespace = false
 		return "", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "secret"):
-		if f.secretExists {
+		if f.secrets == nil {
+			f.secrets = map[string]bool{}
+		}
+		if f.secrets[args[len(args)-1]] {
 			return "", nil
 		}
 		return "", fmt.Errorf("simulated secret not found")
 	case name == "kubectl" && contains(args, "create") && contains(args, "secret"):
-		f.secretExists = true
+		if f.secrets == nil {
+			f.secrets = map[string]bool{}
+		}
+		for i := 0; i < len(args)-1; i++ {
+			if args[i] == "generic" {
+				f.secrets[args[i+1]] = true
+				return "", nil
+			}
+		}
 		return "", nil
 	case name == "kubectl" && contains(args, "delete") && contains(args, "secret"):
-		f.secretExists = false
+		if f.secrets == nil {
+			f.secrets = map[string]bool{}
+		}
+		for i := 0; i < len(args)-1; i++ {
+			if args[i] == "secret" {
+				delete(f.secrets, args[i+1])
+				break
+			}
+		}
 		return "", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "nodes"):
 		return "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n", nil

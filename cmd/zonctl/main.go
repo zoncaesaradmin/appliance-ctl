@@ -40,21 +40,23 @@ const (
 // publicKeyPath are install-specific; the rest are shared or unused by
 // most commands (unused flags are harmless).
 type cliOptions struct {
-	dryRun              bool
-	output              string
-	stateDir            string
-	configPath          string
-	bundleDir           string
-	publicKey           string
-	applianceProfile    string
-	nodeName            string
-	bootstrapAdminUser  string
-	bootstrapPassStdin  bool
-	backupID            string
-	confirm             string
-	acknowledgeDataLoss bool
-	forceDataLoss       bool
-	forceAdopt          bool
+	dryRun                bool
+	output                string
+	stateDir              string
+	configPath            string
+	bundleDir             string
+	publicKey             string
+	applianceProfile      string
+	buildCatalogPath      string
+	sourceCredentialsPath string
+	nodeName              string
+	bootstrapAdminUser    string
+	bootstrapPassStdin    bool
+	backupID              string
+	confirm               string
+	acknowledgeDataLoss   bool
+	forceDataLoss         bool
+	forceAdopt            bool
 }
 
 type commandSpec struct {
@@ -123,6 +125,8 @@ func run(args []string) int {
 	bundleDir := fs.String("bundle-dir", "", "path to an extracted signed appliance bundle directory (required for install/upgrade)")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage); install defaults to core and upgrade preserves the installed profile when omitted")
+	buildCatalogPath := fs.String("build-catalog", "", "path to developer workflow build catalog JSON/YAML to pass as product config into the control plane")
+	sourceCredentialsPath := fs.String("source-credentials", "", "path to local source credential provisioning YAML/JSON for builder Git SSH Kubernetes Secrets")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
 	bootstrapAdminUser := fs.String("bootstrap-admin-username", "admin", "username for the first administrator created during install")
 	bootstrapPassStdin := fs.Bool("bootstrap-password-stdin", false, "read the first administrator password from stdin instead of prompting on the terminal")
@@ -145,21 +149,23 @@ func run(args []string) int {
 	}
 
 	opts := cliOptions{
-		dryRun:              *dryRun,
-		output:              *output,
-		stateDir:            *stateDir,
-		configPath:          *configPath,
-		bundleDir:           *bundleDir,
-		publicKey:           *publicKey,
-		applianceProfile:    *applianceProfile,
-		nodeName:            *nodeName,
-		bootstrapAdminUser:  *bootstrapAdminUser,
-		bootstrapPassStdin:  *bootstrapPassStdin,
-		backupID:            *backupID,
-		confirm:             *confirm,
-		acknowledgeDataLoss: *acknowledgeDataLoss,
-		forceDataLoss:       *forceDataLoss,
-		forceAdopt:          *forceAdopt,
+		dryRun:                *dryRun,
+		output:                *output,
+		stateDir:              *stateDir,
+		configPath:            *configPath,
+		bundleDir:             *bundleDir,
+		publicKey:             *publicKey,
+		applianceProfile:      *applianceProfile,
+		buildCatalogPath:      *buildCatalogPath,
+		sourceCredentialsPath: *sourceCredentialsPath,
+		nodeName:              *nodeName,
+		bootstrapAdminUser:    *bootstrapAdminUser,
+		bootstrapPassStdin:    *bootstrapPassStdin,
+		backupID:              *backupID,
+		confirm:               *confirm,
+		acknowledgeDataLoss:   *acknowledgeDataLoss,
+		forceDataLoss:         *forceDataLoss,
+		forceAdopt:            *forceAdopt,
 	}
 
 	logger := newLogger(redact.New(), opts.output)
