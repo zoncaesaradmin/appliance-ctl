@@ -492,7 +492,7 @@ func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
 		supportedSources: []string{"2.3.0"},
 	})
 	buildCatalogPath := filepath.Join(env.stateDir, "build-catalog.yaml")
-	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nsourceCredentials:\n  - id: git-main\n    gitHost: git.internal.example.com\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\n    sourceCredentialRef: git-main\nbuildTargets:\n  - name: app\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o600); err != nil {
+	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\nbuildTargets:\n  - name: app\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -510,10 +510,10 @@ func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
 	var sawSourceSecretCreate bool
 	var sawSourceSecretDelete bool
 	for _, call := range fcli.calls {
-		if strings.Contains(call, "create secret generic builder-git-git-main-key") {
+		if strings.Contains(call, "create secret generic builder-git-key") {
 			sawSourceSecretCreate = true
 		}
-		if strings.Contains(call, "delete secret builder-git-git-main-key --ignore-not-found") {
+		if strings.Contains(call, "delete secret builder-git-key --ignore-not-found") {
 			sawSourceSecretDelete = true
 		}
 	}
@@ -523,10 +523,10 @@ func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
 	if sawSourceSecretDelete {
 		t.Fatalf("source credential secret should survive a successful upgrade, got calls: %v", fcli.calls)
 	}
-	if !fcli.secrets["builder-git-git-main-key"] {
+	if !fcli.secrets["builder-git-key"] {
 		t.Fatalf("expected fake cluster to retain source credential secret, got secrets: %+v", fcli.secrets)
 	}
-	if !fcli.secrets["builder-git-git-main-known-hosts"] {
+	if !fcli.secrets["builder-git-known-hosts"] {
 		t.Fatalf("expected fake cluster to retain known_hosts secret, got secrets: %+v", fcli.secrets)
 	}
 }

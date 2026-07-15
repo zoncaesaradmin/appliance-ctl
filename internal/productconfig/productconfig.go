@@ -159,38 +159,12 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		}
 	}
 
-	credentialsByID := map[string]map[string]any{}
-	for index, credential := range objectList(catalog["sourceCredentials"]) {
-		id, _ := credential["id"].(string)
-		id = strings.TrimSpace(id)
-		if id == "" {
-			return fmt.Errorf("product config: build catalog %s sourceCredentials[%d].id is required", path, index)
-		}
-		if _, ok := credential["gitHost"].(string); !ok || strings.TrimSpace(fmt.Sprint(credential["gitHost"])) == "" {
-			return fmt.Errorf("product config: build catalog %s sourceCredentials[%d].gitHost is required", path, index)
-		}
-		credentialsByID[id] = credential
-	}
-
 	for index, repo := range objectList(catalog["repos"]) {
 		rawURL, _ := repo["url"].(string)
 		rawURL = strings.TrimSpace(rawURL)
 		if rawURL == "" {
 			return fmt.Errorf("product config: build catalog %s repos[%d].url is required", path, index)
 		}
-		if !isSSHGitURL(rawURL) {
-			continue
-		}
-		ref, _ := repo["sourceCredentialRef"].(string)
-		ref = strings.TrimSpace(ref)
-		if ref == "" {
-			return fmt.Errorf("product config: build catalog %s repos[%d].sourceCredentialRef is required for SSH repo URLs", path, index)
-		}
-		credential, ok := credentialsByID[ref]
-		if !ok {
-			return fmt.Errorf("product config: build catalog %s repos[%d].sourceCredentialRef references unknown sourceCredentials entry %q", path, index, ref)
-		}
-		_ = credential
 	}
 
 	for index, target := range targets {
@@ -232,10 +206,6 @@ func deriveAllowedGitSourceHosts(catalog map[string]any) []string {
 		hosts = append(hosts, host)
 	}
 
-	for _, credential := range objectList(catalog["sourceCredentials"]) {
-		host, _ := credential["gitHost"].(string)
-		addHost(host)
-	}
 	for _, repo := range objectList(catalog["repos"]) {
 		rawURL, _ := repo["url"].(string)
 		addHost(gitURLHost(rawURL))

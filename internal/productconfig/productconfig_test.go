@@ -66,7 +66,7 @@ func TestPrepareValuesFile_InjectsBuildCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\n        enabledByDefault: true\n      - name: docs\nsourceCredentials:\n  - id: git-main\n    gitHost: git.internal.example.com\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\n    sourceCredentialRef: git-main\n  - name: docs\n    url: https://git.backup.internal.example.com/team/docs.git\nbuildTargets:\n  - name: default\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\n        enabledByDefault: true\n      - name: docs\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\n  - name: docs\n    url: https://git.backup.internal.example.com/team/docs.git\nbuildTargets:\n  - name: default\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,24 +91,21 @@ func TestPrepareValuesFile_InjectsBuildCatalog(t *testing.T) {
 	}
 }
 
-func TestPrepareValuesFile_RejectsSSHCatalogRepoWithoutSourceCredentialRef(t *testing.T) {
+func TestPrepareValuesFile_AcceptsSSHCatalogRepoWithoutCredentialMapping(t *testing.T) {
 	dir := t.TempDir()
 	valuesPath := filepath.Join(dir, "values.yaml")
 	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nsourceCredentials:\n  - id: git-main\n    gitHost: git.internal.example.com\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\nbuildTargets:\n  - name: default\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\nbuildTargets:\n  - name: default\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
 	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath)
 	defer cleanup()
-	if err == nil {
-		t.Fatal("expected SSH repo without sourceCredentialRef to be rejected")
-	}
-	if !strings.Contains(err.Error(), "sourceCredentialRef") {
-		t.Fatalf("error = %v, want sourceCredentialRef", err)
+	if err != nil {
+		t.Fatalf("PrepareValuesFile returned error: %v", err)
 	}
 }
 
