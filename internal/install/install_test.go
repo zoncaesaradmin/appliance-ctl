@@ -341,12 +341,9 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		NodeName:               "appliance-node",
 		ZonctlRealDestPath:     filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath: filepath.Join(stateDir, "usr-local-bin", "zonctl"),
-		ResolveBootstrapCredentials: func() (string, []byte, error) {
-			return "admin", []byte("ChangeMeNow123!"), nil
-		},
-		ChartReleaseName: "appliance",
-		ChartNamespace:   "appliance",
-		TransactionID:    "txn-test-0000000000000000000000",
+		ChartReleaseName:       "appliance",
+		ChartNamespace:         "appliance",
+		TransactionID:          "txn-test-0000000000000000000000",
 	}
 }
 
@@ -399,7 +396,6 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 
 	var importCalls int
 	var secretCreateCalls int
-	var bootstrapCalls int
 	for _, c := range fcli.calls {
 		if strings.Contains(c, "image import") {
 			importCalls++
@@ -407,18 +403,12 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 		if strings.Contains(c, "create secret generic appliance-keys") {
 			secretCreateCalls++
 		}
-		if strings.Contains(c, " bootstrap init ") {
-			bootstrapCalls++
-		}
 	}
 	if importCalls != 3 {
 		t.Errorf("expected 3 image import calls (k3s platform + control-plane app + UI app), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
-	}
-	if bootstrapCalls != 1 {
-		t.Errorf("expected first-admin bootstrap to run once, got %d: %v", bootstrapCalls, fcli.calls)
 	}
 }
 
@@ -475,50 +465,6 @@ func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
 	}
 	if !sawArgoHelm {
 		t.Fatalf("expected Argo Helm release to be installed, got calls: %v", fcli.calls)
-	}
-}
-
-// ResolveBootstrapCredentials must only be invoked once the K3s install,
-// image preload, and chart rollout are already done — never upfront,
-// before the (multi-minute) install even starts. Otherwise an operator
-// piping the install script gets prompted for a password immediately,
-// then has to wait several minutes for a "prompt" that already happened.
-func TestInstall_OnlyResolvesBootstrapCredentialsAfterChartInstalled(t *testing.T) {
-	dir, pub := buildFixtureBundle(t)
-	opts := baseOptions(t, dir, pub)
-
-	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
-	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-
-	var resolveCalls int
-	var callsBeforeResolve int
-	opts.ResolveBootstrapCredentials = func() (string, []byte, error) {
-		resolveCalls++
-		callsBeforeResolve = len(fcli.calls)
-		return "admin", []byte("ChangeMeNow123!"), nil
-	}
-
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
-
-	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
-		t.Fatalf("expected install to succeed, got: %v", err)
-	}
-	if resolveCalls != 1 {
-		t.Fatalf("expected credentials to be resolved exactly once, got %d", resolveCalls)
-	}
-
-	var chartInstallIndex = -1
-	for i, c := range fcli.calls {
-		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install") {
-			chartInstallIndex = i
-			break
-		}
-	}
-	if chartInstallIndex == -1 {
-		t.Fatal("expected a helm upgrade --install call to have happened")
-	}
-	if callsBeforeResolve <= chartInstallIndex {
-		t.Errorf("expected bootstrap credentials to be resolved only after the chart was installed (call index %d), but only %d CLI calls had happened by then", chartInstallIndex, callsBeforeResolve)
 	}
 }
 
@@ -630,50 +576,6 @@ func TestInstall_RollsBackCreatedSecretWhenHelmFails(t *testing.T) {
 	}
 	if !sawDeleteSecret {
 		t.Fatalf("expected installer-managed keys secret rollback after helm failure, got calls: %v", fcli.calls)
-	}
-}
-
-// A bootstrap failure happens after K3s, the chart, the host zonctl
-// binary, and installed-state are all already successfully in place —
-// there is a real, running appliance by that point, so it must not be
-// rolled back just because the first-admin step failed (e.g. a
-// server-side password policy rejection, or a transient `kubectl exec`
-// failure). Install must instead return the installed state alongside a
-// distinguishable error (ErrBootstrapFailed) so callers can report a
-// successful install with a bootstrap warning, and let the operator
-// retry just that step.
-func TestInstall_PreservesInstallWhenBootstrapFails(t *testing.T) {
-	dir, pub := buildFixtureBundle(t)
-	opts := baseOptions(t, dir, pub)
-
-	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
-	fcli := &fakeCLI{
-		failOn:       map[string]bool{" bootstrap init ": true},
-		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
-	}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
-
-	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
-	if err == nil {
-		t.Fatal("expected the bootstrap failure to be reported as an error")
-	}
-	if !errors.Is(err, install.ErrBootstrapFailed) {
-		t.Errorf("expected err to wrap install.ErrBootstrapFailed, got: %v", err)
-	}
-	if installed == nil {
-		t.Fatal("expected the installed state to still be returned despite the bootstrap failure")
-	}
-	if _, err := os.Stat(opts.InstalledStatePath); err != nil {
-		t.Errorf("expected installed-state to be persisted despite the bootstrap failure, stat err=%v", err)
-	}
-
-	for _, call := range fcli.calls {
-		if strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall appliance") {
-			t.Fatalf("expected a bootstrap failure to leave the chart release installed, but it was uninstalled: %v", fcli.calls)
-		}
-	}
-	if fk3s.stopCalls != 0 {
-		t.Errorf("expected a bootstrap failure to leave K3s running, but it was stopped %d time(s)", fk3s.stopCalls)
 	}
 }
 

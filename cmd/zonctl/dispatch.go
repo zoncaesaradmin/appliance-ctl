@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -267,22 +266,9 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,
 		ChartReleaseName:       "zon",
 		ChartNamespace:         "zon",
-		// Deliberately not resolved here: this closure only actually runs
-		// inside Install, right before the bootstrap step — after K3s,
-		// the chart, and the host zonctl binary are already fully in
-		// place. Prompting (or reading --bootstrap-password-stdin) any
-		// earlier than that would ask the operator for credentials
-		// before the multi-minute install has even started.
-		ResolveBootstrapCredentials: func() (string, []byte, error) {
-			creds, err := resolveBootstrapCredentials(opts)
-			if err != nil {
-				return "", nil, err
-			}
-			return creds.username, creds.password, nil
-		},
-		TransactionID:         txn.ID,
-		PriorInstallAttempted: priorInstallAttempted,
-		ForceAdopt:            opts.forceAdopt,
+		TransactionID:          txn.ID,
+		PriorInstallAttempted:  priorInstallAttempted,
+		ForceAdopt:             opts.forceAdopt,
 	}
 
 	orch := install.NewOrchestrator()
@@ -299,24 +285,6 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		logger.Warn("failed to build install evidence report", "error", buildErr)
 	}
 
-	if err != nil && errors.Is(err, install.ErrBootstrapFailed) {
-		// K3s, the chart, the host zonctl binary, and installed-state are
-		// all genuinely in place — this is a successful install with a
-		// bootstrap step still to retry, not a failed install. Rolling
-		// back or reporting this as "failed" would be wrong; it would
-		// either discard a working appliance or tell the operator to
-		// re-run the whole (multi-minute) install when only the
-		// first-admin step actually needs retrying.
-		logger.Warn("install succeeded but first-admin bootstrap failed; retry bootstrap separately", "error", err, "transactionId", txn.ID)
-		data, _ := json.Marshal(map[string]string{
-			"installedVersion": installed.InstalledVersion,
-			"releaseId":        installed.InstalledReleaseID,
-			"transactionId":    txn.ID,
-			"applianceProfile": installed.ApplianceProfile,
-			"warning":          "first-admin bootstrap failed: " + err.Error(),
-		})
-		return finish(result, "succeeded", 0, fmt.Sprintf("installed version %s with appliance profile %s (first-admin bootstrap failed, retry separately: %s)", installed.InstalledVersion, installed.ApplianceProfile, err.Error()), data)
-	}
 	if err != nil {
 		logger.Error("install failed", "error", err, "transactionId", txn.ID)
 		return finish(result, "failed", 1, err.Error(), nil)

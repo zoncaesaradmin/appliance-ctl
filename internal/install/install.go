@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zoncaesaradmin/appliance-ctl/internal/bootstrapadmin"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
@@ -66,19 +65,8 @@ type Options struct {
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
-	// ResolveBootstrapCredentials is called once, right before the
-	// first-admin bootstrap step — after K3s, the chart, the host
-	// zonctl binary, and installed-state are already fully in place,
-	// never earlier. This is deliberately a callback rather than a
-	// pre-resolved username/password: collecting credentials (an
-	// interactive terminal prompt, or a stdin read) upfront, before the
-	// multi-minute install even starts, is exactly the ordering bug
-	// this exists to prevent. A nil error here is only ever meaningful
-	// once this has actually been invoked at the right moment.
-	ResolveBootstrapCredentials func() (username string, password []byte, err error)
-
-	ChartReleaseName string
-	ChartNamespace   string
+	ChartReleaseName       string
+	ChartNamespace         string
 
 	// TransactionID is the lifecycle journal transaction this install
 	// belongs to, recorded into the persisted installed-state.
@@ -409,44 +397,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 
-	// K3s, the chart, the host zonctl binary, and the installed-state
-	// record are all fully in place at this point — there is a real,
-	// running appliance to preserve from here on. A bootstrap failure
-	// (e.g. a password rejected by the server's policy, or a transient
-	// `kubectl exec` failure) must not roll any of that back; it's a
-	// separately retriable step, not a reason to discard a successful
-	// install. See ErrBootstrapFailed's doc comment for how callers
-	// should treat this case.
-	bootstrapRun := o.ClusterRunInput
-	if bootstrapRun == nil {
-		if o.ClusterRun != nil {
-			bootstrapRun = func(ctx context.Context, _ []byte, name string, args ...string) (string, error) {
-				return o.ClusterRun(ctx, name, args...)
-			}
-		} else {
-			bootstrapRun = cli.ExecInput
-		}
-	}
-	if opts.ResolveBootstrapCredentials == nil {
-		return installed, checks, fmt.Errorf("%w: %w", ErrBootstrapFailed, fmt.Errorf("install: no bootstrap credential source configured"))
-	}
-	bootstrapUsername, bootstrapPassword, credErr := opts.ResolveBootstrapCredentials()
-	if credErr != nil {
-		return installed, checks, fmt.Errorf("%w: %w", ErrBootstrapFailed, credErr)
-	}
-	bootstrapCheck, err := bootstrapadmin.Init(ctx, bootstrapadmin.Options{
-		Run:           bootstrapRun,
-		Kubeconfig:    opts.KubeconfigPath,
-		Namespace:     opts.ChartNamespace,
-		ReleaseName:   opts.ChartReleaseName,
-		AdminUsername: bootstrapUsername,
-		AdminPassword: bootstrapPassword,
-	})
-	checks = append(checks, bootstrapCheck)
-	if err != nil {
-		return installed, checks, fmt.Errorf("%w: %w", ErrBootstrapFailed, err)
-	}
-
 	return installed, checks, nil
 }
 
@@ -478,16 +428,6 @@ func applyManifestFiles(ctx context.Context, run cli.Runner, kubeconfig string, 
 	}
 	return checks, nil
 }
-
-// ErrBootstrapFailed marks a first-admin bootstrap failure that happened
-// after K3s, the chart, the host zonctl binary, and the installed-state
-// record were already successfully put in place. Unlike every other
-// error Install can return, this one comes with a non-nil
-// *state.InstalledState — the appliance genuinely is installed and
-// running. Callers (cmd/zonctl) should report this as a successful
-// install with a bootstrap warning, not a failed install, and point the
-// operator at retrying just the bootstrap step.
-var ErrBootstrapFailed = errors.New("first-admin bootstrap failed")
 
 func joinCleanupError(primary, cleanup error) error {
 	if cleanup == nil {

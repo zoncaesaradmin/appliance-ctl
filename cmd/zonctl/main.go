@@ -50,8 +50,6 @@ type cliOptions struct {
 	buildCatalogPath      string
 	sourceCredentialsPath string
 	nodeName              string
-	bootstrapAdminUser    string
-	bootstrapPassStdin    bool
 	backupID              string
 	confirm               string
 	acknowledgeDataLoss   bool
@@ -128,8 +126,6 @@ func run(args []string) int {
 	buildCatalogPath := fs.String("build-catalog", "", "path to developer workflow build catalog JSON/YAML to pass as product config into the control plane")
 	sourceCredentialsPath := fs.String("source-credentials", "", "path to local source credential provisioning YAML/JSON for builder Git SSH Kubernetes Secrets")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
-	bootstrapAdminUser := fs.String("bootstrap-admin-username", "admin", "username for the first administrator created during install")
-	bootstrapPassStdin := fs.Bool("bootstrap-password-stdin", false, "read the first administrator password from stdin instead of prompting on the terminal")
 	backupID := fs.String("backup-id", "", "backup identifier to restore from (required for restore; optionally the verified recovery point for factory-reset)")
 	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall/factory-reset)")
 	acknowledgeDataLoss := fs.Bool("acknowledge-data-loss", false, "explicitly acknowledge permanent data loss (required for factory-reset)")
@@ -159,8 +155,6 @@ func run(args []string) int {
 		buildCatalogPath:      *buildCatalogPath,
 		sourceCredentialsPath: *sourceCredentialsPath,
 		nodeName:              *nodeName,
-		bootstrapAdminUser:    *bootstrapAdminUser,
-		bootstrapPassStdin:    *bootstrapPassStdin,
 		backupID:              *backupID,
 		confirm:               *confirm,
 		acknowledgeDataLoss:   *acknowledgeDataLoss,
