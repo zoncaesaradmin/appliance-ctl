@@ -491,12 +491,8 @@ func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
 	})
-	keyPath := filepath.Join(env.stateDir, "git-main-key")
-	if err := os.WriteFile(keyPath, []byte("private-key"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sourceCredentialsPath := filepath.Join(env.stateDir, "source-credentials.yaml")
-	if err := os.WriteFile(sourceCredentialsPath, []byte("credentials:\n  - secretName: git-main-key\n    privateKeyPath: "+keyPath+"\n"), 0o600); err != nil {
+	buildCatalogPath := filepath.Join(env.stateDir, "build-catalog.yaml")
+	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nsourceCredentials:\n  - id: git-main\n    gitHost: git.internal.example.com\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\n    sourceCredentialRef: git-main\nbuildTargets:\n  - name: app\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -505,7 +501,7 @@ func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
 	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
 
 	opts := env.options("2.4.0")
-	opts.SourceCredentialsPath = sourceCredentialsPath
+	opts.BuildCatalogPath = buildCatalogPath
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
 		t.Fatalf("expected upgrade to succeed, got: %v", err)
@@ -514,10 +510,10 @@ func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
 	var sawSourceSecretCreate bool
 	var sawSourceSecretDelete bool
 	for _, call := range fcli.calls {
-		if strings.Contains(call, "create secret generic git-main-key") {
+		if strings.Contains(call, "create secret generic builder-git-git-main-key") {
 			sawSourceSecretCreate = true
 		}
-		if strings.Contains(call, "delete secret git-main-key --ignore-not-found") {
+		if strings.Contains(call, "delete secret builder-git-git-main-key --ignore-not-found") {
 			sawSourceSecretDelete = true
 		}
 	}
@@ -527,8 +523,11 @@ func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
 	if sawSourceSecretDelete {
 		t.Fatalf("source credential secret should survive a successful upgrade, got calls: %v", fcli.calls)
 	}
-	if !fcli.secrets["git-main-key"] {
+	if !fcli.secrets["builder-git-git-main-key"] {
 		t.Fatalf("expected fake cluster to retain source credential secret, got secrets: %+v", fcli.secrets)
+	}
+	if !fcli.secrets["builder-git-git-main-known-hosts"] {
+		t.Fatalf("expected fake cluster to retain known_hosts secret, got secrets: %+v", fcli.secrets)
 	}
 }
 
@@ -559,6 +558,37 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		}
 	}
 	switch {
+	case name == "ssh-keygen" && contains(args, "-y"):
+		return "ssh-ed25519 AAAATEST generated@test\n", nil
+	case name == "ssh-keygen":
+		var keyPath string
+		for i := 0; i < len(args)-1; i++ {
+			if args[i] == "-f" {
+				keyPath = args[i+1]
+				break
+			}
+		}
+		if keyPath != "" {
+			if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(keyPath, []byte("private-key\n"), 0o600); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(keyPath+".pub", []byte("ssh-ed25519 AAAATEST generated@test\n"), 0o644); err != nil {
+				return "", err
+			}
+		}
+		return "", nil
+	case name == "ssh-keyscan":
+		host := ""
+		if len(args) > 0 {
+			host = args[len(args)-1]
+		}
+		if host == "" {
+			host = "git.internal.example.com"
+		}
+		return host + " ssh-ed25519 AAAAHOSTKEY generated-host\n", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "namespace"):
 		if f.namespaceTerminating {
 			f.namespacePolls++

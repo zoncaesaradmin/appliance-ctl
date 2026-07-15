@@ -99,60 +99,6 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath string) (string
 	return tmp.Name(), cleanup, nil
 }
 
-func ValidateSourceCredentialProvisioning(buildCatalogPath string, provisioned []SourceCredentialSecret) error {
-	if strings.TrimSpace(buildCatalogPath) == "" {
-		return nil
-	}
-	catalog, err := loadBuildCatalog(buildCatalogPath)
-	if err != nil {
-		return err
-	}
-	required := sourceCredentialSecretNames(catalog)
-	if len(required) == 0 {
-		return nil
-	}
-	if len(provisioned) == 0 {
-		return fmt.Errorf("product config: build catalog %s declares sourceCredentials; --source-credentials is required to provision matching Kubernetes Secrets", buildCatalogPath)
-	}
-	provisionedNames := map[string]struct{}{}
-	for _, cred := range provisioned {
-		if cred.SecretName != "" {
-			provisionedNames[cred.SecretName] = struct{}{}
-		}
-		if cred.KnownHostsSecretName != "" {
-			provisionedNames[cred.KnownHostsSecretName] = struct{}{}
-		}
-	}
-	for _, name := range required {
-		if _, ok := provisionedNames[name]; !ok {
-			return fmt.Errorf("product config: build catalog %s requires source credential Secret %q, but it is not provisioned by --source-credentials", buildCatalogPath, name)
-		}
-	}
-	return nil
-}
-
-func sourceCredentialSecretNames(catalog map[string]any) []string {
-	seen := map[string]struct{}{}
-	var names []string
-	add := func(value any) {
-		name, _ := value.(string)
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return
-		}
-		if _, ok := seen[name]; ok {
-			return
-		}
-		seen[name] = struct{}{}
-		names = append(names, name)
-	}
-	for _, credential := range objectList(catalog["sourceCredentials"]) {
-		add(credential["kubernetesSecretName"])
-		add(credential["knownHostsSecretName"])
-	}
-	return names
-}
-
 func loadBuildCatalog(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -186,6 +132,33 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		}
 	}
 
+	for index, profile := range objectList(catalog["workProfiles"]) {
+		name, _ := profile["name"].(string)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return fmt.Errorf("product config: build catalog %s workProfiles[%d].name is required", path, index)
+		}
+		profileRepos := objectList(profile["repos"])
+		if len(profileRepos) == 0 {
+			return fmt.Errorf("product config: build catalog %s workProfiles[%d].repos must declare at least one repo", path, index)
+		}
+		seenProfileRepos := map[string]struct{}{}
+		for repoIndex, profileRepo := range profileRepos {
+			repoName, _ := profileRepo["name"].(string)
+			repoName = strings.TrimSpace(repoName)
+			if repoName == "" {
+				return fmt.Errorf("product config: build catalog %s workProfiles[%d].repos[%d].name is required", path, index, repoIndex)
+			}
+			if _, ok := reposByName[repoName]; !ok {
+				return fmt.Errorf("product config: build catalog %s workProfiles[%d].repos[%d].name references unknown repo %q", path, index, repoIndex, repoName)
+			}
+			if _, ok := seenProfileRepos[repoName]; ok {
+				return fmt.Errorf("product config: build catalog %s workProfiles[%d].repos[%d].name duplicates repo %q", path, index, repoIndex, repoName)
+			}
+			seenProfileRepos[repoName] = struct{}{}
+		}
+	}
+
 	credentialsByID := map[string]map[string]any{}
 	for index, credential := range objectList(catalog["sourceCredentials"]) {
 		id, _ := credential["id"].(string)
@@ -195,9 +168,6 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		}
 		if _, ok := credential["gitHost"].(string); !ok || strings.TrimSpace(fmt.Sprint(credential["gitHost"])) == "" {
 			return fmt.Errorf("product config: build catalog %s sourceCredentials[%d].gitHost is required", path, index)
-		}
-		if _, ok := credential["kubernetesSecretName"].(string); !ok || strings.TrimSpace(fmt.Sprint(credential["kubernetesSecretName"])) == "" {
-			return fmt.Errorf("product config: build catalog %s sourceCredentials[%d].kubernetesSecretName is required", path, index)
 		}
 		credentialsByID[id] = credential
 	}
@@ -220,10 +190,7 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		if !ok {
 			return fmt.Errorf("product config: build catalog %s repos[%d].sourceCredentialRef references unknown sourceCredentials entry %q", path, index, ref)
 		}
-		knownHostsSecretName, _ := credential["knownHostsSecretName"].(string)
-		if strings.TrimSpace(knownHostsSecretName) == "" {
-			return fmt.Errorf("product config: build catalog %s repos[%d].sourceCredentialRef uses SSH but sourceCredentials %q has no knownHostsSecretName", path, index, ref)
-		}
+		_ = credential
 	}
 
 	for index, target := range targets {
@@ -328,71 +295,6 @@ func objectList(v any) []map[string]any {
 		}
 	}
 	return out
-}
-
-// SourceCredentialSecret is operator-local install/upgrade input used to
-// materialize Git source credential files into Kubernetes Secrets. It carries
-// file paths and Secret names only; key material stays in the referenced files
-// and must never be placed in build catalogs or release bundles.
-type SourceCredentialSecret struct {
-	Namespace            string `yaml:"namespace" json:"namespace"`
-	SecretName           string `yaml:"secretName" json:"secretName"`
-	PrivateKeyPath       string `yaml:"privateKeyPath" json:"privateKeyPath"`
-	KnownHostsSecretName string `yaml:"knownHostsSecretName" json:"knownHostsSecretName"`
-	KnownHostsPath       string `yaml:"knownHostsPath" json:"knownHostsPath"`
-}
-
-type sourceCredentialsDoc struct {
-	Credentials []SourceCredentialSecret `yaml:"credentials" json:"credentials"`
-}
-
-func LoadSourceCredentialSecrets(path, defaultNamespace string) ([]SourceCredentialSecret, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("product config: read source credentials %s: %w", path, err)
-	}
-	var doc sourceCredentialsDoc
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("product config: parse source credentials %s: %w", path, err)
-	}
-	if len(doc.Credentials) == 0 {
-		return nil, fmt.Errorf("product config: source credentials %s must contain credentials", path)
-	}
-	baseDir := filepath.Dir(path)
-	for i := range doc.Credentials {
-		cred := &doc.Credentials[i]
-		cred.Namespace = strings.TrimSpace(cred.Namespace)
-		if cred.Namespace == "" {
-			cred.Namespace = defaultNamespace
-		}
-		cred.SecretName = strings.TrimSpace(cred.SecretName)
-		cred.PrivateKeyPath = absFrom(baseDir, strings.TrimSpace(cred.PrivateKeyPath))
-		cred.KnownHostsSecretName = strings.TrimSpace(cred.KnownHostsSecretName)
-		cred.KnownHostsPath = absFrom(baseDir, strings.TrimSpace(cred.KnownHostsPath))
-		if cred.Namespace == "" || cred.SecretName == "" || cred.PrivateKeyPath == "" {
-			return nil, fmt.Errorf("product config: source credential entry %d requires namespace, secretName, and privateKeyPath", i)
-		}
-		if !validKubernetesName(cred.Namespace) {
-			return nil, fmt.Errorf("product config: source credential entry %d has invalid namespace %q", i, cred.Namespace)
-		}
-		if !validKubernetesName(cred.SecretName) {
-			return nil, fmt.Errorf("product config: source credential entry %d has invalid secretName %q", i, cred.SecretName)
-		}
-		if cred.KnownHostsSecretName != "" && cred.KnownHostsPath == "" {
-			return nil, fmt.Errorf("product config: source credential entry %d has knownHostsSecretName but no knownHostsPath", i)
-		}
-		if cred.KnownHostsPath != "" && cred.KnownHostsSecretName == "" {
-			return nil, fmt.Errorf("product config: source credential entry %d has knownHostsPath but no knownHostsSecretName", i)
-		}
-		if cred.KnownHostsSecretName != "" && !validKubernetesName(cred.KnownHostsSecretName) {
-			return nil, fmt.Errorf("product config: source credential entry %d has invalid knownHostsSecretName %q", i, cred.KnownHostsSecretName)
-		}
-	}
-	return doc.Credentials, nil
 }
 
 func validKubernetesName(name string) bool {
