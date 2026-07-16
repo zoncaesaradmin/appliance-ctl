@@ -222,7 +222,7 @@ func sshRepoHost(raw string) string {
 func newCheck(id string) evidence.Check {
 	return evidence.Check{
 		ID:              id,
-		Category:        "builder",
+		Category:        "dependency",
 		Timestamp:       time.Now().UTC(),
 		Idempotent:      true,
 		SecretsRedacted: true,
