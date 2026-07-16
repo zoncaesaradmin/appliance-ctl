@@ -22,7 +22,7 @@ var systemNamespaces = map[string]bool{
 // node health and any foreign (non-system, non-Zon) workload
 // namespaces. It never mutates the cluster — this is read-only
 // diagnostic input to DecideOwnership. ownedNamespace is the platform's
-// own namespace (e.g. "zon"), excluded from the foreign-namespace
+// own namespace (e.g. "appliance-system"), excluded from the foreign-namespace
 // result.
 func InspectCluster(ctx context.Context, run cli.Runner, kubeconfig, ownedNamespace string) (healthy bool, foreignNamespaces []string, err error) {
 	nodesOut, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "get", "nodes", "--no-headers")

@@ -223,7 +223,7 @@ func (env environment) options(targetVersion string) upgrade.Options {
 		ZonctlRealDestPath:     filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath: filepath.Join(env.stateDir, "usr-local-bin", "zonctl"),
 		ChartReleaseName:       "appliance",
-		ChartNamespace:         "appliance",
+		ChartNamespace:         "appliance-system",
 		BackupRoot:             env.backupRoot,
 		TransactionID:          "txn-upgrade-test",
 	}

@@ -23,8 +23,8 @@ func TestInit_ReturnedCheckSatisfiesEvidenceSchema(t *testing.T) {
 	check, err := bootstrapadmin.Init(context.Background(), bootstrapadmin.Options{
 		Run:           run,
 		Kubeconfig:    "/etc/rancher/k3s/k3s.yaml",
-		Namespace:     "zon",
-		ReleaseName:   "zon",
+		Namespace:     "appliance-system",
+		ReleaseName:   "appliance",
 		AdminUsername: "admin",
 		AdminPassword: []byte("a-fully-valid-password"),
 	})

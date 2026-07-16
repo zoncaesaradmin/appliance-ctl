@@ -79,8 +79,8 @@ func TestEvaluate_HealthyInstallButNoIngressRoute(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
 		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
-		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release zon is deployed"},
-		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace zon"},
+		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance is deployed"},
+		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace appliance-system"},
 	})
 	if got := statusOf(t, checks, "chart-release-health"); got != evidence.StatusPass {
 		t.Errorf("expected chart-release-health pass, got %s", got)
@@ -97,7 +97,7 @@ func TestEvaluate_ChartUnhealthy(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
 		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
-		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: false, Message: `release zon status is "failed", want "deployed"`},
+		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: false, Message: `release appliance status is "failed", want "deployed"`},
 	})
 	if got := statusOf(t, checks, "chart-release-health"); got != evidence.StatusFail {
 		t.Errorf("expected fail, got %s", got)
@@ -118,8 +118,8 @@ func TestEvaluate_ChartAndIngressChecksSatisfyEvidenceSchema(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
 		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
-		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release zon is deployed"},
-		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace zon"},
+		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance is deployed"},
+		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace appliance-system"},
 	})
 	if _, err := evidence.BuildReport("status", "2.4.0", "evidence-test", checks, time.Now()); err != nil {
 		t.Fatalf("BuildReport rejected checks with real schema validation: %v", err)

@@ -20,7 +20,7 @@ func fakeHelmStatus(out string, err error) func(context.Context, string, ...stri
 
 func TestCheckReleaseHealth_Deployed(t *testing.T) {
 	out := `{"info":{"status":"deployed"}}`
-	healthy, msg, err := helm.CheckReleaseHealth(context.Background(), fakeHelmStatus(out, nil), "/etc/rancher/k3s/k3s.yaml", "zon", "zon")
+	healthy, msg, err := helm.CheckReleaseHealth(context.Background(), fakeHelmStatus(out, nil), "/etc/rancher/k3s/k3s.yaml", "appliance", "appliance-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestCheckReleaseHealth_Deployed(t *testing.T) {
 
 func TestCheckReleaseHealth_NotDeployed(t *testing.T) {
 	out := `{"info":{"status":"failed"}}`
-	healthy, msg, err := helm.CheckReleaseHealth(context.Background(), fakeHelmStatus(out, nil), "/etc/rancher/k3s/k3s.yaml", "zon", "zon")
+	healthy, msg, err := helm.CheckReleaseHealth(context.Background(), fakeHelmStatus(out, nil), "/etc/rancher/k3s/k3s.yaml", "appliance", "appliance-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestCheckReleaseHealth_NotDeployed(t *testing.T) {
 // found" rather than an error running helm itself. That must surface as
 // a reportable unhealthy finding, not a command error.
 func TestCheckReleaseHealth_ReleaseMissing(t *testing.T) {
-	healthy, msg, err := helm.CheckReleaseHealth(context.Background(), fakeHelmStatus("", errors.New("release: not found")), "/etc/rancher/k3s/k3s.yaml", "zon", "zon")
+	healthy, msg, err := helm.CheckReleaseHealth(context.Background(), fakeHelmStatus("", errors.New("release: not found")), "/etc/rancher/k3s/k3s.yaml", "appliance", "appliance-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestCheckReleaseHealth_ReleaseMissing(t *testing.T) {
 }
 
 func TestCheckReleaseHealth_PropagatesHelmFailure(t *testing.T) {
-	_, _, err := helm.CheckReleaseHealth(context.Background(), fakeHelmStatus("", errors.New("connection refused")), "/etc/rancher/k3s/k3s.yaml", "zon", "zon")
+	_, _, err := helm.CheckReleaseHealth(context.Background(), fakeHelmStatus("", errors.New("connection refused")), "/etc/rancher/k3s/k3s.yaml", "appliance", "appliance-system")
 	if err == nil || !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("expected the helm failure to propagate, got: %v", err)
 	}
