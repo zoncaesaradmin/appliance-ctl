@@ -256,6 +256,8 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		K3sUnitPath:            defaultK3sUnitPath,
 		K3sBinaryDestPath:      defaultK3sBinaryDestPath,
 		KubectlSymlinkPath:     defaultKubectlSymlinkPath,
+		K3sCNINetworkDir:       defaultK3sCNINetworkDir,
+		K3sCNIInterfaces:       append([]string(nil), defaultK3sCNIInterfaces...),
 		K3sUnitName:            defaultK3sUnitName,
 		KubeconfigPath:         defaultKubeconfigPath,
 		ApplianceProfile:       opts.applianceProfile,
@@ -268,6 +270,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		TransactionID:          txn.ID,
 		PriorInstallAttempted:  priorInstallAttempted,
 		ForceAdopt:             opts.forceAdopt,
+		PreserveFailedState:    opts.preserveFailedState,
 	}
 
 	orch := install.NewOrchestrator()

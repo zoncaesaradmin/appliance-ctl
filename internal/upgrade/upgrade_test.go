@@ -423,6 +423,39 @@ func TestUpgrade_FailedChartApplyRollsBackToPreUpgradeBackup(t *testing.T) {
 	}
 }
 
+func TestUpgrade_PreserveFailedStateSkipsRollbackOnChartFailure(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0", "core")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{failOn: map[string]bool{"upgrade --install": true}}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run}
+
+	opts := env.options("2.4.0")
+	opts.PreserveFailedState = true
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	_, checks, err := orch.Upgrade(context.Background(), offlineSource, opts)
+	if err == nil {
+		t.Fatal("expected the simulated chart failure to fail the upgrade")
+	}
+	if !strings.Contains(err.Error(), "--preserve-failed-state") {
+		t.Fatalf("expected error to mention preserved failed state, got: %v", err)
+	}
+	for _, c := range checks {
+		if c.ID == "restore-copy-data" {
+			t.Fatal("did not expect restore-based rollback checks when preserving failed state")
+		}
+	}
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "image rm") {
+			t.Fatalf("expected imported images to remain during preserved failed state, got calls: %v", fcli.calls)
+		}
+	}
+}
+
 func TestUpgrade_RecreatesNamespaceAfterPriorTermination(t *testing.T) {
 	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0", "core")
 	bundleDir, pub := buildBundle(t, bundleSpec{

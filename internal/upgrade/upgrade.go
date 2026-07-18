@@ -49,6 +49,11 @@ type Options struct {
 
 	BackupRoot    string
 	TransactionID string
+
+	// PreserveFailedState disables rollback-to-backup on failure so the
+	// partially upgraded host can be inspected in place for debugging.
+	// The default remains rollback for normal operator use.
+	PreserveFailedState bool
 }
 
 // Orchestrator holds the injectable adapters Upgrade drives.
@@ -142,6 +147,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: pre-upgrade backup failed integrity verification: %w", err)
 	}
+	failUpgrade := func(primary error, cleanup func() []evidence.Check) ([]evidence.Check, error) {
+		if opts.PreserveFailedState {
+			return nil, fmt.Errorf("%w (failed state preserved due to --preserve-failed-state)", primary)
+		}
+		return cleanup(), fmt.Errorf("%w (rolled back to pre-upgrade backup)", primary)
+	}
 
 	binaryReverted := false
 	rollback := func() []evidence.Check {
@@ -174,9 +185,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
-		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-		checks = append(checks, rollback()...)
-		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
 	}
 
 	k3sVersionChanged := resolved.Compatibility.K3sVersion != installed.Components.K3sVersion
@@ -184,9 +198,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if k3sVersionChanged {
 		for _, path := range []string{opts.K3sBinaryDestPath, opts.K3sConfigPath, opts.K3sUnitPath} {
 			if err := snapshotFile(path); err != nil {
-				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-				checks = append(checks, rollback()...)
-				return nil, checks, fmt.Errorf("upgrade: preserve current k3s files: %w (rolled back to pre-upgrade backup)", err)
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: preserve current k3s files: %w", err), func() []evidence.Check {
+					_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+					return rollback()
+				})
+				checks = append(checks, rollbackChecks...)
+				return nil, checks, failErr
 			}
 		}
 		binaryReverted = true
@@ -207,9 +224,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 		for _, step := range steps {
 			if err := step.run(); err != nil {
-				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-				checks = append(checks, rollback()...)
-				return nil, checks, fmt.Errorf("upgrade: %s k3s: %w (rolled back to pre-upgrade backup)", step.name, err)
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %s k3s: %w", step.name, err), func() []evidence.Check {
+					_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+					return rollback()
+				})
+				checks = append(checks, rollbackChecks...)
+				return nil, checks, failErr
 			}
 		}
 		binaryCheck.Status = evidence.StatusPass
@@ -230,9 +250,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, sourcePrepared.Checks...)
 		if prepErr != nil {
 			cleanupSourceCredentials()
-			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-			checks = append(checks, rollback()...)
-			return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", prepErr)
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", prepErr), func() []evidence.Check {
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
 		}
 	}
 
@@ -245,18 +268,24 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	checks = append(checks, prepared.Checks...)
 	if err != nil {
 		cleanupSourceCredentials()
-		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-		checks = append(checks, rollback()...)
-		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
 	}
 
 	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, preparedValuesPath)
 	checks = append(checks, readinessChecks...)
 	if err != nil {
 		cleanupSourceCredentials()
-		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-		checks = append(checks, rollback()...)
-		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
 	}
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
@@ -275,11 +304,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			ValuesPath: preparedValuesPath,
 		})...)
 		cleanupSourceCredentials()
-		_ = prepared.Cleanup()
-		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
-		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-		checks = append(checks, rollback()...)
-		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
+			_ = prepared.Cleanup()
+			_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
 	}
 	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
 		SourceBinaryPath: resolved.ZonctlBinaryPath,
@@ -288,11 +320,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	})
 	if err != nil {
 		cleanupSourceCredentials()
-		_ = prepared.Cleanup()
-		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
-		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-		checks = append(checks, rollback()...)
-		return nil, checks, fmt.Errorf("upgrade: install host zonctl: %w (rolled back to pre-upgrade backup)", err)
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host zonctl: %w", err), func() []evidence.Check {
+			_ = prepared.Cleanup()
+			_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
 	}
 
 	now := time.Now().UTC()
@@ -320,13 +355,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		UpdatedAt: now,
 	}
 	if err := state.Save(opts.InstalledStatePath, updated); err != nil {
-		_ = zonctlRollback()
-		cleanupSourceCredentials()
-		_ = prepared.Cleanup()
-		_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
-		_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-		checks = append(checks, rollback()...)
-		return nil, checks, fmt.Errorf("upgrade: %w (rolled back to pre-upgrade backup)", err)
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
+			_ = zonctlRollback()
+			cleanupSourceCredentials()
+			_ = prepared.Cleanup()
+			_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
 	}
 
 	return updated, checks, nil

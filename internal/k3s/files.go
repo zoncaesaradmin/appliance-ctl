@@ -1,10 +1,12 @@
 package k3s
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
 )
@@ -108,6 +110,45 @@ func RemoveKubectlSymlink(k3sBinaryPath, kubectlPath string) error {
 	}
 	if err := os.Remove(kubectlPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("k3s: remove kubectl symlink: %w", err)
+	}
+	return nil
+}
+
+// CleanupNodeNetwork removes node-local CNI/IPAM lease files and then
+// asks the platform-specific implementation to drop the named network
+// interfaces if they still exist. Missing paths and already-absent
+// interfaces are treated as success so repeated uninstall/install cycles
+// remain idempotent.
+func CleanupNodeNetwork(cniNetworkDir string, interfaceNames []string) error {
+	var errs []error
+	if dir := strings.TrimSpace(cniNetworkDir); dir != "" {
+		if err := clearCNINetworkDir(dir); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for _, name := range interfaceNames {
+		if iface := strings.TrimSpace(name); iface != "" {
+			if err := deleteNetworkInterface(iface); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func clearCNINetworkDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("k3s: read CNI network directory %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("k3s: remove CNI network state %s: %w", path, err)
+		}
 	}
 	return nil
 }

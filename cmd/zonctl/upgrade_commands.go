@@ -47,6 +47,7 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ApplianceProfile:       opts.applianceProfile,
 		BuildCatalogPath:       opts.buildCatalogPath,
 		NodeName:               opts.nodeName,
+		PreserveFailedState:    opts.preserveFailedState,
 		ZonctlRealDestPath:     defaultZonctlRealPath,
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,
 		ChartReleaseName:       defaultChartReleaseName,

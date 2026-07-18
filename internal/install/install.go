@@ -53,6 +53,8 @@ type Options struct {
 	// is created (K3s is a multicall binary, so this makes plain
 	// `kubectl` work as a real, standalone command on the host).
 	KubectlSymlinkPath string
+	K3sCNINetworkDir   string
+	K3sCNIInterfaces   []string
 	// K3sDataDir is K3s's own data directory (e.g. /var/lib/rancher/k3s),
 	// distinct from K3sConfigPath. It backs the "data-dir" config key,
 	// the preflight disk-space check, and is what `zonctl backup`
@@ -83,6 +85,11 @@ type Options struct {
 	// cluster that isn't obviously safe to adopt (unhealthy and/or
 	// carrying foreign workloads). See internal/k3s.DecideOwnership.
 	ForceAdopt bool
+
+	// PreserveFailedState disables install rollback on failure so the
+	// partially installed host can be inspected in place for debugging.
+	// The default remains fail-closed rollback for normal operator use.
+	PreserveFailedState bool
 }
 
 // Orchestrator holds the injectable adapters Install drives. Tests
@@ -118,6 +125,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			}
 		}
 		return errors.Join(errs...)
+	}
+	failInstall := func(primary error, cleanup error) error {
+		if opts.PreserveFailedState {
+			if cleanup != nil {
+				return errors.Join(primary, fmt.Errorf("install cleanup skipped because --preserve-failed-state was set"))
+			}
+			return fmt.Errorf("%w (failed state preserved due to --preserve-failed-state)", primary)
+		}
+		return joinCleanupError(primary, cleanup)
 	}
 
 	resolved, resolveChecks, err := source.Resolve(ctx)
@@ -236,6 +252,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			if err := o.K3s.Stop(opts.K3sUnitName); err != nil {
 				errs = append(errs, err)
 			}
+			if err := o.K3s.CleanupNodeNetwork(opts.K3sCNINetworkDir, opts.K3sCNIInterfaces); err != nil {
+				errs = append(errs, err)
+			}
 			if err := o.K3s.RemoveKubectlSymlink(opts.K3sBinaryDestPath, opts.KubectlSymlinkPath); err != nil {
 				errs = append(errs, err)
 			}
@@ -258,21 +277,21 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// on its socket; without this wait, PreloadAll below can hit a raw
 	// "connection refused" on a freshly (re)started K3s.
 	if err := importer.WaitReady(ctx, containerdReadyTimeout, containerdReadyPollInterval); err != nil {
-		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
+		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
 
 	imgs := append(append([]images.Image{}, resolved.K3sImages...), resolved.OCIImages...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
-		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
+		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
 	rollbacks = append(rollbacks, func() error { return importer.Rollback(ctx, preloadResult.NewlyImported) })
 
 	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, preparedValuesPath)
 	checks = append(checks, readinessChecks...)
 	if err != nil {
-		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
+		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 
@@ -284,7 +303,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		argoCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.ArgoCRDPaths, "argo-crd")
 		checks = append(checks, argoCRDChecks...)
 		if applyErr != nil {
-			return nil, checks, joinCleanupError(fmt.Errorf("install: %w", applyErr), runRollbacks())
+			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), runRollbacks())
 		}
 	}
 
@@ -296,7 +315,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 		checks = append(checks, argoPrepared.Checks...)
 		if prepErr != nil {
-			return nil, checks, joinCleanupError(fmt.Errorf("install: %w", prepErr), runRollbacks())
+			return nil, checks, failInstall(fmt.Errorf("install: %w", prepErr), runRollbacks())
 		}
 		rollbacks = append(rollbacks, argoPrepared.Cleanup)
 
@@ -312,8 +331,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 				ChartPath: resolved.ArgoChartPath,
 				Namespace: argoNamespace,
 			})...)
-			cleanupErr := errors.Join(applier.Rollback(ctx, argoReleaseName, true), runRollbacks())
-			return nil, checks, joinCleanupError(fmt.Errorf("install: %w", applyErr), cleanupErr)
+			var cleanupErr error
+			if !opts.PreserveFailedState {
+				cleanupErr = errors.Join(applier.Rollback(ctx, argoReleaseName, true), runRollbacks())
+			}
+			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
 		}
 		rollbacks = append(rollbacks, func() error {
 			return applier.Rollback(ctx, argoReleaseName, true)
@@ -324,7 +346,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		sourcePrepared, prepErr := helm.EnsureSourceCredentialSecrets(ctx, o.HelmRun, opts.KubeconfigPath, sourceCredentialSecrets)
 		checks = append(checks, sourcePrepared.Checks...)
 		if prepErr != nil {
-			return nil, checks, joinCleanupError(fmt.Errorf("install: %w", prepErr), runRollbacks())
+			return nil, checks, failInstall(fmt.Errorf("install: %w", prepErr), runRollbacks())
 		}
 		rollbacks = append(rollbacks, sourcePrepared.Cleanup)
 	}
@@ -337,7 +359,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	})
 	checks = append(checks, prepared.Checks...)
 	if err != nil {
-		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), runRollbacks())
+		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
 	rollbacks = append(rollbacks, prepared.Cleanup)
 
@@ -355,9 +377,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Namespace:  opts.ChartNamespace,
 			ValuesPath: preparedValuesPath,
 		})...)
-		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
-		cleanupErr = errors.Join(cleanupErr, runRollbacks())
-		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
+		var cleanupErr error
+		if !opts.PreserveFailedState {
+			cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
+			cleanupErr = errors.Join(cleanupErr, runRollbacks())
+		}
+		return nil, checks, failInstall(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
 		SourceBinaryPath: resolved.ZonctlBinaryPath,
@@ -365,9 +390,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		LauncherDestPath: opts.ZonctlLauncherDestPath,
 	})
 	if err != nil {
-		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
-		cleanupErr = errors.Join(cleanupErr, runRollbacks())
-		return nil, checks, joinCleanupError(fmt.Errorf("install: install host zonctl: %w", err), cleanupErr)
+		var cleanupErr error
+		if !opts.PreserveFailedState {
+			cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
+			cleanupErr = errors.Join(cleanupErr, runRollbacks())
+		}
+		return nil, checks, failInstall(fmt.Errorf("install: install host zonctl: %w", err), cleanupErr)
 	}
 	rollbacks = append(rollbacks, zonctlRollback)
 
@@ -394,9 +422,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		UpdatedAt: now,
 	}
 	if err := state.Save(opts.InstalledStatePath, installed); err != nil {
-		cleanupErr := applier.Rollback(ctx, opts.ChartReleaseName, true)
-		cleanupErr = errors.Join(cleanupErr, runRollbacks())
-		return nil, checks, joinCleanupError(fmt.Errorf("install: %w", err), cleanupErr)
+		var cleanupErr error
+		if !opts.PreserveFailedState {
+			cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
+			cleanupErr = errors.Join(cleanupErr, runRollbacks())
+		}
+		return nil, checks, failInstall(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 
 	return installed, checks, nil

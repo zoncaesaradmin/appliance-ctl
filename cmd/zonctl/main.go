@@ -24,6 +24,7 @@ const defaultStateDir = "/var/lib/zon"
 const (
 	defaultK3sConfigPath      = "/etc/rancher/k3s/config.yaml"
 	defaultK3sDataDir         = "/var/lib/rancher/k3s"
+	defaultK3sCNINetworkDir   = "/var/lib/cni/networks/cbr0"
 	defaultK3sUnitPath        = "/etc/systemd/system/k3s.service"
 	defaultK3sBinaryDestPath  = "/usr/local/bin/k3s"
 	defaultKubectlSymlinkPath = "/usr/local/bin/kubectl"
@@ -35,6 +36,8 @@ const (
 	defaultChartReleaseName   = "appliance"
 	defaultChartNamespace     = "appliance-system"
 )
+
+var defaultK3sCNIInterfaces = []string{"cni0", "flannel.1"}
 
 // cliOptions carries every flag value dispatch needs. Only bundleDir and
 // publicKeyPath are install-specific; the rest are shared or unused by
@@ -49,6 +52,7 @@ type cliOptions struct {
 	applianceProfile    string
 	buildCatalogPath    string
 	nodeName            string
+	preserveFailedState bool
 	backupID            string
 	confirm             string
 	acknowledgeDataLoss bool
@@ -124,6 +128,7 @@ func run(args []string) int {
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage); install defaults to core and upgrade preserves the installed profile when omitted")
 	buildCatalogPath := fs.String("build-catalog", "", "path to developer workflow build catalog JSON/YAML to pass as product config into the control plane")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
+	preserveFailedState := fs.Bool("preserve-failed-state", false, "debug mode: do not roll back a failed install or upgrade; preserve the partial target state for investigation")
 	backupID := fs.String("backup-id", "", "backup identifier to restore from (required for restore; optionally the verified recovery point for factory-reset)")
 	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall/factory-reset)")
 	acknowledgeDataLoss := fs.Bool("acknowledge-data-loss", false, "explicitly acknowledge permanent data loss (required for factory-reset)")
@@ -152,6 +157,7 @@ func run(args []string) int {
 		applianceProfile:    *applianceProfile,
 		buildCatalogPath:    *buildCatalogPath,
 		nodeName:            *nodeName,
+		preserveFailedState: *preserveFailedState,
 		backupID:            *backupID,
 		confirm:             *confirm,
 		acknowledgeDataLoss: *acknowledgeDataLoss,

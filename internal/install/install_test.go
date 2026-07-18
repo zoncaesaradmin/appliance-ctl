@@ -164,6 +164,7 @@ type fakeK3s struct {
 	failStep          string
 	calls             []string
 	stopCalls         int
+	cleanupCalls      int
 	daemonReloadCalls int
 	runningVersion    string
 }
@@ -218,6 +219,14 @@ func (f *fakeK3s) ops() k3s.Ops {
 		Stop: func(unit string) error {
 			f.stopCalls++
 			f.calls = append(f.calls, "stop")
+			return nil
+		},
+		CleanupNodeNetwork: func(cniNetworkDir string, interfaceNames []string) error {
+			f.cleanupCalls++
+			f.calls = append(f.calls, "cleanup-node-network")
+			if f.failStep == "cleanup-node-network" {
+				return errors.New("simulated cleanup-node-network failure")
+			}
 			return nil
 		},
 		DaemonReload: func() error {
@@ -336,6 +345,8 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		K3sUnitPath:            filepath.Join(stateDir, "systemd", "k3s.service"),
 		K3sBinaryDestPath:      filepath.Join(stateDir, "bin", "k3s"),
 		KubectlSymlinkPath:     filepath.Join(stateDir, "bin", "kubectl"),
+		K3sCNINetworkDir:       filepath.Join(stateDir, "cni", "networks", "cbr0"),
+		K3sCNIInterfaces:       []string{"cni0", "flannel.1"},
 		K3sUnitName:            "k3s.service",
 		KubeconfigPath:         filepath.Join(stateDir, "k3s.yaml"),
 		NodeName:               "appliance-node",
@@ -649,6 +660,9 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 	if fk3s.stopCalls == 0 {
 		t.Error("expected k3s to be stopped as part of rollback")
 	}
+	if fk3s.cleanupCalls == 0 {
+		t.Error("expected stale K3s CNI state cleanup as part of rollback")
+	}
 	if fk3s.daemonReloadCalls == 0 {
 		t.Error("expected a systemd daemon-reload as part of rollback, so a retried install doesn't see a stale 'existing K3s' signal")
 	}
@@ -670,6 +684,44 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 
 	if _, err := os.Stat(opts.InstalledStatePath); !os.IsNotExist(err) {
 		t.Errorf("expected no installed-state to be persisted on failure, stat err=%v", err)
+	}
+}
+
+func TestInstall_PreserveFailedStateSkipsRollbackOnChartFailure(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.PreserveFailedState = true
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{
+		failOn:       map[string]bool{"upgrade --install": true},
+		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
+	}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil {
+		t.Fatal("expected the simulated chart failure to fail the install")
+	}
+	if !strings.Contains(err.Error(), "--preserve-failed-state") {
+		t.Fatalf("expected error to mention preserved failed state, got: %v", err)
+	}
+	if fk3s.stopCalls != 0 {
+		t.Errorf("expected no k3s stop during preserved failed state, got %d", fk3s.stopCalls)
+	}
+	if fk3s.cleanupCalls != 0 {
+		t.Errorf("expected no CNI cleanup during preserved failed state, got %d", fk3s.cleanupCalls)
+	}
+	if fk3s.daemonReloadCalls != 0 {
+		t.Errorf("expected no daemon-reload during preserved failed state, got %d", fk3s.daemonReloadCalls)
+	}
+	if _, err := os.Stat(opts.K3sUnitPath); err != nil {
+		t.Errorf("expected %s to remain for debugging: %v", opts.K3sUnitPath, err)
+	}
+	for _, c := range fcli.calls {
+		if strings.Contains(c, "image rm") {
+			t.Fatalf("expected imported images to remain during preserved failed state, got calls: %v", fcli.calls)
+		}
 	}
 }
 
