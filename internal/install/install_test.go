@@ -456,7 +456,7 @@ func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
 		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "apply -f") && strings.Contains(c, "workflows.argoproj.io.yaml") {
 			sawCRDApply = true
 		}
-		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install argo-workflows") {
+		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install appliance-argo-workflows") {
 			sawArgoHelm = true
 		}
 	}

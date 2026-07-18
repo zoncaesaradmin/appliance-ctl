@@ -32,7 +32,7 @@ import (
 const (
 	containerdReadyTimeout      = 60 * time.Second
 	containerdReadyPollInterval = 1 * time.Second
-	argoReleaseName             = "argo-workflows"
+	argoReleaseName             = "appliance-argo-workflows"
 	argoNamespace               = "workflows"
 )
 
