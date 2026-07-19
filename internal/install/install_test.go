@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
@@ -400,6 +401,28 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 	}
 }
 
+func saveInstalledState(t *testing.T, path, installedVersion string) {
+	t.Helper()
+	now := time.Now().UTC()
+	installed := &state.InstalledState{
+		SchemaVersion:       1,
+		ApplianceInstanceID: "test-instance",
+		InstalledVersion:    installedVersion,
+		InstalledReleaseID:  "prior-release",
+		ApplianceProfile:    "core",
+		Components:          state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: installedVersion},
+		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: installedVersion},
+		LastOperation: state.Operation{
+			Type: "install", Status: "completed", TransactionID: "txn-prior",
+			StartedAt: now, CompletedAt: &now,
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := state.Save(path, installed); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInstall_EndToEndSuccess(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
@@ -462,6 +485,54 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
+	}
+}
+
+func TestInstall_ClearsStaleInstalledStateWhenK3sArtifactsAreAbsent(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	saveInstalledState(t, opts.InstalledStatePath, "2.4.0")
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	installed, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("expected stale ownership-only state to be cleared and fresh install to proceed, got: %v", err)
+	}
+	if installed == nil || installed.InstalledVersion != "2.4.0" {
+		t.Fatalf("expected installed state from the fresh install, got %+v", installed)
+	}
+	var sawCleanup bool
+	for _, check := range checks {
+		if check.ID == "k3s-stale-ownership-cleared" {
+			sawCleanup = true
+			break
+		}
+	}
+	if !sawCleanup {
+		t.Fatalf("expected stale ownership cleanup evidence, got checks: %+v", checks)
+	}
+}
+
+func TestInstall_RefusesStaleInstalledStateWhenK3sArtifactsRemain(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	saveInstalledState(t, opts.InstalledStatePath, "2.4.0")
+	if err := os.MkdirAll(filepath.Dir(opts.K3sConfigPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(opts.K3sConfigPath, []byte("stale config"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err == nil || !strings.Contains(err.Error(), "requires-repair") {
+		t.Fatalf("expected install to fail closed while K3s artifacts remain, got: %v", err)
 	}
 }
 

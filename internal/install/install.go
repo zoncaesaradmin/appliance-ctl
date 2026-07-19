@@ -180,6 +180,17 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
+	if existing != nil && existing.K3sOwnership.Owned && !signal.Detected && k3sArtifactsAbsent(opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath) {
+		if err := os.Remove(opts.InstalledStatePath); err != nil && !os.IsNotExist(err) {
+			return nil, checks, fmt.Errorf("install: remove stale installed-state: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "k3s-stale-ownership-cleared", Category: "k3s", Status: evidence.StatusPass,
+			Message:   "installed-state recorded owned K3s, but the K3s service, unit, binary, and config are absent; stale ownership record removed before fresh install",
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+		existing = nil
+	}
 	if existing == nil && signal.Detected && signal.Active {
 		healthy, foreignNamespaces, inspectErr := k3s.InspectCluster(ctx, o.ClusterRun, opts.KubeconfigPath, opts.ChartNamespace)
 		if inspectErr != nil {
@@ -411,6 +422,18 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	return installed, checks, nil
+}
+
+func k3sArtifactsAbsent(paths ...string) bool {
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }
 
 func applyManifestFiles(ctx context.Context, run cli.Runner, kubeconfig string, manifestPaths []string, checkPrefix string) ([]evidence.Check, error) {
