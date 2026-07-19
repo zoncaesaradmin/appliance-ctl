@@ -79,10 +79,12 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 
 	var k3sImages, ociImages []images.Image
 	for _, e := range b.Entries("k3s-images") {
-		k3sImages = append(k3sImages, images.Image{Name: imageName(e), ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: images.CategoryK3sPlatform})
+		name, requireReference := imageName(e)
+		k3sImages = append(k3sImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: images.CategoryK3sPlatform, RequireReference: requireReference})
 	}
 	for _, e := range b.Entries("oci-images") {
-		ociImages = append(ociImages, images.Image{Name: imageName(e), ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: images.CategoryApplication})
+		name, requireReference := imageName(e)
+		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: images.CategoryApplication, RequireReference: requireReference})
 	}
 
 	return Resolved{
@@ -100,11 +102,11 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	}, checks, nil
 }
 
-func imageName(e bundle.Entry) string {
+func imageName(e bundle.Entry) (string, bool) {
 	if e.ImageReference != "" {
-		return e.ImageReference
+		return e.ImageReference, true
 	}
-	return e.Path
+	return e.Path, false
 }
 
 func applianceChartPath(b *bundle.Bundle) (string, error) {

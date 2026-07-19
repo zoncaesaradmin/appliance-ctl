@@ -23,6 +23,8 @@ type fakeCtr struct {
 	alreadyImported []string
 	failImport      map[string]bool // keyed by archive path
 	failRemove      map[string]bool // keyed by image name
+	nextImportAdds  [][]string
+	sawImportDigests bool
 	calls           []string
 }
 
@@ -35,7 +37,14 @@ func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, e
 	for i, a := range args {
 		if a == "image" && i+1 < len(args) {
 			verb = args[i+1]
-			if (verb == "import" || verb == "rm") && i+2 < len(args) {
+			if verb == "import" {
+				for _, candidate := range args[i+2:] {
+					if !strings.HasPrefix(candidate, "-") {
+						target = candidate
+					}
+				}
+			}
+			if verb == "rm" && i+2 < len(args) {
 				target = args[i+2]
 			}
 			break
@@ -47,8 +56,17 @@ func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, e
 		return strings.Join(f.alreadyImported, "\n"), nil
 	case "import":
 		f.calls = append(f.calls, "import:"+target)
+		if containsArg(args, "--digests") {
+			f.sawImportDigests = true
+		}
 		if f.failImport[target] {
 			return "", errors.New("simulated import failure")
+		}
+		if len(f.nextImportAdds) > 0 {
+			for _, ref := range f.nextImportAdds[0] {
+				f.addImported(ref)
+			}
+			f.nextImportAdds = f.nextImportAdds[1:]
 		}
 		return "", nil
 	case "rm":
@@ -59,6 +77,24 @@ func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, e
 		return "", nil
 	}
 	return "", fmt.Errorf("unrecognized ctr invocation: %v", args)
+}
+
+func (f *fakeCtr) addImported(ref string) {
+	for _, existing := range f.alreadyImported {
+		if existing == ref {
+			return
+		}
+	}
+	f.alreadyImported = append(f.alreadyImported, ref)
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func writeArchive(t *testing.T, dir, name, content string) (path, digest string) {
@@ -223,7 +259,7 @@ func TestPreloadAll_DecompressesTarZstBeforeImport(t *testing.T) {
 	dir := t.TempDir()
 	path, digest := writeCompressedArchive(t, dir, "k3s-airgap-images-amd64.tar.zst", "not-a-real-tar-but-good-enough-for-unit-test")
 
-	fake := &fakeCtr{}
+	fake := &fakeCtr{nextImportAdds: [][]string{{"k3s-airgap-images:v1"}}}
 	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
 
 	result, err := imp.PreloadAll(context.Background(), []images.Image{
@@ -251,6 +287,56 @@ func TestPreloadAll_DecompressesTarZstBeforeImport(t *testing.T) {
 	}
 }
 
+func TestPreloadAll_ImportsWithDigestsAndVerifiesRequiredReference(t *testing.T) {
+	dir := t.TempDir()
+	path, digest := writeArchive(t, dir, "buildah.tar", "builder image")
+	imageRef := "registry.local/buildah@sha256:approved"
+
+	fake := &fakeCtr{nextImportAdds: [][]string{{imageRef}}}
+	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
+
+	result, err := imp.PreloadAll(context.Background(), []images.Image{
+		{Name: imageRef, ArchivePath: path, ExpectedDigest: digest, Category: images.CategoryApplication, RequireReference: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("expected one import call, got %v", fake.calls)
+	}
+	if got, want := fake.calls[0], "import:"+path; got != want {
+		t.Fatalf("import call = %q, want %q", got, want)
+	}
+	if len(result.NewlyImported) != 1 || result.NewlyImported[0] != imageRef {
+		t.Fatalf("NewlyImported = %v, want %q", result.NewlyImported, imageRef)
+	}
+	if !fake.sawImportDigests {
+		t.Fatal("expected ctr image import to include --digests for digest-pinned local resolution")
+	}
+}
+
+func TestPreloadAll_MissingRequiredReferenceFailsAfterImport(t *testing.T) {
+	dir := t.TempDir()
+	path, digest := writeArchive(t, dir, "buildah.tar", "builder image")
+	imageRef := "registry.local/buildah@sha256:approved"
+
+	fake := &fakeCtr{nextImportAdds: [][]string{{"registry.local/other@sha256:approved"}}}
+	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
+
+	result, err := imp.PreloadAll(context.Background(), []images.Image{
+		{Name: imageRef, ArchivePath: path, ExpectedDigest: digest, Category: images.CategoryApplication, RequireReference: true},
+	})
+	if err == nil {
+		t.Fatal("expected missing required reference to fail")
+	}
+	if !strings.Contains(err.Error(), "expected image reference not present after import") {
+		t.Fatalf("error = %v, want expected-reference failure", err)
+	}
+	if got := statusOfCheck(t, result.Checks, "image-preload-registry-local-buildah-sha256-approved"); got != evidence.StatusFail {
+		t.Errorf("expected fail status, got %s", got)
+	}
+}
+
 // Rollback: images newly imported this run can be removed again, and a
 // partial removal failure is reported rather than silently swallowed.
 func TestImporter_Rollback(t *testing.T) {
@@ -258,7 +344,7 @@ func TestImporter_Rollback(t *testing.T) {
 	path1, digest1 := writeArchive(t, dir, "one.tar", "one")
 	path2, digest2 := writeArchive(t, dir, "two.tar", "two")
 
-	fake := &fakeCtr{}
+	fake := &fakeCtr{nextImportAdds: [][]string{{"one:v1"}, {"two:v1"}}}
 	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
 
 	result, err := imp.PreloadAll(context.Background(), []images.Image{

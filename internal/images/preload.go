@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -134,7 +135,7 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 			defer cleanup()
 		}
 
-		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "import", importPath); err != nil {
+		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "import", "--digests", importPath); err != nil {
 			check.Status = evidence.StatusFail
 			check.Message = fmt.Sprintf("import %s: %v", img.Name, err)
 			failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
@@ -142,16 +143,45 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 			continue
 		}
 
+		afterImport, err := imp.Imported(ctx)
+		if err != nil {
+			check.Status = evidence.StatusFail
+			check.Message = fmt.Sprintf("verify imported reference %s: %v", img.Name, err)
+			failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+			result.Checks = append(result.Checks, check)
+			continue
+		}
+		result.NewlyImported = append(result.NewlyImported, newImageReferences(already, afterImport)...)
+		already = afterImport
+
+		if img.RequireReference && !afterImport[img.Name] {
+			check.Status = evidence.StatusFail
+			check.Message = fmt.Sprintf("imported archive %s did not provide expected image reference %s; rebuild/export the archive with that exact reference or update the bundle imageReference/build catalog to match", img.ArchivePath, img.Name)
+			failures = append(failures, fmt.Errorf("%s: expected image reference not present after import", img.Name))
+			result.Checks = append(result.Checks, check)
+			continue
+		}
+
 		check.Status = evidence.StatusPass
 		check.Message = fmt.Sprintf("%s imported from %s", img.Name, img.ArchivePath)
 		result.Checks = append(result.Checks, check)
-		result.NewlyImported = append(result.NewlyImported, img.Name)
 	}
 
 	if len(failures) > 0 {
 		return result, fmt.Errorf("images: %d image(s) failed to preload: %w", len(failures), errors.Join(failures...))
 	}
 	return result, nil
+}
+
+func newImageReferences(before, after map[string]bool) []string {
+	var refs []string
+	for ref := range after {
+		if !before[ref] {
+			refs = append(refs, ref)
+		}
+	}
+	sort.Strings(refs)
+	return refs
 }
 
 func (imp *Importer) prepareArchiveForImport(path string) (string, func(), error) {

@@ -22,10 +22,11 @@ const (
 // Image is one OCI image archive to import, already digest/signature
 // verified by internal/verify before this package ever sees it.
 type Image struct {
-	Name           string // the image reference, e.g. "docker.io/rancher/mirrored-coredns-coredns:1.11.3"
-	ArchivePath    string // local path to the OCI tar in the bundle
-	ExpectedDigest string // "sha256:<hex>" of the archive file
-	Category       Category
+	Name             string // the image reference, e.g. "docker.io/rancher/mirrored-coredns-coredns:1.11.3"
+	ArchivePath      string // local path to the OCI tar in the bundle
+	ExpectedDigest   string // "sha256:<hex>" of the archive file
+	Category         Category
+	RequireReference bool // true when workloads must be able to resolve Name exactly from the local store
 }
 
 // Ordered returns images sorted by Category (K3s platform, then
