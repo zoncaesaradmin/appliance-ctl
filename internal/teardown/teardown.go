@@ -24,14 +24,26 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath, kubectlS
 	var checks []evidence.Check
 
 	stopStart := time.Now()
-	if err := ops.Stop(unitName); err != nil {
-		return checks, fmt.Errorf("teardown: stop k3s: %w", err)
+	signal, err := ops.DetectService(unitName)
+	if err != nil {
+		return checks, fmt.Errorf("teardown: detect k3s service: %w", err)
 	}
-	checks = append(checks, evidence.Check{
-		ID: "teardown-stop-k3s", Category: "k3s", Status: evidence.StatusPass,
-		Message: "k3s stopped", Timestamp: stopStart.UTC(),
-		DurationMs: time.Since(stopStart).Milliseconds(), Idempotent: true, SecretsRedacted: true,
-	})
+	if signal.Detected {
+		if err := ops.Stop(unitName); err != nil {
+			return checks, fmt.Errorf("teardown: stop k3s: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "teardown-stop-k3s", Category: "k3s", Status: evidence.StatusPass,
+			Message: "k3s stopped", Timestamp: stopStart.UTC(),
+			DurationMs: time.Since(stopStart).Milliseconds(), Idempotent: true, SecretsRedacted: true,
+		})
+	} else {
+		checks = append(checks, evidence.Check{
+			ID: "teardown-stop-k3s", Category: "k3s", Status: evidence.StatusPass,
+			Message: "k3s service already absent", Timestamp: stopStart.UTC(),
+			DurationMs: time.Since(stopStart).Milliseconds(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	if err := ops.CleanupNodeNetwork(cniNetworkDir, cniInterfaceNames); err != nil {
 		checks = append(checks, evidence.Check{

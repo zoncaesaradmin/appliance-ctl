@@ -17,10 +17,14 @@ type fakeK3s struct {
 	cleanupErr        error
 	daemonReloadCalls int
 	daemonReloadErr   error
+	serviceMissing    bool
 }
 
 func (f *fakeK3s) ops() k3s.Ops {
 	return k3s.Ops{
+		DetectService: func(string) (k3s.ServiceSignal, error) {
+			return k3s.ServiceSignal{Detected: !f.serviceMissing, Active: !f.serviceMissing}, nil
+		},
 		Stop: func(string) error {
 			f.stopCalls++
 			return f.stopErr
@@ -174,6 +178,21 @@ func TestUninstall_StopFailurePropagatesAndPreservesFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(f.binaryPath); err != nil {
 		t.Error("expected the binary to remain if k3s could not be stopped")
+	}
+}
+
+func TestUninstall_RemovesStateWhenK3sServiceAlreadyMissing(t *testing.T) {
+	f := setupInstalledFiles(t)
+	fake := &fakeK3s{serviceMissing: true}
+
+	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err != nil {
+		t.Fatalf("expected uninstall to clean stale state when k3s is already missing, got: %v", err)
+	}
+	if fake.stopCalls != 0 {
+		t.Errorf("expected no stop call for an already-missing service, got %d", fake.stopCalls)
+	}
+	if _, err := os.Stat(f.installedStatePath); !os.IsNotExist(err) {
+		t.Errorf("expected stale installed-state to be removed, stat err=%v", err)
 	}
 }
 
