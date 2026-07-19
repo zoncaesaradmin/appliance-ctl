@@ -112,7 +112,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}

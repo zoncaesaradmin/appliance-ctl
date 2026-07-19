@@ -89,6 +89,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 		{"k3s/images/coredns.tar", "k3s-images", "fake coredns image tar", "docker.io/rancher/mirrored-coredns-coredns:1.11.3"},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image tar", "internal/appliance-ui:2.4.0"},
+		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 	}
 	if includeArgo {
 		entries = append(entries,
@@ -349,6 +350,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"internal/control-plane:2.4.0"}
 	case "appliance-ui.tar":
 		return []string{"internal/appliance-ui:2.4.0"}
+	case "workspace-provisioner.tar":
+		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "argo-controller.tar":
 		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
 	case "argo-executor.tar":
@@ -480,8 +483,8 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 			secretCreateCalls++
 		}
 	}
-	if importCalls != 3 {
-		t.Errorf("expected 3 image import calls (k3s platform + control-plane app + UI app), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 4 {
+		t.Errorf("expected 4 image import calls (k3s platform + control-plane app + UI app + workspace provisioner), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -791,7 +794,7 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 			rmCalls++
 		}
 	}
-	if rmCalls != 3 {
+	if rmCalls != 4 {
 		t.Errorf("expected all newly-imported images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
 	}
 

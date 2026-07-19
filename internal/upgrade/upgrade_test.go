@@ -41,6 +41,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image " + spec.bundleVersion, "internal/control-plane:" + spec.bundleVersion},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image " + spec.bundleVersion, "internal/appliance-ui:" + spec.bundleVersion},
+		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 	}
 
 	var manifestEntries []map[string]any
@@ -342,8 +343,8 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 			importCalls++
 		}
 	}
-	if importCalls != 2 {
-		t.Fatalf("expected 2 image import calls during same-version refresh (k3s-images + oci-images), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 3 {
+		t.Fatalf("expected 3 image import calls during same-version refresh (control-plane + UI + workspace provisioner), got %d: %v", importCalls, fcli.calls)
 	}
 }
 
@@ -525,7 +526,7 @@ func TestUpgrade_HTTPSSourcesDoNotCreateSourceCredentialSecrets(t *testing.T) {
 		supportedSources: []string{"2.3.0"},
 	})
 	buildCatalogPath := filepath.Join(env.stateDir, "build-catalog.yaml")
-	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nworkspaceProvisionerImageDigest: registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o600); err != nil {
+	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -694,6 +695,8 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"internal/control-plane:2.4.0"}
 	case "appliance-ui.tar":
 		return []string{"internal/appliance-ui:2.4.0"}
+	case "workspace-provisioner.tar":
+		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	default:
 		return nil
 	}

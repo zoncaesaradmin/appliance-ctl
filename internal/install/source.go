@@ -28,6 +28,9 @@ type Resolved struct {
 	ArgoChartPath     string
 	ArgoCRDPaths      []string
 	ConfigurationPath string
+	// WorkspaceProvisionerImageReference is the appliance-owned generic
+	// image used by builder workspace provisioning workflows.
+	WorkspaceProvisionerImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -86,19 +89,21 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		name, requireReference := imageName(e)
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: images.CategoryApplication, RequireReference: requireReference})
 	}
+	workspaceProvisionerImageReference := workspaceProvisionerImageReference(b)
 
 	return Resolved{
-		BundleVersion:     b.BundleVersion,
-		ReleaseID:         b.ReleaseID,
-		Compatibility:     b.Compatibility,
-		ZonctlBinaryPath:  zonctlBinaryPath,
-		K3sBinaryPath:     k3sBinaryPath,
-		ChartPath:         chartPath,
-		ArgoChartPath:     argoChartPath,
-		ArgoCRDPaths:      argoCRDPaths,
-		ConfigurationPath: configurationPath,
-		K3sImages:         k3sImages,
-		OCIImages:         ociImages,
+		BundleVersion:                      b.BundleVersion,
+		ReleaseID:                          b.ReleaseID,
+		Compatibility:                      b.Compatibility,
+		ZonctlBinaryPath:                   zonctlBinaryPath,
+		K3sBinaryPath:                      k3sBinaryPath,
+		ChartPath:                          chartPath,
+		ArgoChartPath:                      argoChartPath,
+		ArgoCRDPaths:                       argoCRDPaths,
+		ConfigurationPath:                  configurationPath,
+		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
+		K3sImages:                          k3sImages,
+		OCIImages:                          ociImages,
 	}, checks, nil
 }
 
@@ -107,6 +112,18 @@ func imageName(e bundle.Entry) (string, bool) {
 		return e.ImageReference, true
 	}
 	return e.Path, false
+}
+
+func workspaceProvisionerImageReference(b *bundle.Bundle) string {
+	for _, e := range b.Entries("oci-images") {
+		ref := strings.TrimSpace(e.ImageReference)
+		if strings.Contains(ref, "/workspace-provisioner@sha256:") ||
+			strings.HasPrefix(ref, "workspace-provisioner@sha256:") ||
+			strings.Contains(ref, "/alpine/git@sha256:") {
+			return ref
+		}
+	}
+	return ""
 }
 
 func applianceChartPath(b *bundle.Bundle) (string, error) {

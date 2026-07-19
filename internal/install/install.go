@@ -152,7 +152,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}

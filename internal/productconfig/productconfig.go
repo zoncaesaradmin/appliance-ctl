@@ -43,10 +43,16 @@ func ResolveApplianceProfile(requested, current string) (string, error) {
 	return profile, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfile(profile, "")
 	if err != nil {
 		return "", func() {}, err
+	}
+	workspaceProvisionerImageReference = strings.TrimSpace(workspaceProvisionerImageReference)
+	if effectiveProfile == ProfileBuilder {
+		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
+			return "", func() {}, fmt.Errorf("product config: builder profile requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
+		}
 	}
 
 	data, err := os.ReadFile(baseValuesPath)
@@ -67,6 +73,11 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath string) (string
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
+	if workspaceProvisionerImageReference != "" {
+		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
+	} else {
+		delete(config, "workspaceProvisionerImageDigest")
+	}
 	if strings.TrimSpace(buildCatalogPath) != "" {
 		catalog, err := loadBuildCatalog(buildCatalogPath)
 		if err != nil {
@@ -147,11 +158,6 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 	if len(workProfiles) == 0 {
 		return fmt.Errorf("product config: build catalog %s must declare at least one workProfiles entry", path)
 	}
-	provisionerImage, _ := catalog["workspaceProvisionerImageDigest"].(string)
-	if !validBuilderImageDigest(provisionerImage) {
-		return fmt.Errorf("product config: build catalog %s workspaceProvisionerImageDigest must be a real sha256 image digest, not a tag or placeholder", path)
-	}
-
 	for index, profile := range workProfiles {
 		name, _ := profile["name"].(string)
 		name = strings.TrimSpace(name)

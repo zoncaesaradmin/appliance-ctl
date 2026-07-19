@@ -9,6 +9,8 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 )
 
+const workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 func TestResolveApplianceProfile_DefaultsToCore(t *testing.T) {
 	profile, err := productconfig.ResolveApplianceProfile("", "")
 	if err != nil {
@@ -41,7 +43,7 @@ func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -66,11 +68,11 @@ func TestPrepareValuesFile_InjectsBuildCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\n        enabledByDefault: true\n      - name: docs\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n  - name: docs\n    url: https://git.backup.internal.example.com/team/docs.git\nworkspaceProvisionerImageDigest: registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\n        enabledByDefault: true\n      - name: docs\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n  - name: docs\n    url: https://git.backup.internal.example.com/team/docs.git\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -101,11 +103,11 @@ func TestPrepareValuesFile_StripsBuildTargetsFromWorkspaceCatalog(t *testing.T) 
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nworkspaceProvisionerImageDigest: registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nbuildTargets:\n  - name: app\n    imageRepository: users/example/app\n    builderImageDigest: registry.local/buildah@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: app\n    imageRepository: users/example/app\n    builderImageDigest: registry.local/buildah@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -127,11 +129,11 @@ func TestPrepareValuesFile_RejectsNonHTTPSCatalogRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\nworkspaceProvisionerImageDigest: registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected non-HTTPS catalog repo to be rejected")
@@ -148,16 +150,16 @@ func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nworkspaceProvisionerImageDigest: registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected placeholder workspace provisioner image digest to be rejected")
 	}
-	if !strings.Contains(err.Error(), "workspaceProvisionerImageDigest") || !strings.Contains(err.Error(), "not a tag or placeholder") {
+	if !strings.Contains(err.Error(), "workspace provisioner image") {
 		t.Fatalf("error = %v, want placeholder digest validation failure", err)
 	}
 }
@@ -172,7 +174,7 @@ func TestPrepareValuesFile_RejectsEmptyBuildCatalog(t *testing.T) {
 	if err := os.WriteFile(catalogPath, []byte("{}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath); err == nil {
+	if _, _, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage); err == nil {
 		t.Fatal("expected empty build catalog to be rejected")
 	}
 }
@@ -184,11 +186,11 @@ func TestPrepareValuesFile_RejectsUnknownWorkspaceProfileRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: missing\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nworkspaceProvisionerImageDigest: registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: missing\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected unknown work profile repo membership to be rejected")
