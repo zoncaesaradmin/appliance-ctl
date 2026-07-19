@@ -28,6 +28,33 @@ func repoRoot(t *testing.T) string {
 	return filepath.Join(wd, "..", "..")
 }
 
+func TestCompileDoesNotRequireCurrentWorkingDirectory(t *testing.T) {
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWD); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+
+	dir := filepath.Join(t.TempDir(), "deleted-cwd")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := manifest.Compile(manifest.KindCommandResult); err != nil {
+		t.Fatalf("compile schema with deleted cwd: %v", err)
+	}
+}
+
 func TestFixtures(t *testing.T) {
 	root := repoRoot(t)
 

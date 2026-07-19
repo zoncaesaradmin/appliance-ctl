@@ -12,6 +12,7 @@ These rules apply to all implementation and documentation in this repository.
 - Give each service its own PVC unless the storage is genuinely shared. Treat every writable host mount or `hostPath` as a security-sensitive product interface that must be documented, ownership-checked, and preserved or wiped only by explicit lifecycle policy.
 - Builder workspace source trees live under `/data/zon/workspaces` and must survive factory reset by default; wipe them only when an explicit workspace-wipe lifecycle option such as `zonctl factory-reset --wipe-workspaces` is implemented, documented, and invoked.
 - Runtime service logs live under the appliance data path `/data/zon/logs/<service>/`, not under the system log tree.
+- Runtime service log directories are an operator-facing inspection interface: keep them service-owner writable, but host-user readable/traversable, normally mode `2755`. Do not treat them like private shared writable workspace storage.
 - Keep application container root filesystems read-only and mount only explicit writable paths.
 - Use root init containers only as documented, narrow ownership-preparation or migration mechanisms.
 - Validate normal workloads against Pod Security Admission, preferably the Restricted profile. Any required exception, such as a documented host-visible workspace or host log path, must be explicit.

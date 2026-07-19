@@ -162,7 +162,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"argoCRDs":            map[string]any{"path": "argo-crds", "manifestDigest": dirDigestOf("argo-crds")},
 			"argoControllerImage": map[string]any{"path": "argo-controller.oci.tar.zst", "digest": digestOf("argo-controller.oci.tar.zst"), "sizeBytes": len("argo-controller"), "imageReference": "quay.io/argoproj/workflow-controller:v3.5.10"},
 			"argoExecutorImage":   map[string]any{"path": "argo-executor.oci.tar.zst", "digest": digestOf("argo-executor.oci.tar.zst"), "sizeBytes": len("argo-executor"), "imageReference": "quay.io/argoproj/argoexec:v3.5.10"},
-			"extraOCIImages":      []any{map[string]any{"path": "buildah.oci.tar.zst", "digest": digestOf("buildah.oci.tar.zst"), "sizeBytes": len("buildah-image"), "imageReference": "registry.local/buildah@sha256:approved"}},
+			"extraOCIImages":      []any{map[string]any{"path": "buildah.oci.tar.zst", "digest": digestOf("buildah.oci.tar.zst"), "sizeBytes": len("buildah-image"), "imageReference": "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
 		},
 		"compatibility": map[string]any{
 			"k3sVersion":   "v1.30.4+k3s1",
@@ -194,7 +194,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	if filepath.Base(in.Artifacts.ArgoCRDs.Path) != "argo-crds" {
 		t.Fatalf("unexpected argo crd artifact: %+v", in.Artifacts.ArgoCRDs)
 	}
-	if len(in.Artifacts.ExtraOCIImages) != 1 || in.Artifacts.ExtraOCIImages[0].ImageReference != "registry.local/buildah@sha256:approved" {
+	if len(in.Artifacts.ExtraOCIImages) != 1 || in.Artifacts.ExtraOCIImages[0].ImageReference != "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("unexpected extra OCI image artifacts: %+v", in.Artifacts.ExtraOCIImages)
 	}
 }

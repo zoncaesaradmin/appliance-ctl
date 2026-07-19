@@ -290,7 +290,7 @@ func TestPreloadAll_DecompressesTarZstBeforeImport(t *testing.T) {
 func TestPreloadAll_ImportsWithDigestsAndVerifiesRequiredReference(t *testing.T) {
 	dir := t.TempDir()
 	path, digest := writeArchive(t, dir, "buildah.tar", "builder image")
-	imageRef := "registry.local/buildah@sha256:approved"
+	imageRef := "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 	fake := &fakeCtr{nextImportAdds: [][]string{{imageRef}}}
 	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
@@ -318,9 +318,9 @@ func TestPreloadAll_ImportsWithDigestsAndVerifiesRequiredReference(t *testing.T)
 func TestPreloadAll_MissingRequiredReferenceFailsAfterImport(t *testing.T) {
 	dir := t.TempDir()
 	path, digest := writeArchive(t, dir, "buildah.tar", "builder image")
-	imageRef := "registry.local/buildah@sha256:approved"
+	imageRef := "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-	fake := &fakeCtr{nextImportAdds: [][]string{{"registry.local/other@sha256:approved"}}}
+	fake := &fakeCtr{nextImportAdds: [][]string{{"registry.local/other@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}
 	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
 
 	result, err := imp.PreloadAll(context.Background(), []images.Image{
@@ -332,7 +332,7 @@ func TestPreloadAll_MissingRequiredReferenceFailsAfterImport(t *testing.T) {
 	if !strings.Contains(err.Error(), "expected image reference not present after import") {
 		t.Fatalf("error = %v, want expected-reference failure", err)
 	}
-	if got := statusOfCheck(t, result.Checks, "image-preload-registry-local-buildah-sha256-approved"); got != evidence.StatusFail {
+	if got := statusOfCheck(t, result.Checks, "image-preload-registry-local-buildah-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); got != evidence.StatusFail {
 		t.Errorf("expected fail status, got %s", got)
 	}
 }

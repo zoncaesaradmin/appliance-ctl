@@ -23,7 +23,11 @@ var supportedProfiles = map[string]struct{}{
 	ProfileStorage: {},
 }
 
-var dnsLabelRE = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+var (
+	dnsLabelRE                = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	sha256ImageDigestRE       = regexp.MustCompile(`^.+@sha256:[0-9a-f]{64}$`)
+	placeholderImageDigestHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+)
 
 func ResolveApplianceProfile(requested, current string) (string, error) {
 	profile := strings.TrimSpace(requested)
@@ -187,12 +191,21 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 			return fmt.Errorf("product config: build catalog %s buildTargets[%d].execution must be repo_script or make_target", path, index)
 		}
 		builderImageDigest, _ := target["builderImageDigest"].(string)
-		if !strings.Contains(builderImageDigest, "@sha256:") {
-			return fmt.Errorf("product config: build catalog %s buildTargets[%d].builderImageDigest must include @sha256:", path, index)
+		if !validBuilderImageDigest(builderImageDigest) {
+			return fmt.Errorf("product config: build catalog %s buildTargets[%d].builderImageDigest must be a real sha256 image digest, not a tag or placeholder", path, index)
 		}
 	}
 
 	return nil
+}
+
+func validBuilderImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
 }
 
 func deriveAllowedGitSourceHosts(catalog map[string]any) []string {

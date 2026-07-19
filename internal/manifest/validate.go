@@ -32,6 +32,8 @@ var schemaPaths = map[Kind]string{
 	KindCommandResult:   "commands/command-result.v1.schema.json",
 }
 
+const schemaBaseURI = "https://appliance-release/schemas/"
+
 // Compile loads and compiles the JSON Schema for the given document kind.
 func Compile(kind Kind) (*jsonschema.Schema, error) {
 	path, ok := schemaPaths[kind]
@@ -46,11 +48,12 @@ func Compile(kind Kind) (*jsonschema.Schema, error) {
 
 	c := jsonschema.NewCompiler()
 	c.Draft = jsonschema.Draft2020
-	if err := c.AddResource(path, bytes.NewReader(data)); err != nil {
+	schemaURI := schemaBaseURI + path
+	if err := c.AddResource(schemaURI, bytes.NewReader(data)); err != nil {
 		return nil, fmt.Errorf("manifest: add schema resource %q: %w", path, err)
 	}
 
-	sch, err := c.Compile(path)
+	sch, err := c.Compile(schemaURI)
 	if err != nil {
 		return nil, fmt.Errorf("manifest: compile schema %q: %w", path, err)
 	}
