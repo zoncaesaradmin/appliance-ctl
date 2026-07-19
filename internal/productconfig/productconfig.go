@@ -165,6 +165,10 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		if rawURL == "" {
 			return fmt.Errorf("product config: build catalog %s repos[%d].url is required", path, index)
 		}
+		u, err := url.Parse(rawURL)
+		if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Hostname() == "" {
+			return fmt.Errorf("product config: build catalog %s repos[%d].url must be an https URL with a host", path, index)
+		}
 	}
 
 	for index, target := range targets {
@@ -236,20 +240,10 @@ func gitURLHost(raw string) string {
 	if raw == "" {
 		return ""
 	}
-	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+	if u, err := url.Parse(raw); err == nil && strings.EqualFold(u.Scheme, "https") && u.Host != "" {
 		return u.Hostname()
 	}
-	if before, _, ok := strings.Cut(raw, ":"); ok && !strings.Contains(before, "/") {
-		if _, host, ok := strings.Cut(before, "@"); ok {
-			return host
-		}
-	}
 	return ""
-}
-
-func isSSHGitURL(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	return strings.HasPrefix(raw, "git@") || strings.HasPrefix(raw, "ssh://")
 }
 
 func objectList(v any) []map[string]any {

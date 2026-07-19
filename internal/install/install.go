@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zoncaesaradmin/appliance-ctl/internal/buildercreds"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
@@ -158,16 +157,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	defer cleanupPreparedValues()
-	managedSourceCredentials, err := buildercreds.Load(opts.BuildCatalogPath, filepath.Dir(opts.InstalledStatePath))
-	if err != nil {
-		return nil, checks, fmt.Errorf("install: %w", err)
-	}
-	sourceCredentialChecks, err := buildercreds.Prepare(ctx, o.HelmRun, managedSourceCredentials)
-	checks = append(checks, sourceCredentialChecks...)
-	if err != nil {
-		return nil, checks, fmt.Errorf("install: %w", err)
-	}
-	sourceCredentialSecrets := toHelmSourceCredentialSecrets(managedSourceCredentials)
 
 	signal, err := o.K3s.DetectService(opts.K3sUnitName)
 	if err != nil {
@@ -342,15 +331,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	if len(sourceCredentialSecrets) > 0 {
-		sourcePrepared, prepErr := helm.EnsureSourceCredentialSecrets(ctx, o.HelmRun, opts.KubeconfigPath, sourceCredentialSecrets)
-		checks = append(checks, sourcePrepared.Checks...)
-		if prepErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: %w", prepErr), runRollbacks())
-		}
-		rollbacks = append(rollbacks, sourcePrepared.Cleanup)
-	}
-
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  resolved.ChartPath,
@@ -489,14 +469,6 @@ func toEvidenceChecks(checks []preflight.Check) []evidence.Check {
 			Idempotent:      true,
 			SecretsRedacted: true,
 		})
-	}
-	return out
-}
-
-func toHelmSourceCredentialSecrets(loaded []buildercreds.Credential) []helm.SourceCredentialSecret {
-	out := make([]helm.SourceCredentialSecret, 0, len(loaded))
-	for _, cred := range loaded {
-		out = append(out, helm.SourceCredentialSecret{Namespace: cred.Namespace, SecretName: cred.SecretName, PrivateKeyPath: cred.PrivateKeyPath, KnownHostsSecretName: cred.KnownHostsSecretName, KnownHostsPath: cred.KnownHostsPath})
 	}
 	return out
 }

@@ -518,14 +518,14 @@ func TestUpgrade_FailedChartApplyCleansInstallerManagedSecret(t *testing.T) {
 	}
 }
 
-func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
+func TestUpgrade_HTTPSSourcesDoNotCreateSourceCredentialSecrets(t *testing.T) {
 	env := setupEnvironment(t, "2.3.0", "v1.30.4+k3s1", "2.3.0", "builder")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
 	})
 	buildCatalogPath := filepath.Join(env.stateDir, "build-catalog.yaml")
-	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\nbuildTargets:\n  - name: app\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o600); err != nil {
+	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: app\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:approved\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -540,27 +540,10 @@ func TestUpgrade_SourceCredentialSecretsSurviveSuccessfulUpgrade(t *testing.T) {
 		t.Fatalf("expected upgrade to succeed, got: %v", err)
 	}
 
-	var sawSourceSecretCreate bool
-	var sawSourceSecretDelete bool
 	for _, call := range fcli.calls {
-		if strings.Contains(call, "create secret generic builder-git-key") {
-			sawSourceSecretCreate = true
+		if strings.Contains(call, "create secret generic") && (strings.Contains(call, "--from-file=ssh-privatekey=") || strings.Contains(call, "--from-file=known_hosts=")) {
+			t.Fatalf("upgrade unexpectedly created SSH source credential secrets: %v", fcli.calls)
 		}
-		if strings.Contains(call, "delete secret builder-git-key --ignore-not-found") {
-			sawSourceSecretDelete = true
-		}
-	}
-	if !sawSourceSecretCreate {
-		t.Fatalf("expected source credential secret creation, got calls: %v", fcli.calls)
-	}
-	if sawSourceSecretDelete {
-		t.Fatalf("source credential secret should survive a successful upgrade, got calls: %v", fcli.calls)
-	}
-	if !fcli.secrets["builder-git-key"] {
-		t.Fatalf("expected fake cluster to retain source credential secret, got secrets: %+v", fcli.secrets)
-	}
-	if !fcli.secrets["builder-git-known-hosts"] {
-		t.Fatalf("expected fake cluster to retain known_hosts secret, got secrets: %+v", fcli.secrets)
 	}
 }
 

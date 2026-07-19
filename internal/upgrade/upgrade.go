@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
-	"github.com/zoncaesaradmin/appliance-ctl/internal/buildercreds"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
@@ -118,16 +117,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
 	defer cleanupPreparedValues()
-	managedSourceCredentials, err := buildercreds.Load(opts.BuildCatalogPath, filepath.Dir(opts.InstalledStatePath))
-	if err != nil {
-		return nil, checks, fmt.Errorf("upgrade: %w", err)
-	}
-	sourceCredentialChecks, err := buildercreds.Prepare(ctx, o.HelmRun, managedSourceCredentials)
-	checks = append(checks, sourceCredentialChecks...)
-	if err != nil {
-		return nil, checks, fmt.Errorf("upgrade: %w", err)
-	}
-	sourceCredentialSecrets := toHelmSourceCredentialSecrets(managedSourceCredentials)
 
 	if !sameVersionRefresh && !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
 		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, targetVersion, resolved.Compatibility.SupportedUpgradeSources)
@@ -240,25 +229,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 	checks = append(checks, binaryCheck)
 
-	var sourcePrepared helm.PreparedRelease
-	cleanupSourceCredentials := func() {
-		_ = sourcePrepared.Cleanup()
-	}
-	if len(sourceCredentialSecrets) > 0 {
-		var prepErr error
-		sourcePrepared, prepErr = helm.EnsureSourceCredentialSecrets(ctx, o.HelmRun, opts.KubeconfigPath, sourceCredentialSecrets)
-		checks = append(checks, sourcePrepared.Checks...)
-		if prepErr != nil {
-			cleanupSourceCredentials()
-			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", prepErr), func() []evidence.Check {
-				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-				return rollback()
-			})
-			checks = append(checks, rollbackChecks...)
-			return nil, checks, failErr
-		}
-	}
-
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  chartPath,
@@ -267,7 +237,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	})
 	checks = append(checks, prepared.Checks...)
 	if err != nil {
-		cleanupSourceCredentials()
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
 			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
 			return rollback()
@@ -279,7 +248,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, preparedValuesPath)
 	checks = append(checks, readinessChecks...)
 	if err != nil {
-		cleanupSourceCredentials()
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
 			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
 			return rollback()
@@ -303,7 +271,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Namespace:  opts.ChartNamespace,
 			ValuesPath: preparedValuesPath,
 		})...)
-		cleanupSourceCredentials()
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
 			_ = prepared.Cleanup()
 			_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
@@ -319,7 +286,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		LauncherDestPath: opts.ZonctlLauncherDestPath,
 	})
 	if err != nil {
-		cleanupSourceCredentials()
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host zonctl: %w", err), func() []evidence.Check {
 			_ = prepared.Cleanup()
 			_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
@@ -357,7 +323,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err := state.Save(opts.InstalledStatePath, updated); err != nil {
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
 			_ = zonctlRollback()
-			cleanupSourceCredentials()
 			_ = prepared.Cleanup()
 			_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
 			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
@@ -402,12 +367,4 @@ func revertFile(path string) error {
 
 	_, err = io.Copy(dst, src)
 	return err
-}
-
-func toHelmSourceCredentialSecrets(loaded []buildercreds.Credential) []helm.SourceCredentialSecret {
-	out := make([]helm.SourceCredentialSecret, 0, len(loaded))
-	for _, cred := range loaded {
-		out = append(out, helm.SourceCredentialSecret{Namespace: cred.Namespace, SecretName: cred.SecretName, PrivateKeyPath: cred.PrivateKeyPath, KnownHostsSecretName: cred.KnownHostsSecretName, KnownHostsPath: cred.KnownHostsPath})
-	}
-	return out
 }
