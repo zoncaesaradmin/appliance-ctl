@@ -74,7 +74,11 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath string) (string
 		}
 		config["buildCatalog"] = catalog
 		config["allowedGitSourceHosts"] = deriveAllowedGitSourceHosts(catalog)
-		config["allowedBuilderImageDigests"] = deriveAllowedBuilderImageDigests(catalog)
+		if images := deriveAllowedBuilderImageDigests(catalog); len(images) > 0 {
+			config["allowedBuilderImageDigests"] = images
+		} else {
+			delete(config, "allowedBuilderImageDigests")
+		}
 	}
 	values["config"] = config
 
@@ -118,17 +122,20 @@ func loadBuildCatalog(path string) (map[string]any, error) {
 	if err := validateBuildCatalog(catalog, path); err != nil {
 		return nil, err
 	}
+	// Install-time builder catalog handling is currently workspace-first:
+	// workProfiles/repos materialize source trees, while build target modeling
+	// is intentionally deferred so repo cloning is not coupled to output images.
+	delete(catalog, "buildTargets")
 	return catalog, nil
 }
 
 func validateBuildCatalog(catalog map[string]any, path string) error {
-	targets := objectList(catalog["buildTargets"])
-	if len(targets) == 0 {
-		return fmt.Errorf("product config: build catalog %s must declare at least one buildTargets entry", path)
-	}
-
 	reposByName := map[string]struct{}{}
-	for _, repo := range objectList(catalog["repos"]) {
+	repos := objectList(catalog["repos"])
+	if len(repos) == 0 {
+		return fmt.Errorf("product config: build catalog %s must declare at least one repos entry", path)
+	}
+	for _, repo := range repos {
 		name, _ := repo["name"].(string)
 		name = strings.TrimSpace(name)
 		if name != "" {
@@ -136,7 +143,16 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		}
 	}
 
-	for index, profile := range objectList(catalog["workProfiles"]) {
+	workProfiles := objectList(catalog["workProfiles"])
+	if len(workProfiles) == 0 {
+		return fmt.Errorf("product config: build catalog %s must declare at least one workProfiles entry", path)
+	}
+	provisionerImage, _ := catalog["workspaceProvisionerImageDigest"].(string)
+	if !validBuilderImageDigest(provisionerImage) {
+		return fmt.Errorf("product config: build catalog %s workspaceProvisionerImageDigest must be a real sha256 image digest, not a tag or placeholder", path)
+	}
+
+	for index, profile := range workProfiles {
 		name, _ := profile["name"].(string)
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -163,7 +179,7 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		}
 	}
 
-	for index, repo := range objectList(catalog["repos"]) {
+	for index, repo := range repos {
 		rawURL, _ := repo["url"].(string)
 		rawURL = strings.TrimSpace(rawURL)
 		if rawURL == "" {
@@ -172,27 +188,6 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		u, err := url.Parse(rawURL)
 		if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Hostname() == "" {
 			return fmt.Errorf("product config: build catalog %s repos[%d].url must be an https URL with a host", path, index)
-		}
-	}
-
-	for index, target := range targets {
-		for _, key := range []string{"name", "repo", "execution", "imageRepository", "builderImageDigest"} {
-			value, _ := target[key].(string)
-			if strings.TrimSpace(value) == "" {
-				return fmt.Errorf("product config: build catalog %s buildTargets[%d].%s is required", path, index, key)
-			}
-		}
-		repo, _ := target["repo"].(string)
-		if _, ok := reposByName[strings.TrimSpace(repo)]; !ok {
-			return fmt.Errorf("product config: build catalog %s buildTargets[%d].repo references unknown repo %q", path, index, repo)
-		}
-		execution, _ := target["execution"].(string)
-		if execution != "repo_script" && execution != "make_target" {
-			return fmt.Errorf("product config: build catalog %s buildTargets[%d].execution must be repo_script or make_target", path, index)
-		}
-		builderImageDigest, _ := target["builderImageDigest"].(string)
-		if !validBuilderImageDigest(builderImageDigest) {
-			return fmt.Errorf("product config: build catalog %s buildTargets[%d].builderImageDigest must be a real sha256 image digest, not a tag or placeholder", path, index)
 		}
 	}
 

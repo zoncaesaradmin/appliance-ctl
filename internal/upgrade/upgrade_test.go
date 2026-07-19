@@ -525,7 +525,7 @@ func TestUpgrade_HTTPSSourcesDoNotCreateSourceCredentialSecrets(t *testing.T) {
 		supportedSources: []string{"2.3.0"},
 	})
 	buildCatalogPath := filepath.Join(env.stateDir, "build-catalog.yaml")
-	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: app\n    repo: app\n    execution: repo_script\n    imageRepository: users/alice/app\n    builderImageDigest: registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o600); err != nil {
+	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nworkspaceProvisionerImageDigest: registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
