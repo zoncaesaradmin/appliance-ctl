@@ -20,12 +20,12 @@ import (
 // records every import/rm invocation for ordering and rollback
 // assertions.
 type fakeCtr struct {
-	alreadyImported []string
-	failImport      map[string]bool // keyed by archive path
-	failRemove      map[string]bool // keyed by image name
-	nextImportAdds  [][]string
+	alreadyImported  []string
+	failImport       map[string]bool // keyed by archive path
+	failRemove       map[string]bool // keyed by image name
+	nextImportAdds   [][]string
 	sawImportDigests bool
-	calls           []string
+	calls            []string
 }
 
 func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, error) {

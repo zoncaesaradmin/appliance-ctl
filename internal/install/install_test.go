@@ -259,6 +259,7 @@ type fakeCLI struct {
 	kubectlPods    string          // `kubectl get pods` output, for cluster-adoption tests
 	secretExists   bool
 	lastHelmValues string
+	importedImages []string
 	calls          []string
 }
 
@@ -281,7 +282,13 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	}
 
 	if name == "ctr" && contains(args, "ls") {
-		return "", nil // nothing pre-imported
+		return strings.Join(f.importedImages, "\n"), nil
+	}
+	if name == "ctr" && contains(args, "import") {
+		for _, ref := range installTestImageRefsForArchive(importPathArg(args)) {
+			f.addImportedImage(ref)
+		}
+		return "", nil
 	}
 	if name == "kubectl" && contains(args, "get") && contains(args, "secret") {
 		if f.secretExists {
@@ -313,6 +320,41 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		return `bootstrap: created administrator "admin" (id user-admin)`, nil
 	}
 	return "", nil
+}
+
+func (f *fakeCLI) addImportedImage(ref string) {
+	for _, existing := range f.importedImages {
+		if existing == ref {
+			return
+		}
+	}
+	f.importedImages = append(f.importedImages, ref)
+}
+
+func importPathArg(args []string) string {
+	for i := len(args) - 1; i >= 0; i-- {
+		if !strings.HasPrefix(args[i], "-") {
+			return args[i]
+		}
+	}
+	return ""
+}
+
+func installTestImageRefsForArchive(path string) []string {
+	switch filepath.Base(path) {
+	case "coredns.tar":
+		return []string{"docker.io/rancher/mirrored-coredns-coredns:1.11.3"}
+	case "control-plane.tar":
+		return []string{"internal/control-plane:2.4.0"}
+	case "appliance-ui.tar":
+		return []string{"internal/appliance-ui:2.4.0"}
+	case "argo-controller.tar":
+		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
+	case "argo-executor.tar":
+		return []string{"quay.io/argoproj/argoexec:v3.5.10"}
+	default:
+		return nil
+	}
 }
 
 func contains(args []string, want string) bool {

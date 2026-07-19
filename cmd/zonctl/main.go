@@ -16,7 +16,7 @@ import (
 
 var version = "dev"
 
-const defaultStateDir = "/var/lib/zon"
+const defaultStateDir = "/var/lib/zon/state"
 
 // System paths for the K3s adapter. These are fixed, real system
 // locations (not derived from --state-dir), matching where a production

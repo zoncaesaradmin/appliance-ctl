@@ -556,6 +556,7 @@ type fakeCLI struct {
 	namespacePolls       int
 	secrets              map[string]bool
 	lastHelmValues       string
+	importedImages       []string
 }
 
 func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, error) {
@@ -605,6 +606,13 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 			host = "git.internal.example.com"
 		}
 		return host + " ssh-ed25519 AAAAHOSTKEY generated-host\n", nil
+	case name == "ctr" && contains(args, "ls"):
+		return strings.Join(f.importedImages, "\n"), nil
+	case name == "ctr" && contains(args, "import"):
+		for _, ref := range upgradeTestImageRefsForArchive(importPathArg(args)) {
+			f.addImportedImage(ref)
+		}
+		return "", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "namespace"):
 		if f.namespaceTerminating {
 			f.namespacePolls++
@@ -660,6 +668,35 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		return "1", nil
 	}
 	return "", nil
+}
+
+func (f *fakeCLI) addImportedImage(ref string) {
+	for _, existing := range f.importedImages {
+		if existing == ref {
+			return
+		}
+	}
+	f.importedImages = append(f.importedImages, ref)
+}
+
+func importPathArg(args []string) string {
+	for i := len(args) - 1; i >= 0; i-- {
+		if !strings.HasPrefix(args[i], "-") {
+			return args[i]
+		}
+	}
+	return ""
+}
+
+func upgradeTestImageRefsForArchive(path string) []string {
+	switch filepath.Base(path) {
+	case "control-plane.tar":
+		return []string{"internal/control-plane:2.4.0"}
+	case "appliance-ui.tar":
+		return []string{"internal/appliance-ui:2.4.0"}
+	default:
+		return nil
+	}
 }
 
 func contains(args []string, want string) bool {
