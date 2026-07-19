@@ -747,6 +747,9 @@
                 },
                 "backupVerified": {
                   "type": "boolean"
+                },
+                "workspacesWiped": {
+                  "type": "boolean"
                 }
               }
             }

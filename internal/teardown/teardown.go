@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
@@ -123,13 +124,20 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 }
 
 // FactoryReset does everything Uninstall does, plus wipes dataDir,
-// stateDir, and removes zonctl itself. It refuses outright unless
-// recentBackupVerified or dataLossOverride is true: "factory-reset
-// requires a recent verified backup or a separately confirmed
-// data-loss override," never both silently assumed.
-func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride bool) ([]evidence.Check, error) {
+// stateDir, and removes zonctl itself. Builder workspaces are preserved
+// unless wipeWorkspaces is explicitly requested. It refuses outright
+// unless recentBackupVerified or dataLossOverride is true:
+// "factory-reset requires a recent verified backup or a separately
+// confirmed data-loss override," never both silently assumed.
+func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
 	if !recentBackupVerified && !dataLossOverride {
 		return nil, fmt.Errorf("teardown: factory-reset requires a recent verified backup or an explicit data-loss override")
+	}
+	workspaceRootDir = filepath.Clean(strings.TrimSpace(workspaceRootDir))
+	if wipeWorkspaces {
+		if workspaceRootDir == "." || workspaceRootDir == string(filepath.Separator) || !filepath.IsAbs(workspaceRootDir) {
+			return nil, fmt.Errorf("teardown: refusing to wipe invalid workspace root %q", workspaceRootDir)
+		}
 	}
 
 	checks, err := removeK3s(ops, unitName, binaryPath, configPath, unitPath, kubectlSymlinkPath, cniNetworkDir, cniInterfaceNames)
@@ -144,6 +152,21 @@ func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPa
 		ID: "teardown-wipe-data", Category: "backup-restore", Status: evidence.StatusPass,
 		Message: "appliance data directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
+
+	if wipeWorkspaces {
+		if err := os.RemoveAll(workspaceRootDir); err != nil {
+			return checks, fmt.Errorf("teardown: remove workspace root: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "teardown-wipe-workspaces", Category: "backup-restore", Status: evidence.StatusPass,
+			Message: "builder workspace root removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	} else {
+		checks = append(checks, evidence.Check{
+			ID: "teardown-preserve-workspaces", Category: "backup-restore", Status: evidence.StatusPass,
+			Message: "builder workspace root preserved", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	// stateDir holds more than installed-state.json: the installer lock,
 	// transaction journal, evidence history, support bundles, and —

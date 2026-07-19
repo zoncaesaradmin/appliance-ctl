@@ -49,6 +49,8 @@ type installedFiles struct {
 	kubectlSymlinkPath string
 	installedStatePath string
 	dataDir            string
+	workspaceRootDir   string
+	workspaceFilePath  string
 	zonctlRealPath     string
 	zonctlLauncherPath string
 	// Other things stateDir accumulates over normal operation, besides
@@ -71,6 +73,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 		kubectlSymlinkPath:  filepath.Join(stateDir, "..", "bin", "kubectl"),
 		installedStatePath:  filepath.Join(stateDir, "installed-state.json"),
 		dataDir:             filepath.Join(stateDir, "..", "k3s-data"),
+		workspaceRootDir:    filepath.Join(stateDir, "..", "data", "zon", "workspaces"),
 		zonctlRealPath:      filepath.Join(stateDir, "..", "zonctl-lib", "zonctl-real"),
 		zonctlLauncherPath:  filepath.Join(stateDir, "..", "bin", "zonctl"),
 		installerLockPath:   filepath.Join(stateDir, "installer.lock"),
@@ -78,6 +81,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 		evidenceFilePath:    filepath.Join(stateDir, "evidence", "evidence-txn-0001.json"),
 		backupFilePath:      filepath.Join(stateDir, "backups", "backup-0001", "manifest.json"),
 	}
+	f.workspaceFilePath = filepath.Join(f.workspaceRootDir, "myws", "repo", "README.md")
 
 	for _, p := range []string{f.binaryPath, f.configPath, f.unitPath, f.installedStatePath, f.zonctlRealPath, f.zonctlLauncherPath, f.installerLockPath, f.transactionJSONPath, f.evidenceFilePath, f.backupFilePath} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
@@ -96,7 +100,19 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 	if err := os.WriteFile(filepath.Join(f.dataDir, "state.db"), []byte("appliance data"), 0o640); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(f.workspaceFilePath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.workspaceFilePath, []byte("workspace data"), 0o640); err != nil {
+		t.Fatal(err)
+	}
 	return f
+}
+
+func runFactoryResetForTest(t *testing.T, f installedFiles, fake *fakeK3s, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) error {
+	t.Helper()
+	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
+	return err
 }
 
 // Data preservation: uninstall must remove K3s and the ownership record
@@ -202,7 +218,7 @@ func TestFactoryReset_RefusesWithoutBackupOrOverride(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.zonctlRealPath, f.zonctlLauncherPath, false, false); err == nil {
+	if err := runFactoryResetForTest(t, f, fake, false, false, false); err == nil {
 		t.Fatal("expected factory-reset to refuse without a verified backup or override")
 	}
 	if fake.stopCalls != 0 {
@@ -211,13 +227,16 @@ func TestFactoryReset_RefusesWithoutBackupOrOverride(t *testing.T) {
 	if _, err := os.Stat(f.dataDir); err != nil {
 		t.Error("expected the data directory to survive a refused factory-reset")
 	}
+	if _, err := os.Stat(f.workspaceFilePath); err != nil {
+		t.Error("expected workspaces to survive a refused factory-reset")
+	}
 }
 
 func TestFactoryReset_WipesDataWithVerifiedBackup(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.zonctlRealPath, f.zonctlLauncherPath, true, false); err != nil {
+	if err := runFactoryResetForTest(t, f, fake, true, false, false); err != nil {
 		t.Fatalf("expected factory-reset to succeed with a verified backup, got: %v", err)
 	}
 	if _, err := os.Stat(f.dataDir); !os.IsNotExist(err) {
@@ -229,11 +248,39 @@ func TestFactoryReset_WipesDataWithExplicitOverride(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.zonctlRealPath, f.zonctlLauncherPath, false, true); err != nil {
+	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
 		t.Fatalf("expected factory-reset to succeed with an explicit override, got: %v", err)
 	}
 	if _, err := os.Stat(f.dataDir); !os.IsNotExist(err) {
 		t.Errorf("expected the data directory to be removed, stat err=%v", err)
+	}
+}
+
+func TestFactoryReset_PreservesWorkspaceRootByDefault(t *testing.T) {
+	f := setupInstalledFiles(t)
+	fake := &fakeK3s{}
+
+	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
+		t.Fatalf("expected factory-reset to succeed, got: %v", err)
+	}
+	data, err := os.ReadFile(f.workspaceFilePath)
+	if err != nil {
+		t.Fatalf("expected the workspace file to survive default factory-reset: %v", err)
+	}
+	if string(data) != "workspace data" {
+		t.Error("expected workspace contents to be unchanged")
+	}
+}
+
+func TestFactoryReset_WipesWorkspaceRootWhenExplicitlyRequested(t *testing.T) {
+	f := setupInstalledFiles(t)
+	fake := &fakeK3s{}
+
+	if err := runFactoryResetForTest(t, f, fake, false, true, true); err != nil {
+		t.Fatalf("expected factory-reset with workspace wipe to succeed, got: %v", err)
+	}
+	if _, err := os.Stat(f.workspaceRootDir); !os.IsNotExist(err) {
+		t.Errorf("expected the workspace root to be removed, stat err=%v", err)
 	}
 }
 
@@ -243,7 +290,7 @@ func TestFactoryReset_RemovesZonctlBinaries(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.zonctlRealPath, f.zonctlLauncherPath, false, true); err != nil {
+	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
 		t.Fatalf("expected factory-reset to succeed, got: %v", err)
 	}
 	for _, p := range []string{f.zonctlRealPath, f.zonctlLauncherPath} {
@@ -262,7 +309,7 @@ func TestFactoryReset_WipesEntireStateDirNotJustInstalledState(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.zonctlRealPath, f.zonctlLauncherPath, false, true); err != nil {
+	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
 		t.Fatalf("expected factory-reset to succeed, got: %v", err)
 	}
 	if _, err := os.Stat(f.stateDir); !os.IsNotExist(err) {

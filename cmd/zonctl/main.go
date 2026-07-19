@@ -35,6 +35,7 @@ const (
 	defaultPublicKeyPath      = "/etc/zon/keys/release-signing.pub"
 	defaultChartReleaseName   = "appliance"
 	defaultChartNamespace     = "appliance-system"
+	defaultWorkspaceRootDir   = "/data/zon/workspaces"
 )
 
 var defaultK3sCNIInterfaces = []string{"cni0", "flannel.1"}
@@ -57,6 +58,7 @@ type cliOptions struct {
 	confirm             string
 	acknowledgeDataLoss bool
 	forceDataLoss       bool
+	wipeWorkspaces      bool
 	forceAdopt          bool
 }
 
@@ -133,6 +135,7 @@ func run(args []string) int {
 	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall/factory-reset)")
 	acknowledgeDataLoss := fs.Bool("acknowledge-data-loss", false, "explicitly acknowledge permanent data loss (required for factory-reset)")
 	forceDataLoss := fs.Bool("force-data-loss", false, "override the requirement for a verified recent backup before factory-reset (still requires --acknowledge-data-loss)")
+	wipeWorkspaces := fs.Bool("wipe-workspaces", false, "factory-reset only: also remove builder workspaces under /data/zon/workspaces")
 	forceAdopt := fs.Bool("force-adopt", false, "take ownership of an existing K3s cluster even if it isn't obviously safe to adopt (unhealthy and/or carrying foreign workloads)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
@@ -162,6 +165,7 @@ func run(args []string) int {
 		confirm:             *confirm,
 		acknowledgeDataLoss: *acknowledgeDataLoss,
 		forceDataLoss:       *forceDataLoss,
+		wipeWorkspaces:      *wipeWorkspaces,
 		forceAdopt:          *forceAdopt,
 	}
 

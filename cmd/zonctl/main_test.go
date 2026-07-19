@@ -98,6 +98,18 @@ func TestRun_FactoryResetRequiresFullConfirmation(t *testing.T) {
 	}
 }
 
+func TestRun_FactoryResetAcceptsWipeWorkspacesFlag(t *testing.T) {
+	out, code := captureStdout(t, func() int {
+		return run([]string{"factory-reset", "--wipe-workspaces", "--output", "json", "--state-dir", t.TempDir()})
+	})
+	if code != 1 {
+		t.Errorf("expected confirmation failure exit code 1, got %d", code)
+	}
+	if !strings.Contains(out, "--confirm") {
+		t.Errorf("expected --wipe-workspaces to parse and reach confirmation validation, got: %s", out)
+	}
+}
+
 func TestRun_MutatingCommandWritesJournal(t *testing.T) {
 	stateDir := t.TempDir()
 
