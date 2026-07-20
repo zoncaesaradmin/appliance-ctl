@@ -38,6 +38,30 @@ const (
 	ApplianceSharedFSGID = 20000
 )
 
+// WorkspaceDirMode is deliberately world-readable and world-writable
+// (not just group-writable via ApplianceSharedFSGID). An operator needs
+// to be able to inspect — and, at their own risk, edit — cloned
+// workspace content from a normal host login, not just from a process
+// that happens to carry the shared fsGroup. This is a real widening of
+// who can touch this one directory tree; it's confined to workspace
+// storage and isn't the default posture for any other appliance-managed
+// path.
+//
+// os.ModeSetgid is layered on top so every file or directory created
+// under this tree — by a workflow pod, by an operator, or by an
+// external rsync/scp push from a different device entirely — inherits
+// group ApplianceSharedFSGID automatically, regardless of the creating
+// process's own primary group. (Note: os.FileMode's setgid bit is the
+// distinct os.ModeSetgid flag, not the raw octal 02000 Unix mode_t
+// uses — combining it with plain octal here would silently do nothing.)
+// The 0777 permission bits alone only govern who may create entries in
+// the directory itself; they say nothing about the group ownership new
+// entries get, and the appliance has no control over the umask of a
+// remote rsync/scp session. Setgid is the one lever available on the
+// receiving end to keep new content consistently group-accessible no
+// matter which account wrote it.
+const WorkspaceDirMode = os.FileMode(0o777) | os.ModeSetgid
+
 // ChownFunc matches os.Chown's signature so tests can inject a fake
 // instead of requiring the test process to run as root (arbitrary chown
 // targets require root/CAP_CHOWN).

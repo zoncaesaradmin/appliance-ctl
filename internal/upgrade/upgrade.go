@@ -139,7 +139,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// chown. See internal/hostdirs for why this can't be left to
 	// Kubernetes' own fsGroup handling.
 	if effectiveProfile == productconfig.ProfileBuilder && opts.WorkspaceRootDir != "" {
-		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, 0o770); err != nil {
+		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 			return nil, checks, fmt.Errorf("upgrade: prepare workspace directory: %w", err)
 		}
 		checks = append(checks, evidence.Check{

@@ -603,8 +603,15 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o770 {
-		t.Errorf("expected the pre-existing directory's mode to be corrected to 0770, got %o", info.Mode().Perm())
+	// The setgid bit itself can't be verified here: the kernel silently
+	// strips it on chmod unless the calling process is root or already a
+	// member of the target group (verified by hand: "chmod 2777" as a
+	// non-root, non-member user fails the same way), which is exactly
+	// the unprivileged posture this test runs under. Permission bits are
+	// unaffected by that restriction and are what's checked here; setgid
+	// takes effect for real once zonctl runs as root on the target host.
+	if info.Mode().Perm() != hostdirs.WorkspaceDirMode.Perm() {
+		t.Errorf("expected the pre-existing directory's mode to be corrected to %o, got %o", hostdirs.WorkspaceDirMode.Perm(), info.Mode().Perm())
 	}
 }
 

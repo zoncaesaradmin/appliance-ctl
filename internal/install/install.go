@@ -183,7 +183,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// applies the chart, rather than discover the gap as a Permission
 	// denied inside a workflow pod.
 	if effectiveProfile == productconfig.ProfileBuilder && opts.WorkspaceRootDir != "" {
-		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, 0o770); err != nil {
+		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare workspace directory: %w", err)
 		}
 		checks = append(checks, evidence.Check{
