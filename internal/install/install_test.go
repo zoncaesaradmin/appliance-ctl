@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -561,6 +562,82 @@ func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
 	}
 }
 
+// This is the exact production incident: a builder-profile host had
+// /data/zon/workspaces created (e.g. by kubelet's hostPath
+// DirectoryOrCreate) with the wrong owner, and a workflow pod hit
+// "Permission denied" trying to mkdir inside it. Install must seed the
+// correct owner itself, using the real hostdirs.EnsureOwnedDir logic
+// (only the chown syscall is faked, since arbitrary chown targets
+// require root).
+func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "builder"
+	workspaceDir := filepath.Join(t.TempDir(), "workspaces")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	opts.WorkspaceRootDir = workspaceDir
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	var chownCalls [][3]int
+	orch := &install.Orchestrator{
+		K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts,
+		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
+			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, func(_ string, u, g int) error {
+				chownCalls = append(chownCalls, [3]int{u, g, 0})
+				return nil
+			})
+		},
+	}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+
+	if len(chownCalls) != 1 || chownCalls[0][0] != hostdirs.ApplianceDirOwnerUID || chownCalls[0][1] != hostdirs.ApplianceSharedFSGID {
+		t.Fatalf("expected exactly one chown to %d:%d, got %v", hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, chownCalls)
+	}
+	info, err := os.Stat(workspaceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o770 {
+		t.Errorf("expected the pre-existing directory's mode to be corrected to 0770, got %o", info.Mode().Perm())
+	}
+}
+
+// Core/storage profiles never enable the build capability, so there is
+// no workspace volume to own — install must not touch the directory at
+// all in that case.
+func TestInstall_DoesNotOwnWorkspaceDirectoryForNonBuilderProfile(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.WorkspaceRootDir = filepath.Join(t.TempDir(), "workspaces")
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	chownCalled := false
+	orch := &install.Orchestrator{
+		K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			chownCalled = true
+			return nil
+		},
+	}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+	if chownCalled {
+		t.Error("expected no workspace directory ownership step for the default (core) profile")
+	}
+	if _, err := os.Stat(opts.WorkspaceRootDir); !os.IsNotExist(err) {
+		t.Error("expected the workspace directory to not be created for a non-builder profile")
+	}
+}
+
 func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
 	dir, pub := buildFixtureBundleWithArgo(t, true)
 	opts := baseOptions(t, dir, pub)
@@ -583,7 +660,7 @@ func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
 		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "apply -f") && strings.Contains(c, "workflows.argoproj.io.yaml") {
 			sawCRDApply = true
 		}
-		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install appliance-argo-workflows") {
+		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install argo-workflows") {
 			sawArgoHelm = true
 		}
 	}

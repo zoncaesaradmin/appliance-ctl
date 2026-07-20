@@ -15,6 +15,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
@@ -31,7 +32,7 @@ import (
 const (
 	containerdReadyTimeout      = 60 * time.Second
 	containerdReadyPollInterval = 1 * time.Second
-	argoReleaseName             = "appliance-argo-workflows"
+	argoReleaseName             = "argo-workflows"
 	argoNamespace               = "workflows"
 )
 
@@ -58,10 +59,15 @@ type Options struct {
 	// distinct from K3sConfigPath. It backs the "data-dir" config key,
 	// the preflight disk-space check, and is what `zonctl backup`
 	// snapshots.
-	K3sDataDir             string
-	KubeconfigPath         string
-	ApplianceProfile       string
-	BuildCatalogPath       string
+	K3sDataDir       string
+	KubeconfigPath   string
+	ApplianceProfile string
+	BuildCatalogPath string
+	// WorkspaceRootDir is the host directory backing the workspace
+	// storage hostPath PersistentVolume (builder profile only). Prepared
+	// with the correct owner before the chart is applied; see
+	// internal/hostdirs.
+	WorkspaceRootDir       string
 	NodeName               string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
@@ -100,12 +106,23 @@ type Orchestrator struct {
 	ClusterRun      cli.Runner      // kubectl calls used to inspect an existing cluster before adopting it
 	ClusterRunInput cli.InputRunner // kubectl calls that must pass protected stdin
 	DetectHost      func(host.Options) (host.Facts, error)
+	// EnsureOwnedDir prepares a host directory backing a static hostPath
+	// PersistentVolume (currently just workspace storage) with the
+	// correct owner before the chart mounts it — see internal/hostdirs
+	// for why this can't just be left to Kubernetes' own fsGroup
+	// handling.
+	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
 }
 
 // NewOrchestrator wires an Orchestrator to the real K3s, ctr, helm/kubectl,
 // and host-detection adapters.
 func NewOrchestrator() *Orchestrator {
-	return &Orchestrator{K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec, ClusterRun: cli.Exec, ClusterRunInput: cli.ExecInput, DetectHost: host.Detect}
+	return &Orchestrator{
+		K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec, ClusterRun: cli.Exec, ClusterRunInput: cli.ExecInput, DetectHost: host.Detect,
+		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
+			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, os.Chown)
+		},
+	}
 }
 
 // Install runs the fresh-install sequence end to end against a verified
@@ -157,6 +174,24 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	defer cleanupPreparedValues()
+
+	// Builder profile only: the workspace storage PV is a static
+	// hostPath, and Kubernetes' fsGroup ownership recursion is not
+	// reliably applied to hostPath volumes (unlike the main data PV,
+	// which K3s's own local-path-provisioner provisions and permissions
+	// correctly). Seed the right owner ourselves, before Helm ever
+	// applies the chart, rather than discover the gap as a Permission
+	// denied inside a workflow pod.
+	if effectiveProfile == productconfig.ProfileBuilder && opts.WorkspaceRootDir != "" {
+		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, 0o770); err != nil {
+			return nil, checks, fmt.Errorf("install: prepare workspace directory: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "workspace-directory-owned", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	signal, err := o.K3s.DetectService(opts.K3sUnitName)
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
@@ -29,15 +30,20 @@ import (
 type Options struct {
 	TargetApplianceVersion string
 
-	InstalledStatePath     string
-	K3sConfigPath          string
-	K3sUnitPath            string
-	K3sBinaryDestPath      string
-	K3sUnitName            string
-	K3sDataDir             string
-	KubeconfigPath         string
-	ApplianceProfile       string
-	BuildCatalogPath       string
+	InstalledStatePath string
+	K3sConfigPath      string
+	K3sUnitPath        string
+	K3sBinaryDestPath  string
+	K3sUnitName        string
+	K3sDataDir         string
+	KubeconfigPath     string
+	ApplianceProfile   string
+	BuildCatalogPath   string
+	// WorkspaceRootDir is the host directory backing the workspace
+	// storage hostPath PersistentVolume (builder profile only). See
+	// internal/hostdirs — re-applied on every upgrade so a host whose
+	// directory was created before this fix shipped self-heals.
+	WorkspaceRootDir       string
 	NodeName               string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
@@ -60,11 +66,19 @@ type Orchestrator struct {
 	K3s       k3s.Ops
 	ImagesRun cli.Runner
 	HelmRun   cli.Runner
+	// EnsureOwnedDir prepares a host directory backing a static hostPath
+	// PersistentVolume with the correct owner; see internal/hostdirs.
+	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
 }
 
 // NewOrchestrator wires an Orchestrator to the real adapters.
 func NewOrchestrator() *Orchestrator {
-	return &Orchestrator{K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec}
+	return &Orchestrator{
+		K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec,
+		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
+			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, os.Chown)
+		},
+	}
 }
 
 // Upgrade runs the N-1 upgrade sequence: verify the target bundle is a
@@ -117,6 +131,23 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
 	defer cleanupPreparedValues()
+
+	// Builder profile only, and re-applied on every upgrade (not just
+	// once at install time) so a host whose workspace directory was
+	// created before this fix shipped — or whose ownership drifted for
+	// any other reason — self-heals here rather than needing a manual
+	// chown. See internal/hostdirs for why this can't be left to
+	// Kubernetes' own fsGroup handling.
+	if effectiveProfile == productconfig.ProfileBuilder && opts.WorkspaceRootDir != "" {
+		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, 0o770); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: prepare workspace directory: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "workspace-directory-owned", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	if !sameVersionRefresh && !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
 		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, targetVersion, resolved.Compatibility.SupportedUpgradeSources)
