@@ -1,0 +1,10 @@
+---
+description: Pointer — full E2E map lives in appliance-cross-repo-e2e.mdc
+alwaysApply: true
+---
+
+# End-To-End Fix Discipline
+
+Follow `.cursor/rules/appliance-cross-repo-e2e.mdc` for the full cross-repo dependency map, OCI contract, change→check matrix, and done-gate.
+
+Minimum: never change only one side of a producer/consumer pair; `make verify` in every edited repo among `appliance-code`, `appliance-ctl`, and `appliance-release`; walk export → bundle → preload/tag → values → control-plane → Argo before declaring a fix done.

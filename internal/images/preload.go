@@ -128,6 +128,17 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 			defer cleanup()
 		}
 
+		var contentDigest string
+		if info, ok, err := ReadOCIArchiveInfo(importPath); err != nil {
+			check.Status = evidence.StatusFail
+			check.Message = err.Error()
+			failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+			result.Checks = append(result.Checks, check)
+			continue
+		} else if ok {
+			contentDigest = info.ManifestDigest
+		}
+
 		if img.RequireReference {
 			if err := ValidateOCIArchiveReference(importPath, img.Name); err != nil {
 				check.Status = evidence.StatusFail
@@ -143,6 +154,29 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 			check.Message = fmt.Sprintf("%s already imported (idempotent no-op)", img.Name)
 			result.Checks = append(result.Checks, check)
 			continue
+		}
+
+		// Prefer retagging content that is already in the store under an
+		// import-DATE / :bundled name over re-importing the same layers.
+		if img.RequireReference && contentDigest != "" {
+			if err := imp.ensureImageReference(ctx, img.Name, contentDigest, already); err == nil {
+				afterTag, err := imp.Imported(ctx)
+				if err != nil {
+					check.Status = evidence.StatusFail
+					check.Message = fmt.Sprintf("verify tagged reference %s: %v", img.Name, err)
+					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+					result.Checks = append(result.Checks, check)
+					continue
+				}
+				if afterTag[img.Name] {
+					result.NewlyImported = append(result.NewlyImported, newImageReferences(already, afterTag)...)
+					already = afterTag
+					check.Status = evidence.StatusPass
+					check.Message = fmt.Sprintf("%s tagged onto existing local content %s", img.Name, contentDigest)
+					result.Checks = append(result.Checks, check)
+					continue
+				}
+			}
 		}
 
 		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "import", "--digests", importPath); err != nil {
@@ -165,11 +199,33 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 		already = afterImport
 
 		if img.RequireReference && !afterImport[img.Name] {
-			check.Status = evidence.StatusFail
-			check.Message = fmt.Sprintf("imported archive %s did not provide expected image reference %s; rebuild/export the archive with that exact reference or update the bundle imageReference/build catalog to match", img.ArchivePath, img.Name)
-			failures = append(failures, fmt.Errorf("%s: expected image reference not present after import", img.Name))
-			result.Checks = append(result.Checks, check)
-			continue
+			if contentDigest != "" {
+				if err := imp.ensureImageReference(ctx, img.Name, contentDigest, afterImport); err != nil {
+					check.Status = evidence.StatusFail
+					check.Message = err.Error()
+					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+					result.Checks = append(result.Checks, check)
+					continue
+				}
+				afterTag, err := imp.Imported(ctx)
+				if err != nil {
+					check.Status = evidence.StatusFail
+					check.Message = fmt.Sprintf("verify tagged reference %s: %v", img.Name, err)
+					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+					result.Checks = append(result.Checks, check)
+					continue
+				}
+				result.NewlyImported = append(result.NewlyImported, newImageReferences(already, afterTag)...)
+				already = afterTag
+				afterImport = afterTag
+			}
+			if !afterImport[img.Name] {
+				check.Status = evidence.StatusFail
+				check.Message = fmt.Sprintf("imported archive %s did not provide expected image reference %s; rebuild/export the archive with that exact reference or update the bundle imageReference/build catalog to match", img.ArchivePath, img.Name)
+				failures = append(failures, fmt.Errorf("%s: expected image reference not present after import", img.Name))
+				result.Checks = append(result.Checks, check)
+				continue
+			}
 		}
 
 		check.Status = evidence.StatusPass
@@ -181,6 +237,42 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 		return result, fmt.Errorf("images: %d image(s) failed to preload: %w", len(failures), errors.Join(failures...))
 	}
 	return result, nil
+}
+
+func (imp *Importer) ensureImageReference(ctx context.Context, desiredName, contentDigest string, present map[string]bool) error {
+	desiredName = strings.TrimSpace(desiredName)
+	if desiredName == "" {
+		return fmt.Errorf("images: desired image reference is empty")
+	}
+	if present[desiredName] {
+		return nil
+	}
+	if contentDigest == "" {
+		return fmt.Errorf("images: cannot tag %s: archive content digest is unknown", desiredName)
+	}
+
+	var lastErr error
+	for _, src := range TagCandidatesForReference(desiredName, contentDigest, present) {
+		if src == desiredName {
+			continue
+		}
+		if present != nil && !present[src] && src != contentDigest {
+			continue
+		}
+		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "tag", src, desiredName); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+
+	if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "tag", contentDigest, desiredName); err != nil {
+		if lastErr != nil {
+			return fmt.Errorf("images: tag %s from local content %s: %v (also: %w)", desiredName, contentDigest, err, lastErr)
+		}
+		return fmt.Errorf("images: tag %s from local content %s: %w", desiredName, contentDigest, err)
+	}
+	return nil
 }
 
 func newImageReferences(before, after map[string]bool) []string {

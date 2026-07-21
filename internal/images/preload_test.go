@@ -69,6 +69,30 @@ func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, e
 			f.nextImportAdds = f.nextImportAdds[1:]
 		}
 		return "", nil
+	case "tag":
+		src, dst := "", ""
+		for i, a := range args {
+			if a == "tag" && i+2 < len(args) {
+				src, dst = args[i+1], args[i+2]
+				break
+			}
+		}
+		f.calls = append(f.calls, "tag:"+src+">"+dst)
+		if src == "" || dst == "" {
+			return "", fmt.Errorf("tag requires src and dst")
+		}
+		found := false
+		for _, existing := range f.alreadyImported {
+			if existing == src {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", fmt.Errorf("simulated tag source missing: %s", src)
+		}
+		f.addImported(dst)
+		return "", nil
 	case "rm":
 		f.calls = append(f.calls, "rm:"+target)
 		if f.failRemove[target] {

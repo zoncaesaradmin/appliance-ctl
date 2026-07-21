@@ -9,29 +9,26 @@ import (
 	"strings"
 )
 
-// ValidateOCIArchiveReference checks that an OCI-layout archive's annotated
-// image reference matches expectedRef and that the digest embedded in that
-// reference equals the archived manifest digest. Non-OCI archives (plain
-// docker-save stubs, test fixtures) are skipped. Tag-only expectedRef values
-// are skipped: RequireReference still enforces name presence after import, but
-// content-digest equality only applies to digest-pinned refs.
-//
-// This catches a packaging failure mode where skopeo labels an archive with a
-// multi-arch index digest while materializing a single-platform manifest.
-// After ctr import, kubelet then fails with CreateContainerError / image not found.
-func ValidateOCIArchiveReference(archivePath, expectedRef string) error {
-	expectedRef = strings.TrimSpace(expectedRef)
-	if expectedRef == "" {
-		return fmt.Errorf("images: expected image reference is empty")
-	}
-	expectedDigest, ok := digestFromImageRef(expectedRef)
-	if !ok {
-		return nil
-	}
+// BundledImageTag is the tag-form annotation written into OCI archives so
+// containerd's ctr import registers a stable local name. Digest-pinned refs
+// (name@sha256:...) are applied afterward with `ctr image tag`, because ctr
+// often ignores or mishandles digest-form org.opencontainers.image.ref.name
+// values and falls back to import-DATE@sha256:... names that CRI cannot use.
+const BundledImageTag = "bundled"
 
+// OCIArchiveInfo is the content digest and optional ref annotation from an
+// OCI-layout archive's index.json.
+type OCIArchiveInfo struct {
+	ManifestDigest string // sha256:<hex>
+	AnnotationRef  string
+}
+
+// ReadOCIArchiveInfo reads index.json from an OCI-layout tar. Non-OCI archives
+// return ok=false.
+func ReadOCIArchiveInfo(archivePath string) (OCIArchiveInfo, bool, error) {
 	f, err := os.Open(archivePath)
 	if err != nil {
-		return fmt.Errorf("images: open archive %s: %w", archivePath, err)
+		return OCIArchiveInfo{}, false, fmt.Errorf("images: open archive %s: %w", archivePath, err)
 	}
 	defer f.Close()
 
@@ -43,20 +40,19 @@ func ValidateOCIArchiveReference(archivePath, expectedRef string) error {
 			break
 		}
 		if err != nil {
-			// Not a readable tar — treat as non-OCI layout.
-			return nil
+			return OCIArchiveInfo{}, false, nil
 		}
 		name := strings.TrimPrefix(hdr.Name, "./")
 		if name == "index.json" {
 			indexRaw, err = io.ReadAll(io.LimitReader(tr, 1<<20))
 			if err != nil {
-				return fmt.Errorf("images: read index.json from %s: %w", archivePath, err)
+				return OCIArchiveInfo{}, false, fmt.Errorf("images: read index.json from %s: %w", archivePath, err)
 			}
 			break
 		}
 	}
 	if indexRaw == nil {
-		return nil
+		return OCIArchiveInfo{}, false, nil
 	}
 
 	var index struct {
@@ -66,40 +62,95 @@ func ValidateOCIArchiveReference(archivePath, expectedRef string) error {
 		} `json:"manifests"`
 	}
 	if err := json.Unmarshal(indexRaw, &index); err != nil {
-		return fmt.Errorf("images: parse index.json from %s: %w", archivePath, err)
+		return OCIArchiveInfo{}, false, fmt.Errorf("images: parse index.json from %s: %w", archivePath, err)
 	}
 	if len(index.Manifests) == 0 {
-		return fmt.Errorf("images: archive %s has no manifests in index.json", archivePath)
+		return OCIArchiveInfo{}, false, fmt.Errorf("images: archive %s has no manifests in index.json", archivePath)
+	}
+	chosen := index.Manifests[0]
+	return OCIArchiveInfo{
+		ManifestDigest: strings.TrimSpace(chosen.Digest),
+		AnnotationRef:  strings.TrimSpace(chosen.Annotations["org.opencontainers.image.ref.name"]),
+	}, true, nil
+}
+
+// ValidateOCIArchiveReference checks that an OCI-layout archive's manifest
+// digest matches the digest embedded in expectedRef (when digest-pinned).
+// The archive annotation may be the digest-pinned ref or the tag-form
+// local name (registry.local/<name>:bundled) used for reliable ctr import.
+//
+// Contract with appliance-release packaging:
+//
+//	annotation: registry.local/<name>:bundled
+//	imageReference / expectedRef: registry.local/<name>@sha256:<platform-manifest-digest>
+//
+// Install then runs `ctr image tag` to create expectedRef from imported content.
+func ValidateOCIArchiveReference(archivePath, expectedRef string) error {
+	expectedRef = strings.TrimSpace(expectedRef)
+	if expectedRef == "" {
+		return fmt.Errorf("images: expected image reference is empty")
+	}
+	expectedDigest, digestPinned := digestFromImageRef(expectedRef)
+	if !digestPinned {
+		return nil
 	}
 
-	chosen := index.Manifests[0]
-	for _, m := range index.Manifests {
-		if m.Annotations["org.opencontainers.image.ref.name"] == expectedRef {
-			chosen = m
-			break
+	info, ok, err := ReadOCIArchiveInfo(archivePath)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	if info.ManifestDigest != expectedDigest {
+		return fmt.Errorf(
+			"images: archive %s manifest digest %s does not match expected reference digest %s (%s); rebuild/export so the archived platform manifest digest matches the bundle imageReference",
+			archivePath, info.ManifestDigest, expectedDigest, expectedRef,
+		)
+	}
+	if info.AnnotationRef == "" {
+		return nil
+	}
+	if annotationCompatibleWithRef(info.AnnotationRef, expectedRef, expectedDigest) {
+		return nil
+	}
+	return fmt.Errorf(
+		"images: archive %s annotation ref %q is incompatible with expected reference %q (accepts digest pin, %s, or %s:%s)",
+		archivePath, info.AnnotationRef, expectedRef, imageRefLocalName(expectedRef), imageRefLocalName(expectedRef), BundledImageTag,
+	)
+}
+
+func annotationCompatibleWithRef(annotation, expectedRef, expectedDigest string) bool {
+	annotation = strings.TrimSpace(annotation)
+	expectedRef = strings.TrimSpace(expectedRef)
+	if annotation == expectedRef {
+		return true
+	}
+	if annDigest, ok := digestFromImageRef(annotation); ok {
+		return annDigest == expectedDigest
+	}
+	localName := imageRefLocalName(expectedRef)
+	if annotation == localName || annotation == localName+":"+BundledImageTag {
+		return true
+	}
+	if strings.HasPrefix(annotation, localName+":") && !strings.Contains(annotation, "@") {
+		return true
+	}
+	return false
+}
+
+func imageRefLocalName(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if i := strings.Index(ref, "@"); i >= 0 {
+		ref = ref[:i]
+	}
+	if i := strings.LastIndex(ref, ":"); i >= 0 && !strings.Contains(ref[i+1:], "/") {
+		before := ref[:i]
+		if strings.Contains(before, "/") {
+			ref = before
 		}
 	}
-	contentDigest := strings.TrimSpace(chosen.Digest)
-	if contentDigest != expectedDigest {
-		return fmt.Errorf(
-			"images: archive %s manifest digest %s does not match expected reference digest %s (%s); rebuild/export the archive by copying the digest-pinned platform image",
-			archivePath, contentDigest, expectedDigest, expectedRef,
-		)
-	}
-	ann := chosen.Annotations["org.opencontainers.image.ref.name"]
-	if ann != "" && ann != expectedRef {
-		return fmt.Errorf(
-			"images: archive %s annotation ref %q does not match expected reference %q",
-			archivePath, ann, expectedRef,
-		)
-	}
-	if annDigest, ok := digestFromImageRef(ann); ok && annDigest != contentDigest {
-		return fmt.Errorf(
-			"images: archive %s annotation digest %s does not match archived manifest digest %s",
-			archivePath, annDigest, contentDigest,
-		)
-	}
-	return nil
+	return ref
 }
 
 func digestFromImageRef(ref string) (string, bool) {
@@ -118,4 +169,38 @@ func digestFromImageRef(ref string) (string, bool) {
 		}
 	}
 	return digest, true
+}
+
+// TagCandidatesForReference returns ctr image tag source candidates that may
+// already exist after import for the given desired digest-pinned name.
+func TagCandidatesForReference(desiredName, contentDigest string, present map[string]bool) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(ref string) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			return
+		}
+		seen[ref] = true
+		out = append(out, ref)
+	}
+
+	localName := imageRefLocalName(desiredName)
+	add(localName + ":" + BundledImageTag)
+	add(localName)
+	add(contentDigest)
+	if present != nil {
+		for ref := range present {
+			if ref == desiredName {
+				continue
+			}
+			if ref == contentDigest || strings.HasSuffix(ref, "@"+contentDigest) || strings.Contains(ref, contentDigest) {
+				add(ref)
+			}
+			if localName != "" && (ref == localName || strings.HasPrefix(ref, localName+":")) {
+				add(ref)
+			}
+		}
+	}
+	return out
 }

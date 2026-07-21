@@ -75,11 +75,22 @@ func TestValidateOCIArchiveReference_Mismatch(t *testing.T) {
 	}
 }
 
-func TestValidateOCIArchiveReference_Match(t *testing.T) {
+func TestValidateOCIArchiveReference_AcceptsBundledTagAnnotation(t *testing.T) {
 	dir := t.TempDir()
 	digest := "sha256:5e1543841d987081a1e0e37305039b2bb9908592a4cddad95b4c4c49d07653a3"
 	ref := "registry.local/workspace-provisioner@" + digest
-	path, _ := writeOCIArchive(t, dir, "workspace-provisioner.tar", ref, digest)
+	path, _ := writeOCIArchive(t, dir, "workspace-provisioner.tar", "registry.local/workspace-provisioner:bundled", digest)
+
+	if err := images.ValidateOCIArchiveReference(path, ref); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateOCIArchiveReference_AcceptsAutomationDevBundledTag(t *testing.T) {
+	dir := t.TempDir()
+	digest := "sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
+	ref := "registry.local/automation-dev@" + digest
+	path, _ := writeOCIArchive(t, dir, "automation-dev.tar", "registry.local/automation-dev:bundled", digest)
 
 	if err := images.ValidateOCIArchiveReference(path, ref); err != nil {
 		t.Fatal(err)
@@ -120,5 +131,34 @@ func TestPreloadAll_RejectsMismatchedOCIArchiveReference(t *testing.T) {
 	}
 	if got := statusOfCheck(t, result.Checks, "image-preload-registry-local-workspace-provisioner-sha256-77418e6e7c7f434c4a98eaff04ef16840cf03649c881c03948e3e213923e3136"); got != evidence.StatusFail {
 		t.Errorf("expected fail status, got %s", got)
+	}
+}
+
+func TestPreloadAll_TagsDigestPinnedNameFromBundledAnnotation(t *testing.T) {
+	dir := t.TempDir()
+	digest := "sha256:5e1543841d987081a1e0e37305039b2bb9908592a4cddad95b4c4c49d07653a3"
+	imageRef := "registry.local/workspace-provisioner@" + digest
+	path, fileDigest := writeOCIArchive(t, dir, "workspace-provisioner.tar", "registry.local/workspace-provisioner:bundled", digest)
+
+	fake := &fakeCtr{nextImportAdds: [][]string{{"registry.local/workspace-provisioner:bundled"}}}
+	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
+	result, err := imp.PreloadAll(context.Background(), []images.Image{
+		{Name: imageRef, ArchivePath: path, ExpectedDigest: fileDigest, Category: images.CategoryApplication, RequireReference: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(fake.calls, ",")
+	if !strings.Contains(joined, "tag:registry.local/workspace-provisioner:bundled>"+imageRef) {
+		t.Fatalf("expected tag from :bundled to digest pin, got %v", fake.calls)
+	}
+	found := false
+	for _, ref := range result.NewlyImported {
+		if ref == imageRef {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("NewlyImported = %v, want %q", result.NewlyImported, imageRef)
 	}
 }

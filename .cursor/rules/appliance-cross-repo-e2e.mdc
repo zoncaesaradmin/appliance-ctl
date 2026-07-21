@@ -1,0 +1,88 @@
+---
+description: Cross-repo appliance E2E dependency map and fix gate (builder path)
+alwaysApply: true
+---
+
+# Appliance Cross-Repo E2E Map
+
+This rule is mandatory context for every session that touches packaging, install, images, charts, workflows, or the release skill across `appliance-code`, `appliance-ctl`, and `appliance-release`.
+
+Do **not** fix one side of a contract and declare done. Walk the full path below, update every dependent check/test/doc, and `make verify` in **every edited repo** before handoff.
+
+## Canonical OCI contract (memorize)
+
+```
+Archive annotation:  registry.local/<name>:bundled
+Bundle imageReference / workload image:
+                     registry.local/<name>@sha256:<platform-manifest-digest>
+index.json digest:   MUST equal the @sha256 digest above
+Install:             ctr import (gets :bundled or import-DATE) → ctr image tag → digest pin
+Runtime:             config.*ImageDigest == digest pin → Argo pod image (IfNotPresent)
+```
+
+Names today: `workspace-provisioner` (alpine/git), `automation-dev` (builder).
+
+Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manifest).
+
+## Operator path (ordered)
+
+1. **Export** (`appliance-release` `scripts/ci/build-full-bundle.sh`)
+   - `finalize_bundled_oci_archive` / `export_bundled_extra_oci_image_archive`
+   - Derives digest from archive `index.json`; annotates `:bundled`
+2. **Release-input** (`appliance-code` `scripts/package/archive-release-input.sh`)
+   - `--extra-oci-image` + `--extra-oci-image-reference` (digest-pinned)
+3. **Assemble** (`appliance-release` + `appliance-ctl` `releasebundle.Assemble`)
+   - Copies `imageReference` onto bundle oci-images entries
+4. **Install preload** (`appliance-ctl` `images.PreloadAll`)
+   - `ValidateOCIArchiveReference` (digest match; `:bundled` annotation OK)
+   - `ctr import --digests` then `ensureImageReference` / `ctr image tag` to digest pin
+5. **Values** (`appliance-ctl` `productconfig.PrepareValuesFile`)
+   - Injects `config.workspaceProvisionerImageDigest` + `config.builderImageDigest`
+6. **Control-plane** (`appliance-code` config + `devflows.NewService`)
+   - Env from chart ConfigMap; fail-closed if digests missing/invalid
+7. **Workspace create** → Argo `workspace-prepare` (`argo.workflowContainerSpec`)
+   - Pod `image:` = provisioner digest pin
+8. **Build submit** → Argo build pod
+   - `ResolveBuilderImage("automation-dev", …)` → automation-dev digest pin
+
+Online pulls happen **only on the build host** during bundle assembly. Target install/runtime must not need Docker Hub/GHCR.
+
+## Producer → consumer pairs (one-sided change = bug)
+
+| Contract | Producer | Consumers |
+|---|---|---|
+| `:bundled` annotation + `@sha256` imageReference | `build-full-bundle.sh` finalize/relabel | `images/archive.go`, `preload.go`, `validate-release-artifacts.py` |
+| EXTRA_OCI pairing / order | `build-full-bundle.sh` (do not append provisioner onto EXTRA list before pairing) | path↔token checks in validator |
+| `RequireReference` + tag | Bundle entry `imageReference` | `install/source.go` `imageName`, `PreloadAll` |
+| Digests in Helm values | `PrepareValuesFile` | chart ConfigMap, `config.Load`, chart schema |
+| Catalog `automation-dev` alias | catalog / examples | `ResolveBuilderImage`, `builderImageReference` |
+| Offline images present | preload/tag | Argo `IfNotPresent` pods |
+
+## If you change X → also check Y
+
+- **Annotation scheme** → ctl `ValidateOCIArchiveReference` + preload tag tests; release finalize + `validate-release-artifacts.py`; config.example docs
+- **Digest derivation** → finalize (archive wins); never reintroduce inspect-first pins
+- **EXTRA_OCI refs/order** → pairing comments; path/token validator; both provisioner and automation-dev in bundle
+- **Builder image name** → `source.go`, `catalog.go` DefaultBuilderImageRef, chart schema, examples, tests
+- **Tag/import algorithm** → `preload.go` / tests; install+upgrade fake-ctr tests
+- **PrepareValuesFile keys** → chart `configmap.yaml` env names; config Load; chart_test
+- **Argo image / pullPolicy** → offline contract; preload completeness
+- **Workspace UID/path** → install EnsureOwnedDir; chart PVC; argo pod patch; storage invariants in all three AGENTS.md
+- **Only one repo** → insufficient; re-check sibling contract consumers
+
+## Gate before saying “done”
+
+1. Logical walk of stages 1–8 above for the change.
+2. List every producer/consumer pair touched; confirm both sides + tests updated.
+3. `make verify` in **each** edited repo among the three.
+4. Confirm contract tests still encode `:bundled` accept + tag-to-digest (ctl) and annotation/digest/path pairing (release).
+5. Do **not** start another real `run-release-flow` while a known cross-repo mismatch remains.
+6. Real hosts stay read-only unless the user authorizes writes this turn; hand off the release command instead of auto-running it.
+
+## Key files
+
+**release:** `scripts/ci/build-full-bundle.sh`, `scripts/package/init-simple-workspace.sh`, `.agents/skills/release/scripts/build-and-publish.sh`, `.agents/skills/release/scripts/validate-release-artifacts.py`, `.agents/skills/release/references/config.example.yaml`
+
+**ctl:** `internal/images/archive.go`, `internal/images/preload.go`, `internal/install/source.go`, `internal/install/install.go`, `internal/productconfig/productconfig.go`, `internal/releasebundle/assemble.go`
+
+**code:** `scripts/package/archive-release-input.sh`, `deploy/charts/appliance-control-plane/templates/configmap.yaml`, `values.schema.json`, `services/controlplane/internal/config/config.go`, `internal/devflows/service.go`, `internal/devflows/catalog.go`, `internal/workflows/argo/argo.go`
