@@ -1,0 +1,30 @@
+---
+description: Real build/publish/target hosts are read-only unless the user explicitly authorizes writes
+alwaysApply: true
+---
+
+# Real Host Access Guardrail
+
+Applies to the user's real build server, publish/artifact server, and target appliance host (SSH aliases/IPs in release config or equivalent).
+
+## Default: read-only
+
+- SSH/login for **inspection only** is allowed: logs, status, `git status`/`git log`, listing images/pods, and similar read-only commands.
+- Do **not** modify files, content, packages, services, git state, container images, or cluster state on those hosts unless the user **explicitly asks for that write in the current turn**.
+
+## Forbidden without explicit permission
+
+- `scp`, `rsync` uploads, or any copy that writes onto a real host
+- Editing remote files or rewriting git checkouts on the build host from the agent
+- Installing packages, restarting services, importing images, or changing K3s/cluster state outside a user-requested release/install/verify command
+
+## Correct change path
+
+- Edit code in the **local** git checkouts. Commit/push when asked. Let the release skill sync the build host from git.
+- If a remote fix seems necessary, **ask first**; do not hotfix the server.
+
+## Stay Inside The Repo
+
+- Limit edits to files **inside the git repositories** you were asked to work in.
+- Do **not** create or modify user runtime files outside the repo, including `~/appliance-release.config.yaml`, `~/build-catalog.yaml`, or any personal config/catalog path. Update only in-repo example/reference files and tell the user what to copy locally if needed.
+- Do not edit home-directory or machine-local paths unless the user explicitly asks in the current turn.
