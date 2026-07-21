@@ -91,6 +91,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image tar", "internal/appliance-ui:2.4.0"},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{"oci-images/automation-dev.tar", "oci-images", "fake automation-dev builder image tar", "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 	}
 	if includeArgo {
 		entries = append(entries,
@@ -353,6 +354,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"internal/appliance-ui:2.4.0"}
 	case "workspace-provisioner.tar":
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	case "automation-dev.tar":
+		return []string{"registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
 	case "argo-controller.tar":
 		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
 	case "argo-executor.tar":
@@ -484,8 +487,8 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 			secretCreateCalls++
 		}
 	}
-	if importCalls != 4 {
-		t.Errorf("expected 4 image import calls (k3s platform + control-plane app + UI app + workspace provisioner), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 5 {
+		t.Errorf("expected 5 image import calls (k3s platform + control-plane app + UI app + workspace provisioner + automation-dev), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -878,7 +881,7 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 			rmCalls++
 		}
 	}
-	if rmCalls != 4 {
+	if rmCalls != 5 {
 		t.Errorf("expected all newly-imported images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
 	}
 

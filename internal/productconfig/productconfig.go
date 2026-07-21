@@ -82,15 +82,19 @@ func ResolveApplianceProfile(requested, current string) (string, error) {
 	return profile, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfile(profile, "")
 	if err != nil {
 		return "", func() {}, err
 	}
 	workspaceProvisionerImageReference = strings.TrimSpace(workspaceProvisionerImageReference)
+	builderImageReference = strings.TrimSpace(builderImageReference)
 	if effectiveProfile == ProfileBuilder {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
 			return "", func() {}, fmt.Errorf("product config: builder profile requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
+		}
+		if !validBuilderImageDigest(builderImageReference) {
+			return "", func() {}, fmt.Errorf("product config: builder profile requires a bundled digest-pinned automation-dev builder image reference; got %q", builderImageReference)
 		}
 	}
 
@@ -117,6 +121,12 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	} else {
 		delete(config, "workspaceProvisionerImageDigest")
 	}
+	if builderImageReference != "" {
+		config["builderImageDigest"] = builderImageReference
+	} else {
+		delete(config, "builderImageDigest")
+	}
+	delete(config, "allowedBuilderImageDigests")
 	if strings.TrimSpace(buildCatalogPath) != "" {
 		catalog, err := loadBuildCatalog(buildCatalogPath)
 		if err != nil {
@@ -124,11 +134,6 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		}
 		config["buildCatalog"] = catalog
 		config["allowedGitSourceHosts"] = deriveAllowedGitSourceHosts(catalog)
-		if images := deriveAllowedBuilderImageDigests(catalog); len(images) > 0 {
-			config["allowedBuilderImageDigests"] = images
-		} else {
-			delete(config, "allowedBuilderImageDigests")
-		}
 	}
 	values["config"] = config
 
@@ -363,11 +368,8 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 
 		builderImageDigest, _ := target["builderImageDigest"].(string)
 		builderImageDigest = strings.TrimSpace(builderImageDigest)
-		if builderImageDigest == "" {
-			return fmt.Errorf("%s.builderImageDigest is required", prefix)
-		}
-		if !validBuilderImageDigest(builderImageDigest) {
-			return fmt.Errorf("%s.builderImageDigest must be digest-pinned", prefix)
+		if builderImageDigest != "" && !validCatalogBuilderImage(builderImageDigest) {
+			return fmt.Errorf("%s.builderImageDigest %q is invalid; use %q or a digest-pinned image reference", prefix, builderImageDigest, "automation-dev")
 		}
 	}
 
@@ -463,6 +465,15 @@ func validBuilderImageDigest(image string) bool {
 	return digest != placeholderImageDigestHex
 }
 
+func validCatalogBuilderImage(image string) bool {
+	image = strings.TrimSpace(image)
+	switch strings.ToLower(image) {
+	case "", "automation-dev", "builder", "dev-container", "devcontainer":
+		return true
+	}
+	return validBuilderImageDigest(image)
+}
+
 func deriveAllowedGitSourceHosts(catalog map[string]any) []string {
 	seen := map[string]struct{}{}
 	var hosts []string
@@ -483,24 +494,6 @@ func deriveAllowedGitSourceHosts(catalog map[string]any) []string {
 		addHost(gitURLHost(rawURL))
 	}
 	return hosts
-}
-
-func deriveAllowedBuilderImageDigests(catalog map[string]any) []string {
-	seen := map[string]struct{}{}
-	var images []string
-	for _, target := range objectList(catalog["buildTargets"]) {
-		image, _ := target["builderImageDigest"].(string)
-		image = strings.TrimSpace(image)
-		if image == "" {
-			continue
-		}
-		if _, ok := seen[image]; ok {
-			continue
-		}
-		seen[image] = struct{}{}
-		images = append(images, image)
-	}
-	return images
 }
 
 func gitURLHost(raw string) string {

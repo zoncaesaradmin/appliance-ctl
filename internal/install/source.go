@@ -31,6 +31,9 @@ type Resolved struct {
 	// WorkspaceProvisionerImageReference is the appliance-owned generic
 	// image used by builder workspace provisioning workflows.
 	WorkspaceProvisionerImageReference string
+	// BuilderImageReference is the single bundled builder/dev-container image
+	// used by Argo build pods (automation-dev).
+	BuilderImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -90,6 +93,7 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: images.CategoryApplication, RequireReference: requireReference})
 	}
 	workspaceProvisionerImageReference := workspaceProvisionerImageReference(b)
+	builderImageReference := builderImageReference(b)
 
 	return Resolved{
 		BundleVersion:                      b.BundleVersion,
@@ -102,6 +106,7 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		ArgoCRDPaths:                       argoCRDPaths,
 		ConfigurationPath:                  configurationPath,
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
+		BuilderImageReference:              builderImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
@@ -120,6 +125,17 @@ func workspaceProvisionerImageReference(b *bundle.Bundle) string {
 		if strings.Contains(ref, "/workspace-provisioner@sha256:") ||
 			strings.HasPrefix(ref, "workspace-provisioner@sha256:") ||
 			strings.Contains(ref, "/alpine/git@sha256:") {
+			return ref
+		}
+	}
+	return ""
+}
+
+func builderImageReference(b *bundle.Bundle) string {
+	for _, e := range b.Entries("oci-images") {
+		ref := strings.TrimSpace(e.ImageReference)
+		if strings.Contains(ref, "/automation-dev@sha256:") ||
+			strings.HasPrefix(ref, "automation-dev@sha256:") {
 			return ref
 		}
 	}

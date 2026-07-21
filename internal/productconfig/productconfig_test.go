@@ -9,7 +9,10 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 )
 
-const workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const (
+	workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	builderImage              = "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
+)
 
 func TestResolveApplianceProfile_DefaultsToCore(t *testing.T) {
 	profile, err := productconfig.ResolveApplianceProfile("", "")
@@ -43,7 +46,7 @@ func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -72,7 +75,7 @@ func TestPrepareValuesFile_InjectsBuildCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -116,18 +119,16 @@ repos:
         execution: make
         args: [build]
         imageRepository: users/example/app
-        builderImageDigest: registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       - name: app-api
         execution: make
         args: [api]
         imageRepository: users/example/app-api
-        builderImageDigest: registry.local/buildah@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 `
 	if err := os.WriteFile(catalogPath, []byte(catalog), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -165,19 +166,17 @@ buildTargets:
     execution: make
     args: [build]
     imageRepository: users/example/app
-    builderImageDigest: registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   - name: app-api
     repo: app
     execution: make
     args: [api]
     imageRepository: users/example/app-api
-    builderImageDigest: registry.local/buildah@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 `
 	if err := os.WriteFile(catalogPath, []byte(catalog), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -190,8 +189,11 @@ buildTargets:
 	if !strings.Contains(text, "buildTargets:") || !strings.Contains(text, "- build") || !strings.Contains(text, "name: app-api") {
 		t.Fatalf("prepared values missing injected build targets: %s", text)
 	}
-	if !strings.Contains(text, "allowedBuilderImageDigests:") || !strings.Contains(text, "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
-		t.Fatalf("prepared values missing derived builder image allowlist: %s", text)
+	if strings.Contains(text, "allowedBuilderImageDigests:") {
+		t.Fatalf("prepared values should not derive builder image allowlist from catalog: %s", text)
+	}
+	if !strings.Contains(text, "builderImageDigest: registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c") {
+		t.Fatalf("prepared values missing bundled builder image: %s", text)
 	}
 }
 
@@ -202,11 +204,11 @@ func TestPrepareValuesFile_RejectsInvalidBuildTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: app\n    repo: app\n    execution: make\n    imageRepository: users/example/app\n    builderImageDigest: registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: app\n    repo: app\n    execution: make\n    imageRepository: users/example/app\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected build target missing args to be rejected")
@@ -223,11 +225,11 @@ func TestPrepareValuesFile_RejectsUnknownBuildTargetRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: other\n    repo: missing\n    execution: make\n    args: [build]\n    imageRepository: users/example/other\n    builderImageDigest: registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"), 0o640); err != nil {
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: other\n    repo: missing\n    execution: make\n    args: [build]\n    imageRepository: users/example/other\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected unknown build target repo to be rejected")
@@ -257,20 +259,18 @@ buildTargets:
     execution: make
     args: [build]
     imageRepository: users/example/app
-    builderImageDigest: registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   - name: app-api
     aliases: [app]
     repo: app
     execution: make
     args: [api]
     imageRepository: users/example/app-api
-    builderImageDigest: registry.local/buildah@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 `
 	if err := os.WriteFile(catalogPath, []byte(catalog), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected duplicate build target alias to be rejected")
@@ -291,7 +291,7 @@ func TestPrepareValuesFile_RejectsNonHTTPSCatalogRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected non-HTTPS catalog repo to be rejected")
@@ -312,7 +312,7 @@ func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected placeholder workspace provisioner image digest to be rejected")
@@ -332,7 +332,7 @@ func TestPrepareValuesFile_RejectsEmptyBuildCatalog(t *testing.T) {
 	if err := os.WriteFile(catalogPath, []byte("{}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage); err == nil {
+	if _, _, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage); err == nil {
 		t.Fatal("expected empty build catalog to be rejected")
 	}
 }
@@ -348,7 +348,7 @@ func TestPrepareValuesFile_RejectsUnknownWorkspaceProfileRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected unknown work profile repo membership to be rejected")

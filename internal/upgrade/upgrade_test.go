@@ -42,6 +42,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image " + spec.bundleVersion, "internal/control-plane:" + spec.bundleVersion},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image " + spec.bundleVersion, "internal/appliance-ui:" + spec.bundleVersion},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{"oci-images/automation-dev.tar", "oci-images", "fake automation-dev builder image " + spec.bundleVersion, "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 	}
 
 	var manifestEntries []map[string]any
@@ -343,8 +344,8 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 			importCalls++
 		}
 	}
-	if importCalls != 3 {
-		t.Fatalf("expected 3 image import calls during same-version refresh (control-plane + UI + workspace provisioner), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 4 {
+		t.Fatalf("expected 4 image import calls during same-version refresh (control-plane + UI + workspace provisioner + automation-dev), got %d: %v", importCalls, fcli.calls)
 	}
 }
 
@@ -697,6 +698,8 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"internal/appliance-ui:2.4.0"}
 	case "workspace-provisioner.tar":
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	case "automation-dev.tar":
+		return []string{"registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
 	default:
 		return nil
 	}
