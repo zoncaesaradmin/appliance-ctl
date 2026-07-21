@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -23,10 +24,48 @@ var supportedProfiles = map[string]struct{}{
 	ProfileStorage: {},
 }
 
+// Capability is the granular unit appliance behavior should actually be
+// gated on, not the profile name itself. A profile is just a named bundle
+// of capabilities; more than one profile can enable the same capability,
+// so code that cares whether e.g. build/workspace support is present
+// should check the capability, not compare against a specific profile
+// string. This mirrors the canonical mapping in appliance-code
+// (services/controlplane/internal/appliance/appliance.go's Capability
+// type and profileCatalog) — kept in sync by hand, the same way
+// ApplianceSharedFSGID in the hostdirs package is.
+type Capability string
+
+const (
+	CapabilityBase      Capability = "base"
+	CapabilityWorkflows Capability = "workflows"
+	CapabilityBuild     Capability = "build"
+	CapabilityArtifact  Capability = "artifact"
+)
+
+var profileCapabilities = map[string][]Capability{
+	ProfileCore:    {CapabilityBase, CapabilityWorkflows},
+	ProfileBuilder: {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact},
+	ProfileStorage: {CapabilityBase, CapabilityArtifact},
+}
+
+// HasCapability reports whether the given (already-resolved) profile
+// enables capability.
+func HasCapability(profile string, capability Capability) bool {
+	for _, c := range profileCapabilities[profile] {
+		if c == capability {
+			return true
+		}
+	}
+	return false
+}
+
 var (
 	dnsLabelRE                = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 	sha256ImageDigestRE       = regexp.MustCompile(`^.+@sha256:[0-9a-f]{64}$`)
 	placeholderImageDigestHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	catalogNameRE             = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+	ociRepoRE                 = regexp.MustCompile(`^[a-z0-9]+([._/-][a-z0-9]+)*$`)
+	makeTargetRE              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
 )
 
 func ResolveApplianceProfile(requested, current string) (string, error) {
@@ -130,14 +169,62 @@ func loadBuildCatalog(path string) (map[string]any, error) {
 	if len(catalog) == 0 {
 		return nil, fmt.Errorf("product config: build catalog %s must be a non-empty object", path)
 	}
+	if err := flattenNestedBuildTargets(catalog, path); err != nil {
+		return nil, err
+	}
+	normalizeCatalogExecutions(catalog)
 	if err := validateBuildCatalog(catalog, path); err != nil {
 		return nil, err
 	}
-	// Install-time builder catalog handling is currently workspace-first:
-	// workProfiles/repos materialize source trees, while build target modeling
-	// is intentionally deferred so repo cloning is not coupled to output images.
-	delete(catalog, "buildTargets")
 	return catalog, nil
+}
+
+// flattenNestedBuildTargets lifts repos[].buildTargets into the top-level
+// buildTargets list and fills each target's repo from its parent repo name.
+func flattenNestedBuildTargets(catalog map[string]any, path string) error {
+	repos := objectList(catalog["repos"])
+	var lifted []any
+	for repoIndex, repo := range repos {
+		repoName, _ := repo["name"].(string)
+		repoName = strings.TrimSpace(repoName)
+		nested := objectList(repo["buildTargets"])
+		if len(nested) == 0 {
+			continue
+		}
+		if repoName == "" {
+			return fmt.Errorf("product config: build catalog %s repos[%d].name is required when buildTargets are nested", path, repoIndex)
+		}
+		for targetIndex, target := range nested {
+			copied := map[string]any{}
+			for k, v := range target {
+				copied[k] = v
+			}
+			existingRepo, _ := copied["repo"].(string)
+			existingRepo = strings.TrimSpace(existingRepo)
+			if existingRepo == "" {
+				copied["repo"] = repoName
+			} else if !strings.EqualFold(existingRepo, repoName) {
+				return fmt.Errorf("product config: build catalog %s repos[%d].buildTargets[%d].repo %q does not match parent repo %q", path, repoIndex, targetIndex, existingRepo, repoName)
+			} else {
+				copied["repo"] = repoName
+			}
+			lifted = append(lifted, copied)
+		}
+		delete(repo, "buildTargets")
+	}
+	if len(lifted) == 0 {
+		return nil
+	}
+	existing := catalog["buildTargets"]
+	switch existing := existing.(type) {
+	case nil:
+		catalog["buildTargets"] = lifted
+	case []any:
+		catalog["buildTargets"] = append(append([]any{}, existing...), lifted...)
+	default:
+		return fmt.Errorf("product config: build catalog %s buildTargets must be a list", path)
+	}
+	return nil
 }
 
 func validateBuildCatalog(catalog map[string]any, path string) error {
@@ -197,7 +284,174 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		}
 	}
 
+	seenTargetNames := map[string]string{}
+	for index, target := range objectList(catalog["buildTargets"]) {
+		prefix := fmt.Sprintf("product config: build catalog %s buildTargets[%d]", path, index)
+		name, _ := target["name"].(string)
+		name = normalizeCatalogName(name)
+		if name == "" {
+			return fmt.Errorf("%s.name is required", prefix)
+		}
+		if !catalogNameRE.MatchString(name) {
+			return fmt.Errorf("%s.name %q is invalid", prefix, name)
+		}
+		if prev, exists := seenTargetNames[name]; exists {
+			return fmt.Errorf("%s.name %q duplicates build target name/alias %q", prefix, name, prev)
+		}
+		seenTargetNames[name] = name
+
+		if aliases, ok := target["aliases"].([]any); ok {
+			for aliasIndex, rawAlias := range aliases {
+				alias, _ := rawAlias.(string)
+				alias = normalizeCatalogName(alias)
+				if alias == "" {
+					return fmt.Errorf("%s.aliases[%d] is required when present", prefix, aliasIndex)
+				}
+				if !catalogNameRE.MatchString(alias) {
+					return fmt.Errorf("%s.aliases[%d] %q is invalid", prefix, aliasIndex, alias)
+				}
+				if prev, exists := seenTargetNames[alias]; exists {
+					return fmt.Errorf("%s.aliases[%d] %q duplicates build target name/alias %q", prefix, aliasIndex, alias, prev)
+				}
+				seenTargetNames[alias] = name
+			}
+		}
+
+		repoName, _ := target["repo"].(string)
+		repoName = strings.TrimSpace(repoName)
+		if repoName == "" {
+			return fmt.Errorf("%s.repo is required", prefix)
+		}
+		if _, ok := reposByName[repoName]; !ok {
+			return fmt.Errorf("%s.repo references unknown repo %q", prefix, repoName)
+		}
+
+		execution, _ := target["execution"].(string)
+		execution = strings.TrimSpace(execution)
+		args := stringList(target["args"])
+		switch execution {
+		case "script":
+			if len(args) != 1 {
+				return fmt.Errorf("%s.args must contain exactly one script path when execution is script", prefix)
+			}
+			if !validRepoRelativePath(args[0]) {
+				return fmt.Errorf("%s.args[0] must be a relative path inside the repo", prefix)
+			}
+		case "make":
+			if len(args) != 1 {
+				return fmt.Errorf("%s.args must contain exactly one make target when execution is make", prefix)
+			}
+			if !makeTargetRE.MatchString(args[0]) {
+				return fmt.Errorf("%s.args[0] %q contains unsupported characters", prefix, args[0])
+			}
+		default:
+			return fmt.Errorf("%s.execution must be make or script", prefix)
+		}
+
+		if containerfilePath, _ := target["containerfilePath"].(string); strings.TrimSpace(containerfilePath) != "" && !validRepoRelativePath(containerfilePath) {
+			return fmt.Errorf("%s.containerfilePath must be a relative path inside the repo", prefix)
+		}
+
+		imageRepository, _ := target["imageRepository"].(string)
+		imageRepository = strings.TrimSpace(imageRepository)
+		if imageRepository == "" {
+			return fmt.Errorf("%s.imageRepository is required", prefix)
+		}
+		if !ociRepoRE.MatchString(imageRepository) {
+			return fmt.Errorf("%s.imageRepository %q is invalid", prefix, imageRepository)
+		}
+
+		builderImageDigest, _ := target["builderImageDigest"].(string)
+		builderImageDigest = strings.TrimSpace(builderImageDigest)
+		if builderImageDigest == "" {
+			return fmt.Errorf("%s.builderImageDigest is required", prefix)
+		}
+		if !validBuilderImageDigest(builderImageDigest) {
+			return fmt.Errorf("%s.builderImageDigest must be digest-pinned", prefix)
+		}
+	}
+
 	return nil
+}
+
+func normalizeCatalogExecutions(catalog map[string]any) {
+	targets := objectList(catalog["buildTargets"])
+	normalized := make([]any, 0, len(targets))
+	for _, target := range targets {
+		normalizeTargetExecutionMap(target)
+		normalized = append(normalized, target)
+	}
+	if len(normalized) > 0 {
+		catalog["buildTargets"] = normalized
+	}
+}
+
+func normalizeTargetExecutionMap(target map[string]any) {
+	execution, _ := target["execution"].(string)
+	execution = strings.TrimSpace(execution)
+	args := stringList(target["args"])
+	switch execution {
+	case "make_target", "make":
+		target["execution"] = "make"
+		if len(args) == 0 {
+			if makeTarget, _ := target["makeTarget"].(string); strings.TrimSpace(makeTarget) != "" {
+				args = []string{strings.TrimSpace(makeTarget)}
+			}
+		}
+	case "repo_script", "script":
+		target["execution"] = "script"
+		if len(args) == 0 {
+			if scriptPath, _ := target["scriptPath"].(string); strings.TrimSpace(scriptPath) != "" {
+				args = []string{strings.TrimSpace(scriptPath)}
+			} else {
+				args = []string{"build.sh"}
+			}
+		}
+	}
+	if len(args) > 0 {
+		out := make([]any, len(args))
+		for i, arg := range args {
+			out[i] = arg
+		}
+		target["args"] = out
+	}
+	delete(target, "makeTarget")
+	delete(target, "scriptPath")
+}
+
+func stringList(v any) []string {
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		s, _ := item.(string)
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func normalizeCatalogName(v string) string {
+	return strings.ToLower(strings.TrimSpace(v))
+}
+
+func validRepoRelativePath(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" || strings.HasPrefix(v, "/") || strings.Contains(v, "\\") {
+		return false
+	}
+	clean := path.Clean(v)
+	for _, part := range strings.Split(v, "/") {
+		if part == "." || part == ".." {
+			return false
+		}
+	}
+	return clean != "." && clean != ".." && !strings.HasPrefix(clean, "../")
 }
 
 func validBuilderImageDigest(image string) bool {

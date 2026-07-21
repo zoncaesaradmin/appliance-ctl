@@ -175,14 +175,16 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	defer cleanupPreparedValues()
 
-	// Builder profile only: the workspace storage PV is a static
-	// hostPath, and Kubernetes' fsGroup ownership recursion is not
-	// reliably applied to hostPath volumes (unlike the main data PV,
-	// which K3s's own local-path-provisioner provisions and permissions
-	// correctly). Seed the right owner ourselves, before Helm ever
-	// applies the chart, rather than discover the gap as a Permission
-	// denied inside a workflow pod.
-	if effectiveProfile == productconfig.ProfileBuilder && opts.WorkspaceRootDir != "" {
+	// Gated on the Build capability, not the "builder" profile name
+	// directly: more than one profile can enable Build, and this
+	// directory only needs to exist when Build does. The workspace
+	// storage PV is a static hostPath, and Kubernetes' fsGroup ownership
+	// recursion is not reliably applied to hostPath volumes (unlike the
+	// main data PV, which K3s's own local-path-provisioner provisions
+	// and permissions correctly). Seed the right owner ourselves, before
+	// Helm ever applies the chart, rather than discover the gap as a
+	// Permission denied inside a workflow pod.
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityBuild) && opts.WorkspaceRootDir != "" {
 		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare workspace directory: %w", err)
 		}

@@ -132,13 +132,15 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 	defer cleanupPreparedValues()
 
-	// Builder profile only, and re-applied on every upgrade (not just
-	// once at install time) so a host whose workspace directory was
-	// created before this fix shipped — or whose ownership drifted for
-	// any other reason — self-heals here rather than needing a manual
-	// chown. See internal/hostdirs for why this can't be left to
-	// Kubernetes' own fsGroup handling.
-	if effectiveProfile == productconfig.ProfileBuilder && opts.WorkspaceRootDir != "" {
+	// Gated on the Build capability, not the "builder" profile name
+	// directly: more than one profile can enable Build, and this
+	// directory only needs to exist when Build does. Re-applied on every
+	// upgrade (not just once at install time) so a host whose workspace
+	// directory was created before this fix shipped — or whose ownership
+	// drifted for any other reason — self-heals here rather than needing
+	// a manual chown. See internal/hostdirs for why this can't be left
+	// to Kubernetes' own fsGroup handling.
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityBuild) && opts.WorkspaceRootDir != "" {
 		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 			return nil, checks, fmt.Errorf("upgrade: prepare workspace directory: %w", err)
 		}
