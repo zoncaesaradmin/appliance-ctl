@@ -116,13 +116,6 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 			continue
 		}
 
-		if already[img.Name] {
-			check.Status = evidence.StatusPass
-			check.Message = fmt.Sprintf("%s already imported (idempotent no-op)", img.Name)
-			result.Checks = append(result.Checks, check)
-			continue
-		}
-
 		importPath, cleanup, err := imp.prepareArchiveForImport(img.ArchivePath)
 		if err != nil {
 			check.Status = evidence.StatusFail
@@ -133,6 +126,23 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 		}
 		if cleanup != nil {
 			defer cleanup()
+		}
+
+		if img.RequireReference {
+			if err := ValidateOCIArchiveReference(importPath, img.Name); err != nil {
+				check.Status = evidence.StatusFail
+				check.Message = err.Error()
+				failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+				result.Checks = append(result.Checks, check)
+				continue
+			}
+		}
+
+		if already[img.Name] {
+			check.Status = evidence.StatusPass
+			check.Message = fmt.Sprintf("%s already imported (idempotent no-op)", img.Name)
+			result.Checks = append(result.Checks, check)
+			continue
 		}
 
 		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "import", "--digests", importPath); err != nil {
