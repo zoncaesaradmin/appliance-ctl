@@ -317,6 +317,9 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	if name == "kubectl" && contains(args, "storageclass") {
 		return "storageclass.storage.k8s.io/local-path", nil
 	}
+	if name == "kubectl" && contains(args, "deployment") && contains(args, "coredns") {
+		return "1", nil
+	}
 	if name == "kubectl" && contains(args, "deployment") && contains(args, "local-path-provisioner") {
 		return "1", nil
 	}
@@ -912,8 +915,11 @@ func TestInstall_PreserveFailedStateSkipsRollbackOnChartFailure(t *testing.T) {
 	if fk3s.stopCalls != 0 {
 		t.Errorf("expected no k3s stop during preserved failed state, got %d", fk3s.stopCalls)
 	}
-	if fk3s.cleanupCalls != 0 {
-		t.Errorf("expected no CNI cleanup during preserved failed state, got %d", fk3s.cleanupCalls)
+	// One CleanupNodeNetwork runs before K3s start (KillMode=process
+	// orphan reap). Preserve-failed-state must not add a second cleanup
+	// from rollback after the chart failure.
+	if fk3s.cleanupCalls != 1 {
+		t.Errorf("expected only the pre-start CNI/runtime cleanup during preserved failed state, got %d", fk3s.cleanupCalls)
 	}
 	if fk3s.daemonReloadCalls != 0 {
 		t.Errorf("expected no daemon-reload during preserved failed state, got %d", fk3s.daemonReloadCalls)

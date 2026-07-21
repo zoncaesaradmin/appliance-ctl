@@ -114,13 +114,26 @@ func RemoveKubectlSymlink(k3sBinaryPath, kubectlPath string) error {
 	return nil
 }
 
-// CleanupNodeNetwork removes node-local CNI/IPAM lease files and then
-// asks the platform-specific implementation to drop the named network
-// interfaces if they still exist. Missing paths and already-absent
-// interfaces are treated as success so repeated uninstall/install cycles
-// remain idempotent.
+// CleanupNodeNetwork clears leftover K3s pod-runtime state after the
+// service has been stopped (or the unit removed). The appliance unit
+// uses KillMode=process (same as upstream K3s) so containerd-shim
+// children survive `systemctl stop` by design — that enables
+// non-disruptive binary upgrades, but after uninstall / failed-install
+// rollback those orphans keep owning CNI endpoints and kube-proxy
+// routes. A later start then inherits a split-brain runtime: new pods
+// cannot reach ClusterIP (no route to host), local-path provisioning
+// stalls, and helm --wait times out. This helper therefore:
+//  1. SIGKILLs leftover containerd-shim processes for the K3s socket
+//  2. clears node-local CNI/IPAM lease files
+//  3. deletes the named bridge/overlay interfaces when still present
+//
+// Missing paths, already-absent interfaces, and no matching shims are
+// success so repeated uninstall/install cycles stay idempotent.
 func CleanupNodeNetwork(cniNetworkDir string, interfaceNames []string) error {
 	var errs []error
+	if err := killLeftoverContainerdShims(); err != nil {
+		errs = append(errs, err)
+	}
 	if dir := strings.TrimSpace(cniNetworkDir); dir != "" {
 		if err := clearCNINetworkDir(dir); err != nil {
 			errs = append(errs, err)

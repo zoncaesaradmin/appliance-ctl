@@ -666,6 +666,8 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		return "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "storageclass"):
 		return "storageclass.storage.k8s.io/local-path", nil
+	case name == "kubectl" && contains(args, "get") && contains(args, "deployment") && contains(args, "coredns"):
+		return "1", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "deployment") && contains(args, "local-path-provisioner"):
 		return "1", nil
 	}

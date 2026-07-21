@@ -12,11 +12,11 @@ type Ops struct {
 	EnableAndStart func(unitName string) error
 	Stop           func(unitName string) error
 	Restart        func(unitName string) error
-	// CleanupNodeNetwork removes stale node-local CNI/IPAM lease state
-	// and best-effort deletes the K3s-created bridge/overlay interfaces
-	// after K3s is stopped, so a reinstall or rollback can start from a
-	// clean pod-network state instead of inheriting exhausted leases from
-	// prior failed pod sandboxes.
+	// CleanupNodeNetwork kills leftover containerd-shim processes (the
+	// KillMode=process survivors), clears CNI/IPAM lease state, and
+	// best-effort deletes the K3s-created bridge/overlay interfaces
+	// after K3s is stopped, so a reinstall or rollback starts from a
+	// clean pod-network/runtime instead of a split-brain shim set.
 	CleanupNodeNetwork func(cniNetworkDir string, interfaceNames []string) error
 	// EnsureKubectlSymlink and RemoveKubectlSymlink manage the
 	// "kubectl" convenience symlink to the installed K3s binary (see

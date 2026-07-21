@@ -12,9 +12,11 @@ import (
 type readinessFakeCLI struct {
 	calls                  []string
 	nodePolls              int
+	corednsPolls           int
 	storageClassPolls      int
 	provisionerPolls       int
 	nodeReadyAfter         int
+	corednsReadyAfter      int
 	storageClassReadyAfter int
 	provisionerReadyAfter  int
 }
@@ -30,6 +32,12 @@ func (f *readinessFakeCLI) Run(_ context.Context, name string, args ...string) (
 			return "appliance-node   NotReady   control-plane   1m   v1.30.4+k3s1\n", nil
 		}
 		return "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n", nil
+	case name == "kubectl" && contains(args, "get") && contains(args, "deployment") && contains(args, "coredns"):
+		f.corednsPolls++
+		if f.corednsPolls < f.corednsReadyAfter {
+			return "0", nil
+		}
+		return "1", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "storageclass"):
 		f.storageClassPolls++
 		if f.storageClassPolls < f.storageClassReadyAfter {
@@ -56,6 +64,7 @@ func TestEnsureClusterBaseline_WaitsForNodeAndLocalPathProvisioner(t *testing.T)
 
 	fake := &readinessFakeCLI{
 		nodeReadyAfter:         2,
+		corednsReadyAfter:      2,
 		storageClassReadyAfter: 2,
 		provisionerReadyAfter:  2,
 	}
@@ -63,11 +72,11 @@ func TestEnsureClusterBaseline_WaitsForNodeAndLocalPathProvisioner(t *testing.T)
 	if err != nil {
 		t.Fatalf("expected readiness checks to eventually pass, got: %v", err)
 	}
-	if len(checks) != 3 {
-		t.Fatalf("expected 3 readiness checks, got %d", len(checks))
+	if len(checks) != 4 {
+		t.Fatalf("expected 4 readiness checks, got %d", len(checks))
 	}
-	if fake.nodePolls < 2 || fake.storageClassPolls < 2 || fake.provisionerPolls < 2 {
-		t.Fatalf("expected retries across readiness checks, got polls nodes=%d storage=%d provisioner=%d", fake.nodePolls, fake.storageClassPolls, fake.provisionerPolls)
+	if fake.nodePolls < 2 || fake.corednsPolls < 2 || fake.storageClassPolls < 2 || fake.provisionerPolls < 2 {
+		t.Fatalf("expected retries across readiness checks, got polls nodes=%d coredns=%d storage=%d provisioner=%d", fake.nodePolls, fake.corednsPolls, fake.storageClassPolls, fake.provisionerPolls)
 	}
 }
 
@@ -80,6 +89,7 @@ func TestEnsureClusterBaseline_SkipsStorageChecksWhenPersistenceDisabled(t *test
 
 	fake := &readinessFakeCLI{
 		nodeReadyAfter:         1,
+		corednsReadyAfter:      1,
 		storageClassReadyAfter: 99,
 		provisionerReadyAfter:  99,
 	}
@@ -87,8 +97,8 @@ func TestEnsureClusterBaseline_SkipsStorageChecksWhenPersistenceDisabled(t *test
 	if err != nil {
 		t.Fatalf("expected readiness checks to pass, got: %v", err)
 	}
-	if len(checks) != 1 {
-		t.Fatalf("expected only node readiness check, got %d", len(checks))
+	if len(checks) != 2 {
+		t.Fatalf("expected node and coredns readiness checks, got %d", len(checks))
 	}
 	if fake.storageClassPolls != 0 || fake.provisionerPolls != 0 {
 		t.Fatalf("expected storage-related checks to be skipped, got polls storage=%d provisioner=%d", fake.storageClassPolls, fake.provisionerPolls)

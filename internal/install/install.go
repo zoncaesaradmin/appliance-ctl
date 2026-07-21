@@ -255,6 +255,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// never register a stop-on-rollback for a service we didn't start.
 	needsK3sInstall := decision == k3s.DecisionFreshInstall || signal.RunningVersion != resolved.Compatibility.K3sVersion
 	if needsK3sInstall {
+		// KillMode=process leaves containerd-shim orphans across stop /
+		// uninstall. Clear them (and stale CNI) before (re)starting so
+		// the new process does not inherit a split-brain runtime that
+		// breaks ClusterIP routing and PVC provisioning.
+		if !signal.Active {
+			if err := o.K3s.CleanupNodeNetwork(opts.K3sCNINetworkDir, opts.K3sCNIInterfaces); err != nil {
+				return nil, checks, fmt.Errorf("install: clean leftover k3s runtime before start: %w", err)
+			}
+		}
 		if err := o.K3s.WriteConfig(opts.K3sConfigPath, k3s.Config{
 			NodeName: opts.NodeName,
 			DataDir:  opts.K3sDataDir,

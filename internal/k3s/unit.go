@@ -20,6 +20,11 @@ Wants=network-online.target
 [Service]
 Type=notify
 ExecStart=%s server --config %s
+# KillMode=process matches upstream K3s: stopping the unit must not
+# tear down running pods during a binary upgrade. Uninstall/rollback
+# paths MUST call CleanupNodeNetwork afterward to reap orphaned
+# containerd-shim processes; otherwise the next start inherits a
+# split-brain runtime and ClusterIP routing breaks.
 KillMode=process
 Delegate=yes
 LimitNOFILE=1048576

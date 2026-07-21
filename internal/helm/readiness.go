@@ -35,6 +35,16 @@ func EnsureClusterBaseline(ctx context.Context, run cli.Runner, kubeconfig, valu
 		return checks, err
 	}
 
+	// CoreDNS Ready is the practical signal that kube-proxy / CNI service
+	// routing works after a K3s (re)start. Without this, a split-brain
+	// leftover shim set can leave ClusterIP unreachable while the node
+	// still reports Ready and helm --wait later times out on PVCs.
+	corednsCheck, err := waitDeploymentAvailable(ctx, run, kubeconfig, "kube-system", "coredns", "k3s-coredns-ready")
+	checks = append(checks, corednsCheck)
+	if err != nil {
+		return checks, err
+	}
+
 	if values.Persistence.Enabled && values.Persistence.StorageClassName != "" {
 		storageCheck, err := waitStorageClassReady(ctx, run, kubeconfig, values.Persistence.StorageClassName)
 		checks = append(checks, storageCheck)
@@ -42,7 +52,7 @@ func EnsureClusterBaseline(ctx context.Context, run cli.Runner, kubeconfig, valu
 			return checks, err
 		}
 		if values.Persistence.StorageClassName == "local-path" {
-			provisionerCheck, err := waitLocalPathProvisionerReady(ctx, run, kubeconfig)
+			provisionerCheck, err := waitDeploymentAvailable(ctx, run, kubeconfig, "kube-system", "local-path-provisioner", "k3s-local-path-provisioner-ready")
 			checks = append(checks, provisionerCheck)
 			if err != nil {
 				return checks, err
@@ -170,10 +180,10 @@ func waitStorageClassReady(ctx context.Context, run cli.Runner, kubeconfig, stor
 	}
 }
 
-func waitLocalPathProvisionerReady(ctx context.Context, run cli.Runner, kubeconfig string) (evidence.Check, error) {
+func waitDeploymentAvailable(ctx context.Context, run cli.Runner, kubeconfig, namespace, deployment, checkID string) (evidence.Check, error) {
 	check := evidence.Check{
-		ID:              "k3s-local-path-provisioner-ready",
-		Category:        "storage",
+		ID:              checkID,
+		Category:        "k3s",
 		Timestamp:       time.Now().UTC(),
 		Idempotent:      true,
 		SecretsRedacted: true,
@@ -182,22 +192,22 @@ func waitLocalPathProvisionerReady(ctx context.Context, run cli.Runner, kubeconf
 	deadline := time.Now().Add(clusterReadyTimeout)
 	var lastState string
 	for {
-		out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", "kube-system", "get", "deployment", "local-path-provisioner", "-o", "jsonpath={.status.availableReplicas}")
+		out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "get", "deployment", deployment, "-o", "jsonpath={.status.availableReplicas}")
 		if err == nil {
 			value := strings.TrimSpace(out)
 			if value == "" {
-				lastState = "local-path-provisioner deployment exists but has no available replicas yet"
+				lastState = fmt.Sprintf("%s/%s deployment exists but has no available replicas yet", namespace, deployment)
 			} else if replicas, convErr := strconv.Atoi(value); convErr == nil && replicas > 0 {
 				check.Status = evidence.StatusPass
-				check.Message = fmt.Sprintf("local-path-provisioner is available with %d replica(s)", replicas)
+				check.Message = fmt.Sprintf("%s/%s is available with %d replica(s)", namespace, deployment, replicas)
 				return check, nil
 			} else {
-				lastState = fmt.Sprintf("local-path-provisioner has %q available replicas", value)
+				lastState = fmt.Sprintf("%s/%s has %q available replicas", namespace, deployment, value)
 			}
 		} else if !namespaceNotFound(err) && !isTransientKubeError(err) {
 			check.Status = evidence.StatusFail
 			check.Message = err.Error()
-			return check, fmt.Errorf("helm: wait for local-path-provisioner: %w", err)
+			return check, fmt.Errorf("helm: wait for %s/%s: %w", namespace, deployment, err)
 		} else {
 			lastState = err.Error()
 		}
@@ -205,7 +215,7 @@ func waitLocalPathProvisionerReady(ctx context.Context, run cli.Runner, kubeconf
 		if time.Now().After(deadline) {
 			check.Status = evidence.StatusFail
 			check.Message = lastState
-			return check, fmt.Errorf("helm: wait for local-path-provisioner: %s", lastState)
+			return check, fmt.Errorf("helm: wait for %s/%s: %s", namespace, deployment, lastState)
 		}
 		if err := waitClusterRetry(ctx); err != nil {
 			check.Status = evidence.StatusFail
