@@ -30,7 +30,12 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, want := range []string{"applianceProfile: storage", "zotBaseURL:"} {
+	for _, want := range []string{
+		"applianceProfile: storage",
+		"zotBaseURL:",
+		"kubernetes.io/metadata.name: registry",
+		"app.kubernetes.io/name: appliance-registry",
+	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered values missing %q:\n%s", want, text)
 		}
@@ -50,7 +55,9 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 	text := string(data)
 	if !strings.Contains(text, "digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") ||
 		!strings.Contains(text, "accessMode: ReadWriteOnce") ||
-		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) {
+		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) ||
+		!strings.Contains(text, "kubernetes.io/metadata.name: appliance-system") ||
+		!strings.Contains(text, "hostPath: /data/zon/logs/zot") {
 		t.Fatalf("unexpected registry values:\n%s", text)
 	}
 }

@@ -307,6 +307,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+		if err := o.EnsureOwnedDir(hostdirs.RegistryLogDir, hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.ServiceLogDirMode); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare registry log directory: %w", err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		checks = append(checks, evidence.Check{
+			ID: "registry-log-directory-owned", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.RegistryLogDir, hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
 			opts.ChartNamespace, "appliance-keys", registryNamespace, productconfig.DefaultRegistryPublicKeySecret)
 		checks = append(checks, registryKeys.Checks...)

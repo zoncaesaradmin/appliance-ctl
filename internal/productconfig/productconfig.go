@@ -155,6 +155,23 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	}
 	values["config"] = config
 
+	if artifactEnabled {
+		networkPolicy, _ := values["networkPolicy"].(map[string]any)
+		if networkPolicy == nil {
+			networkPolicy = map[string]any{}
+		}
+		// Zot ships in the dedicated registry namespace; CP egress must target
+		// that namespace, not the control-plane namespace.
+		networkPolicy["registryNamespaceLabel"] = map[string]any{
+			"kubernetes.io/metadata.name": "registry",
+		}
+		networkPolicy["registryPodLabels"] = map[string]any{
+			"app.kubernetes.io/name": "appliance-registry",
+		}
+		networkPolicy["registryPort"] = 5000
+		values["networkPolicy"] = networkPolicy
+	}
+
 	rendered, err := yaml.Marshal(values)
 	if err != nil {
 		return "", func() {}, fmt.Errorf("product config: render values override: %w", err)
@@ -208,6 +225,23 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 		"ingress": map[string]any{"host": host},
 		"persistence": map[string]any{
 			"storageClassName": "local-path", "accessMode": "ReadWriteOnce", "size": "100Gi",
+		},
+		"networkPolicy": map[string]any{
+			"enabled": true,
+			"controlPlaneNamespaceLabel": map[string]any{
+				"kubernetes.io/metadata.name": "appliance-system",
+			},
+			"controlPlanePodLabels": map[string]any{
+				"app.kubernetes.io/name": "appliance-control-plane",
+			},
+			// K3s ships Traefik in kube-system; empty selectors leave /v2 unreachable.
+			"traefikNamespaceLabel": map[string]any{
+				"kubernetes.io/metadata.name": "kube-system",
+			},
+		},
+		"logs": map[string]any{
+			"hostPath": "/data/zon/logs/zot",
+			"prepare":  map[string]any{"enabled": false},
 		},
 	}
 	rendered, err := yaml.Marshal(values)

@@ -36,6 +36,18 @@ import (
 const (
 	ApplianceDirOwnerUID = 0
 	ApplianceSharedFSGID = 20000
+
+	// RegistryDirOwnerUID is the fixed numeric identity for the offline zot
+	// registry pod (appliance-registry chart runAsUser).
+	RegistryDirOwnerUID = 10003
+
+	// ServiceLogDirMode keeps runtime service logs service-owner writable and
+	// host-user readable/traversable (setgid + 0755 → 2755).
+	ServiceLogDirMode = os.FileMode(0o755) | os.ModeSetgid
+
+	// RegistryLogDir is the host-visible zot log directory under the shared
+	// appliance log tree.
+	RegistryLogDir = "/data/zon/logs/zot"
 )
 
 // WorkspaceDirMode is deliberately world-readable and world-writable

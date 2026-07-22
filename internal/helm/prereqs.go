@@ -46,8 +46,10 @@ func EnsureRegistryPublicKeySecret(ctx context.Context, run cli.Runner, kubeconf
 		prepared.Checks = append(prepared.Checks, check)
 		return prepared, err
 	}
+	// Secret keys contain dots (e.g. registry_ed25519_private.key). Plain
+	// jsonpath={.data.foo.bar} walks nested fields; bracket form is required.
 	encodedFile, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", sourceNamespace,
-		"get", "secret", sourceSecret, "-o", "jsonpath={.data."+registryPrivateFile+"}")
+		"get", "secret", sourceSecret, "-o", secretDataJSONPath(registryPrivateFile))
 	if err != nil {
 		check.Status, check.Message = evidence.StatusFail, "control-plane registry signing key is unavailable"
 		prepared.Checks = append(prepared.Checks, check)
@@ -68,7 +70,7 @@ func EnsureRegistryPublicKeySecret(ctx context.Context, run cli.Runner, kubeconf
 	}
 	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
 	existingEncoded, existingErr := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace,
-		"get", "secret", targetSecret, "-o", "jsonpath={.data."+registryPublicFile+"}")
+		"get", "secret", targetSecret, "-o", secretDataJSONPath(registryPublicFile))
 	if existingErr == nil {
 		existing, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(existingEncoded))
 		if decodeErr != nil || !bytes.Equal(existing, publicPEM) {
@@ -329,4 +331,10 @@ func secretAlreadyExists(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "alreadyexists") || strings.Contains(msg, "already exists")
+}
+
+// secretDataJSONPath selects one Secret data key. Keys with dots must use the
+// bracket form; otherwise kubectl treats each segment as a nested field.
+func secretDataJSONPath(key string) string {
+	return "jsonpath={.data['" + key + "']}"
 }

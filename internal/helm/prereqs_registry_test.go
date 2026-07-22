@@ -18,6 +18,7 @@ func TestEnsureRegistryPublicKeySecretPublishesOnlyDerivedPublicMaterial(t *test
 	encodedFile := base64.StdEncoding.EncodeToString(seed)
 	kubernetesData := base64.StdEncoding.EncodeToString([]byte(encodedFile))
 	var published []byte
+	var readPrivatePath string
 
 	run := func(_ context.Context, name string, args ...string) (string, error) {
 		call := name + " " + strings.Join(args, " ")
@@ -25,6 +26,11 @@ func TestEnsureRegistryPublicKeySecretPublishesOnlyDerivedPublicMaterial(t *test
 		case strings.Contains(call, "get namespace"):
 			return "Active", nil
 		case strings.Contains(call, "registry_ed25519_private.key"):
+			for _, arg := range args {
+				if strings.HasPrefix(arg, "jsonpath=") {
+					readPrivatePath = arg
+				}
+			}
 			return kubernetesData, nil
 		case strings.Contains(call, "get secret appliance-registry-verification-key"):
 			return "", fmt.Errorf("secret not found")
@@ -48,6 +54,9 @@ func TestEnsureRegistryPublicKeySecretPublishesOnlyDerivedPublicMaterial(t *test
 		"appliance-system", "appliance-keys", "registry", "appliance-registry-verification-key")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if want := "jsonpath={.data['registry_ed25519_private.key']}"; readPrivatePath != want {
+		t.Fatalf("secret jsonpath = %q, want %q", readPrivatePath, want)
 	}
 	if !bytes.HasPrefix(published, []byte("-----BEGIN PUBLIC KEY-----")) {
 		t.Fatalf("expected PEM public key, got %q", published)

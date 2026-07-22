@@ -451,7 +451,7 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	installed, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
@@ -517,7 +517,7 @@ func TestInstall_ClearsStaleInstalledStateWhenK3sArtifactsAreAbsent(t *testing.T
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	installed, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
@@ -551,7 +551,7 @@ func TestInstall_RefusesStaleInstalledStateWhenK3sArtifactsRemain(t *testing.T) 
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err == nil || !strings.Contains(err.Error(), "requires-repair") {
 		t.Fatalf("expected install to fail closed while K3s artifacts remain, got: %v", err)
@@ -565,7 +565,7 @@ func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
@@ -599,12 +599,16 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	var chownCalls [][3]int
+	var workspaceChowns [][2]int
 	orch := &install.Orchestrator{
 		K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts,
 		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
+			if path == hostdirs.RegistryLogDir {
+				// Artifact-capable profiles also prepare zot logs; keep that off the host root.
+				return nil
+			}
 			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, func(_ string, u, g int) error {
-				chownCalls = append(chownCalls, [3]int{u, g, 0})
+				workspaceChowns = append(workspaceChowns, [2]int{u, g})
 				return nil
 			})
 		},
@@ -614,8 +618,8 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		t.Fatalf("expected install to succeed, got: %v", err)
 	}
 
-	if len(chownCalls) != 1 || chownCalls[0][0] != hostdirs.ApplianceDirOwnerUID || chownCalls[0][1] != hostdirs.ApplianceSharedFSGID {
-		t.Fatalf("expected exactly one chown to %d:%d, got %v", hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, chownCalls)
+	if len(workspaceChowns) != 1 || workspaceChowns[0][0] != hostdirs.ApplianceDirOwnerUID || workspaceChowns[0][1] != hostdirs.ApplianceSharedFSGID {
+		t.Fatalf("expected exactly one workspace chown to %d:%d, got %v", hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, workspaceChowns)
 	}
 	info, err := os.Stat(workspaceDir)
 	if err != nil {
@@ -633,9 +637,9 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 	}
 }
 
-// Core/storage profiles never enable the build capability, so there is
-// no workspace volume to own — install must not touch the directory at
-// all in that case.
+// Core profile never enables build or artifact capabilities, so there is
+// no workspace or registry log volume to own — install must not touch
+// those directories at all in that case.
 func TestInstall_DoesNotOwnWorkspaceDirectoryForNonBuilderProfile(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
@@ -656,7 +660,7 @@ func TestInstall_DoesNotOwnWorkspaceDirectoryForNonBuilderProfile(t *testing.T) 
 		t.Fatalf("expected install to succeed, got: %v", err)
 	}
 	if chownCalled {
-		t.Error("expected no workspace directory ownership step for the default (core) profile")
+		t.Error("expected no host-directory ownership step for the default (core) profile")
 	}
 	if _, err := os.Stat(opts.WorkspaceRootDir); !os.IsNotExist(err) {
 		t.Error("expected the workspace directory to not be created for a non-builder profile")
@@ -669,7 +673,7 @@ func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	installed, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
@@ -704,7 +708,7 @@ func TestInstall_UsesBundleVersionForInstalledState(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
@@ -727,7 +731,7 @@ func TestInstall_RejectsUnrelatedCluster(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: true, Active: true}}
 	fcli := &fakeCLI{}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err == nil {
@@ -755,7 +759,7 @@ func TestInstall_AutoAdoptsSafeExistingCluster(t *testing.T) {
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
 		kubectlPods:  "kube-system\nappliance-system\n",
 	}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
@@ -780,7 +784,7 @@ func TestInstall_RollsBackCreatedSecretWhenHelmFails(t *testing.T) {
 		failOn:       map[string]bool{" upgrade --install ": true},
 		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
 	}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err == nil {
@@ -820,7 +824,7 @@ func TestInstall_AutoAdoptsSafeExistingClusterWhenK3SPortsAreAlreadyBound(t *tes
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
 		kubectlPods:  "kube-system\ntraefik\nappliance-system\n",
 	}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFactsWithK3SPortsInUse}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFactsWithK3SPortsInUse, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
@@ -845,7 +849,7 @@ func TestInstall_ForceAdoptRequiredForForeignWorkloads(t *testing.T) {
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
 		kubectlPods:  "kube-system\ncustomer-app\n",
 	}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err == nil {
 		t.Fatal("expected install to refuse a cluster with foreign workloads without --force-adopt")
@@ -869,7 +873,7 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 		failOn:       map[string]bool{"upgrade --install": true},
 		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
 	}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err == nil {
@@ -915,7 +919,7 @@ func TestInstall_PreserveFailedStateSkipsRollbackOnChartFailure(t *testing.T) {
 		failOn:       map[string]bool{"upgrade --install": true},
 		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
 	}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err == nil {
@@ -956,7 +960,7 @@ func TestInstall_TamperedBundleFailsClosed(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err == nil {
@@ -985,7 +989,7 @@ func TestInstall_RequiresNoNetworkAccess(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
 		t.Fatalf("expected install to succeed offline, got: %v", err)
