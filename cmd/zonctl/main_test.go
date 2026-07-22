@@ -346,8 +346,9 @@ func TestRun_RestoreRequiresBackupID(t *testing.T) {
 }
 
 // Failure injection at the CLI layer: an interrupted prior operation must
-// block a new mutating command, except repair.
-func TestRun_InterruptedOperationBlocksNewCommandExceptRepair(t *testing.T) {
+// block a new mutating command, except the recovery commands (repair,
+// uninstall, factory-reset).
+func TestRun_InterruptedOperationBlocksNewCommandExceptRecovery(t *testing.T) {
 	stateDir := t.TempDir()
 	journalPath := filepath.Join(stateDir, "transaction.json")
 	interrupted := `{"transactionId":"txn-crashed","type":"install","status":"in-progress","startedAt":"2026-07-03T20:00:00Z"}`
@@ -364,11 +365,23 @@ func TestRun_InterruptedOperationBlocksNewCommandExceptRepair(t *testing.T) {
 	if !strings.Contains(out, "txn-crashed") {
 		t.Errorf("expected the blocked result to reference the interrupted transaction, got: %s", out)
 	}
+	if !strings.Contains(out, "uninstall") {
+		t.Errorf("expected blocked message to mention uninstall recovery, got: %s", out)
+	}
 
 	_, code = captureStdout(t, func() int {
 		return run([]string{"repair", "--output", "json", "--state-dir", stateDir})
 	})
 	if code != 1 {
-		t.Errorf("expected repair to proceed to its own (not-yet-implemented) body, got exit code %d", code)
+		t.Errorf("expected repair to proceed past the interrupt gate, got exit code %d", code)
 	}
+
+	out, code = captureStdout(t, func() int {
+		return run([]string{"uninstall", "--confirm", "yes", "--output", "json", "--state-dir", stateDir})
+	})
+	if strings.Contains(out, "did not complete") || strings.Contains(out, "txn-crashed") && strings.Contains(out, "run 'zonctl repair'") {
+		t.Fatalf("uninstall must not be blocked by the interrupted-operation gate, got: %s", out)
+	}
+	// Teardown may still fail on non-Linux CI (no systemd); the gate itself is what this test covers.
+	_ = code
 }

@@ -102,8 +102,11 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 		logger.Error("failed to read transaction journal", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
 	}
-	if current != nil && current.Interrupted() && spec.name != "repair" {
-		msg := fmt.Sprintf("a prior %s operation (transaction %s) did not complete; run 'zonctl repair' before starting a new operation", current.Type, current.ID)
+	// repair / uninstall / factory-reset are the recovery paths for a
+	// crashed mid-operation host. Blocking uninstall here strands
+	// --uninstall-first reinstall flows after --preserve-failed-state.
+	if current != nil && current.Interrupted() && !allowsInterruptedRecovery(spec.name) {
+		msg := fmt.Sprintf("a prior %s operation (transaction %s) did not complete; run 'zonctl repair' or 'zonctl uninstall --confirm yes' before starting a new operation", current.Type, current.ID)
 		logger.Warn("interrupted prior operation detected", "transactionId", current.ID, "operation", current.Type)
 		return finish(result, "failed", 1, msg, nil)
 	}
@@ -318,6 +321,15 @@ func finish(result commandResult, status string, exitCode int, message string, d
 	result.Message = message
 	result.Data = data
 	return result
+}
+
+func allowsInterruptedRecovery(command string) bool {
+	switch command {
+	case "repair", "uninstall", "factory-reset":
+		return true
+	default:
+		return false
+	}
 }
 
 func emit(result commandResult, output string) int {
