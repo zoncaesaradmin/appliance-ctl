@@ -66,3 +66,19 @@ func TestCheckReleaseHealth_PropagatesHelmFailure(t *testing.T) {
 		t.Errorf("expected the helm failure to propagate, got: %v", err)
 	}
 }
+
+func TestCheckPVCBound(t *testing.T) {
+	run := func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "kubectl" || !contains(args, "pvc") {
+			return "", errors.New("unexpected invocation")
+		}
+		return "Bound", nil
+	}
+	healthy, msg, err := helm.CheckPVCBound(context.Background(), run, "/kubeconfig", "registry", "appliance-registry-data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !healthy || !strings.Contains(msg, "Bound") {
+		t.Fatalf("expected bound registry PVC, healthy=%v message=%q", healthy, msg)
+	}
+}

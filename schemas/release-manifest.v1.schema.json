@@ -40,6 +40,7 @@
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },
+        "zotVersion": { "type": "string", "minLength": 1 },
         "argoVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",

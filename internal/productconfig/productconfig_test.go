@@ -12,7 +12,48 @@ import (
 const (
 	workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	builderImage              = "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
+	zotImage                  = "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
+
+func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T) {
+	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", zotImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(rendered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{"applianceProfile: storage", "zotBaseURL:"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered values missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
+	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") ||
+		!strings.Contains(text, "accessMode: ReadWriteOnce") ||
+		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) {
+		t.Fatalf("unexpected registry values:\n%s", text)
+	}
+}
 
 func TestResolveApplianceProfile_DefaultsToCore(t *testing.T) {
 	profile, err := productconfig.ResolveApplianceProfile("", "")

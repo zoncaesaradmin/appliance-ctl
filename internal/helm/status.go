@@ -38,3 +38,18 @@ func CheckReleaseHealth(ctx context.Context, run cli.Runner, kubeconfig, release
 	}
 	return true, fmt.Sprintf("release %s is deployed", releaseName), nil
 }
+
+// CheckPVCBound reports registry storage readiness without reading any blob
+// content. It is safe for status, verify, and support-bundle diagnostics.
+func CheckPVCBound(ctx context.Context, run cli.Runner, kubeconfig, namespace, pvcName string) (bool, string, error) {
+	out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace,
+		"get", "pvc", pvcName, "-o", "jsonpath={.status.phase}")
+	if err != nil {
+		return false, "", fmt.Errorf("helm: inspect pvc %s/%s: %w", namespace, pvcName, err)
+	}
+	phase := strings.TrimSpace(out)
+	if phase != "Bound" {
+		return false, fmt.Sprintf("pvc %s/%s phase is %q, want Bound", namespace, pvcName, phase), nil
+	}
+	return true, fmt.Sprintf("pvc %s/%s is Bound", namespace, pvcName), nil
+}

@@ -135,6 +135,30 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			ImageReference: input.Artifacts.UIImage.ImageReference,
 		}
 	}
+	zotImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ZotImage.Path)
+	if _, exists := entryByTarget[zotImageTarget]; !exists {
+		if !isCanonicalZotReference(input.Artifacts.ZotImage.ImageReference) {
+			return Result{}, fmt.Errorf("releasebundle: zot imageReference must be registry.local/zot@sha256:<64 lowercase hex>, got %q", input.Artifacts.ZotImage.ImageReference)
+		}
+		entryByTarget[zotImageTarget] = EntryConfig{
+			SourcePath:     input.Artifacts.ZotImage.Path,
+			TargetPath:     zotImageTarget,
+			Component:      "oci-images",
+			ImageReference: input.Artifacts.ZotImage.ImageReference,
+		}
+	}
+	zotChartBase := filepath.Base(input.Artifacts.ZotChart.Path)
+	if !strings.HasPrefix(strings.ToLower(zotChartBase), "appliance-registry-") {
+		zotChartBase = "appliance-registry-" + zotChartBase
+	}
+	zotChartTarget := "chart/" + zotChartBase
+	if _, exists := entryByTarget[zotChartTarget]; !exists {
+		entryByTarget[zotChartTarget] = EntryConfig{
+			SourcePath: input.Artifacts.ZotChart.Path,
+			TargetPath: zotChartTarget,
+			Component:  "chart",
+		}
+	}
 
 	configSchemaTarget := "configuration/configuration.schema.json"
 	if _, exists := entryByTarget[configSchemaTarget]; !exists {
@@ -203,6 +227,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	compatibility := map[string]any{
 		"k3sVersion":              input.Compatibility.K3sVersion,
 		"chartVersion":            input.Compatibility.ChartVersion,
+		"zotVersion":              input.Compatibility.ZotVersion,
 		"supportedUpgradeSources": supportedUpgradeSources,
 	}
 	if strings.TrimSpace(input.Compatibility.ArgoVersion) != "" {
@@ -245,6 +270,19 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		PublicKeyPath: filepath.Join(cfg.BundleDir, publicKeyTarget),
 		EntryCount:    len(manifestEntries),
 	}, nil
+}
+
+func isCanonicalZotReference(ref string) bool {
+	const prefix = "registry.local/zot@sha256:"
+	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
+		return false
+	}
+	for _, c := range strings.TrimPrefix(ref, prefix) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func VerifyBundle(bundleDir, publicKeyPath string) (*bundle.Bundle, error) {

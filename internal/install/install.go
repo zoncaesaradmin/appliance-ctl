@@ -34,6 +34,8 @@ const (
 	containerdReadyPollInterval = 1 * time.Second
 	argoReleaseName             = "argo-workflows"
 	argoNamespace               = "workflows"
+	registryReleaseName         = "appliance-registry"
+	registryNamespace           = "registry"
 )
 
 // Options fully parameterizes a fresh install. Every path is explicit
@@ -169,11 +171,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	defer cleanupPreparedValues()
+	registryValuesPath := ""
+	cleanupRegistryValues := func() {}
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, firstString(opts.TLSSANs))
+		if err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
+		defer cleanupRegistryValues()
+	}
 
 	// Gated on the Build capability, not the "builder" profile name
 	// directly: more than one profile can enable Build, and this
@@ -326,7 +337,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
 
-	imgs := append(append([]images.Image{}, resolved.K3sImages...), resolved.OCIImages...)
+	imgs := append(append([]images.Image{}, resolved.K3sImages...), profileOCIImages(resolved.OCIImages, effectiveProfile)...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
@@ -341,11 +352,41 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 
+	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+		Name:       opts.ChartReleaseName,
+		ChartPath:  resolved.ChartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: preparedValuesPath,
+	})
+	checks = append(checks, prepared.Checks...)
+	if err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
+	}
+	rollbacks = append(rollbacks, prepared.Cleanup)
+
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
+			opts.ChartNamespace, "appliance-keys", registryNamespace, productconfig.DefaultRegistryPublicKeySecret)
+		checks = append(checks, registryKeys.Checks...)
+		if keyErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", keyErr), runRollbacks())
+		}
+		rollbacks = append(rollbacks, registryKeys.Cleanup)
+		registryCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+			Name: registryReleaseName, ChartPath: resolved.RegistryChartPath, Namespace: registryNamespace, ValuesPath: registryValuesPath,
+		})
+		checks = append(checks, registryCheck)
+		if applyErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), errors.Join(applier.Rollback(ctx, registryReleaseName, true), runRollbacks()))
+		}
+		rollbacks = append(rollbacks, func() error { return applier.Rollback(ctx, registryReleaseName, true) })
+	}
+
 	clusterRun := o.ClusterRun
 	if clusterRun == nil {
 		clusterRun = cli.Exec
 	}
-	if len(resolved.ArgoCRDPaths) > 0 {
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows) && len(resolved.ArgoCRDPaths) > 0 {
 		argoCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.ArgoCRDPaths, "argo-crd")
 		checks = append(checks, argoCRDChecks...)
 		if applyErr != nil {
@@ -353,7 +394,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 	}
 
-	if resolved.ArgoChartPath != "" {
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows) && resolved.ArgoChartPath != "" {
 		argoPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 			Name:      argoReleaseName,
 			ChartPath: resolved.ArgoChartPath,
@@ -387,18 +428,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return applier.Rollback(ctx, argoReleaseName, true)
 		})
 	}
-
-	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-		Name:       opts.ChartReleaseName,
-		ChartPath:  resolved.ChartPath,
-		Namespace:  opts.ChartNamespace,
-		ValuesPath: preparedValuesPath,
-	})
-	checks = append(checks, prepared.Checks...)
-	if err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
-	}
-	rollbacks = append(rollbacks, prepared.Cleanup)
 
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
@@ -446,6 +475,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
+			ZotVersion:   componentZotVersion(effectiveProfile, resolved.Compatibility.ZotVersion),
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -468,6 +498,38 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	return installed, checks, nil
+}
+
+func profileOCIImages(all []images.Image, profile string) []images.Image {
+	out := make([]images.Image, 0, len(all))
+	for _, image := range all {
+		if image.Category == images.CategoryDependency {
+			if strings.HasPrefix(image.Name, "registry.local/zot@") &&
+				!productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
+				continue
+			}
+			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
+				!productconfig.HasCapability(profile, productconfig.CapabilityWorkflows) {
+				continue
+			}
+		}
+		out = append(out, image)
+	}
+	return out
+}
+
+func componentZotVersion(profile, version string) string {
+	if productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
+		return version
+	}
+	return ""
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func k3sArtifactsAbsent(paths ...string) bool {

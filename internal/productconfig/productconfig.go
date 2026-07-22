@@ -48,6 +48,11 @@ var profileCapabilities = map[string][]Capability{
 	ProfileStorage: {CapabilityBase, CapabilityArtifact},
 }
 
+const (
+	DefaultZotBaseURL              = "http://appliance-registry.registry.svc.cluster.local:5000"
+	DefaultRegistryPublicKeySecret = "appliance-registry-verification-key"
+)
+
 // HasCapability reports whether the given (already-resolved) profile
 // enables capability.
 func HasCapability(profile string, capability Capability) bool {
@@ -82,13 +87,17 @@ func ResolveApplianceProfile(requested, current string) (string, error) {
 	return profile, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfile(profile, "")
 	if err != nil {
 		return "", func() {}, err
 	}
 	workspaceProvisionerImageReference = strings.TrimSpace(workspaceProvisionerImageReference)
 	builderImageReference = strings.TrimSpace(builderImageReference)
+	zotImageReference := ""
+	if len(registry) > 0 {
+		zotImageReference = strings.TrimSpace(registry[0])
+	}
 	if effectiveProfile == ProfileBuilder {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
 			return "", func() {}, fmt.Errorf("product config: builder profile requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
@@ -96,6 +105,9 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		if !validBuilderImageDigest(builderImageReference) {
 			return "", func() {}, fmt.Errorf("product config: builder profile requires a bundled digest-pinned automation-dev builder image reference; got %q", builderImageReference)
 		}
+	}
+	if HasCapability(effectiveProfile, CapabilityArtifact) && len(registry) > 0 && !validZotImageDigest(zotImageReference) {
+		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/zot@sha256 image reference; got %q", zotImageReference)
 	}
 
 	data, err := os.ReadFile(baseValuesPath)
@@ -116,6 +128,12 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
+	artifactEnabled := HasCapability(effectiveProfile, CapabilityArtifact)
+	if artifactEnabled {
+		config["zotBaseURL"] = DefaultZotBaseURL
+	} else {
+		delete(config, "zotBaseURL")
+	}
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
 	} else {
@@ -158,6 +176,57 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 
 	cleanup := func() {
 		_ = os.Remove(tmp.Name())
+	}
+	return tmp.Name(), cleanup, nil
+}
+
+// PrepareRegistryValuesFile renders the small installer-owned values layer
+// for the separate zot release. The chart archive remains immutable; only
+// the verified digest pin, public-key Secret name, and persistence policy
+// are supplied at install time.
+func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...string) (string, func(), error) {
+	if !validZotImageDigest(zotImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid zot image reference %q", zotImageReference)
+	}
+	host := "appliance.local"
+	if len(publicHost) > 0 && strings.TrimSpace(publicHost[0]) != "" {
+		host = strings.TrimSpace(publicHost[0])
+	}
+	values := map[string]any{
+		"namespace": map[string]any{"create": false, "name": "registry"},
+		"image": map[string]any{
+			"repository": "registry.local/zot",
+			"digest":     strings.TrimPrefix(strings.TrimSpace(zotImageReference), "registry.local/zot@"),
+			"pullPolicy": "IfNotPresent",
+		},
+		"auth": map[string]any{
+			"realm":               "https://" + host + "/api/v1/registry/token",
+			"service":             "zot",
+			"publicKeySecretName": DefaultRegistryPublicKeySecret,
+			"publicKeySecretKey":  "registry_ed25519_public.pem",
+		},
+		"ingress": map[string]any{"host": host},
+		"persistence": map[string]any{
+			"storageClassName": "local-path", "accessMode": "ReadWriteOnce", "size": "100Gi",
+		},
+	}
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: render registry values: %w", err)
+	}
+	tmp, err := os.CreateTemp(baseDir, ".zonctl-registry-values-*.yaml")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: create registry values file: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(tmp.Name()) }
+	if _, err := tmp.Write(rendered); err != nil {
+		tmp.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: write registry values file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: close registry values file: %w", err)
 	}
 	return tmp.Name(), cleanup, nil
 }
@@ -459,6 +528,15 @@ func validRepoRelativePath(v string) bool {
 func validBuilderImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
+}
+
+func validZotImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/zot@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

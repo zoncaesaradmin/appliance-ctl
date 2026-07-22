@@ -20,7 +20,7 @@ Install:             ctr import (gets :bundled or import-DATE) → ctr image tag
 Runtime:             config.*ImageDigest == digest pin → Argo pod image (IfNotPresent)
 ```
 
-Names today: `workspace-provisioner` (alpine/git), `automation-dev` (builder).
+Names today: `workspace-provisioner` (alpine/git), `automation-dev` (builder), and `zot` (artifact registry dependency).
 
 Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manifest).
 
@@ -44,6 +44,11 @@ Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manif
    - Pod `image:` = provisioner digest pin
 8. **Build submit** → Argo build pod
    - `ResolveBuilderImage("automation-dev", …)` → automation-dev digest pin
+9. **Artifact service** (`CapabilityArtifact`)
+   - First-class `zotImage` + `zotChart`, with `compatibility.zotVersion`
+   - Preload/tag `registry.local/zot@sha256:<platform-manifest-digest>`
+   - Derive a public verification key from the control-plane registry signing seed
+   - Install `appliance-registry` before the control plane; expose the internal zot URL to the control plane
 
 Online pulls happen **only on the build host** during bundle assembly. Target install/runtime must not need Docker Hub/GHCR.
 
@@ -57,6 +62,9 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | Digests in Helm values | `PrepareValuesFile` | chart ConfigMap, `config.Load`, chart schema |
 | Catalog `automation-dev` alias | catalog / examples | `ResolveBuilderImage`, `builderImageReference` |
 | Offline images present | preload/tag | Argo `IfNotPresent` pods |
+| zot image/chart/version | appliance-code release-input + release exporter | ctl schema/load/assemble/source, release validator |
+| Registry signing key | control-plane private seed | installer-derived public-only zot Secret |
+| Artifact capability | profile catalog | zot preload/chart/PVC/status; core skips zot |
 | Builder Git HTTPS access | UI `PUT /builder/git-access` → CP secret `builder-git-access` | `resolveWorkspaceGitCredential` → Argo mount + `GIT_ASKPASS` clone |
 | Writable tool home for builds | Argo `HOME`/`GOPATH`/`GOCACHE` under `/tmp/appliance-home` | automation-dev image ENV (`/home/vscode/...`) must be overridden |
 | Catalog make/script args | `build-catalog.example.yaml` / operator catalog | Must match real repo Makefile/scripts (forgeline: `make build`, not root `build.sh`) |
@@ -74,6 +82,9 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 - **Builder HOME/GOPATH** → `argo.workflowToolHomeEnv` + build preamble mkdir; automation-dev image ENV; platformkit/forgeline make targets
 - **Build catalog targets** → real Makefile/script paths in each product repo; `build-catalog.example.yaml`; operator `build-catalog.yaml`
 - **Workspace UID/path** → install EnsureOwnedDir; chart PVC; argo pod patch; storage invariants in all three AGENTS.md
+- **zot image/chart/version** → release-input schema and loader; bundle assembly/source; dependency preload/tag; registry chart install before control-plane
+- **Profile capability gates** → zot only for `artifact`; Argo only for `workflows`; storage must not require builder artifacts/catalog/workspaces
+- **Registry lifecycle** → K3s-stop backup/restore includes PVC state; uninstall preserves K3s data; factory-reset explicitly wipes it; support excludes blobs, tokens, and private keys
 - **Only one repo** → insufficient; re-check sibling contract consumers
 
 ## Gate before saying “done”

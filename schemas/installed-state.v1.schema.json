@@ -57,6 +57,11 @@
         "chartVersion": {
           "type": "string",
           "minLength": 1
+        },
+        "zotVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Installed zot version when the artifact capability is enabled."
         }
       }
     },

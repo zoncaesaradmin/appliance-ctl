@@ -61,6 +61,13 @@ type Options struct {
 	PreserveFailedState bool
 }
 
+const (
+	registryReleaseName = "appliance-registry"
+	registryNamespace   = "registry"
+	argoReleaseName     = "argo-workflows"
+	argoNamespace       = "workflows"
+)
+
 // Orchestrator holds the injectable adapters Upgrade drives.
 type Orchestrator struct {
 	K3s       k3s.Ops
@@ -126,11 +133,20 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
 	defer cleanupPreparedValues()
+	registryValuesPath := ""
+	cleanupRegistryValues := func() {}
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, firstUpgradeString(opts.TLSSANs))
+		if err != nil {
+			return nil, checks, fmt.Errorf("upgrade: %w", err)
+		}
+		defer cleanupRegistryValues()
+	}
 
 	// Gated on the Build capability, not the "builder" profile name
 	// directly: more than one profile can enable Build, and this
@@ -203,7 +219,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	importer := &images.Importer{Run: o.ImagesRun, Namespace: "k8s.io"}
-	imgs := append(append([]images.Image{}, resolved.K3sImages...), resolved.OCIImages...)
+	imgs := append(append([]images.Image{}, resolved.K3sImages...), upgradeProfileOCIImages(resolved.OCIImages, effectiveProfile)...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
@@ -290,6 +306,52 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
+			opts.ChartNamespace, "appliance-keys", registryNamespace, productconfig.DefaultRegistryPublicKeySecret)
+		checks = append(checks, registryKeys.Checks...)
+		if keyErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", keyErr), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		registryCheck, registryErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+			Name: registryReleaseName, ChartPath: resolved.RegistryChartPath, Namespace: registryNamespace, ValuesPath: registryValuesPath,
+		})
+		checks = append(checks, registryCheck)
+		if registryErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", registryErr), func() []evidence.Check {
+				_ = registryKeys.Cleanup()
+				_ = applier.Rollback(ctx, registryReleaseName, false)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows) {
+		for _, crdPath := range resolved.ArgoCRDPaths {
+			if _, applyErr := o.HelmRun(ctx, "kubectl", "--kubeconfig", opts.KubeconfigPath, "apply", "-f", crdPath); applyErr != nil {
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: apply Argo CRD %s: %w", crdPath, applyErr), rollback)
+				checks = append(checks, rollbackChecks...)
+				return nil, checks, failErr
+			}
+		}
+		if resolved.ArgoChartPath != "" {
+			argoCheck, argoErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+				Name: argoReleaseName, ChartPath: resolved.ArgoChartPath, Namespace: argoNamespace,
+			})
+			checks = append(checks, argoCheck)
+			if argoErr != nil {
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", argoErr), func() []evidence.Check {
+					_ = applier.Rollback(ctx, argoReleaseName, false)
+					return rollback()
+				})
+				checks = append(checks, rollbackChecks...)
+				return nil, checks, failErr
+			}
+		}
+	}
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  chartPath,
@@ -339,6 +401,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
+			ZotVersion:   upgradeComponentZotVersion(effectiveProfile, resolved.Compatibility.ZotVersion),
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -366,6 +429,38 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	return updated, checks, nil
+}
+
+func upgradeProfileOCIImages(all []images.Image, profile string) []images.Image {
+	out := make([]images.Image, 0, len(all))
+	for _, image := range all {
+		if image.Category == images.CategoryDependency {
+			if strings.HasPrefix(image.Name, "registry.local/zot@") &&
+				!productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
+				continue
+			}
+			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
+				!productconfig.HasCapability(profile, productconfig.CapabilityWorkflows) {
+				continue
+			}
+		}
+		out = append(out, image)
+	}
+	return out
+}
+
+func upgradeComponentZotVersion(profile, version string) string {
+	if productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
+		return version
+	}
+	return ""
+}
+
+func firstUpgradeString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 // snapshotFile copies path to path+".previous", overwriting any prior

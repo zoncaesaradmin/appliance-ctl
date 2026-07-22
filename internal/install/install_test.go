@@ -3,6 +3,7 @@ package install_test
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -86,12 +87,14 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 		{"bin/zonctl-real", "appliance", "fake zonctl binary bytes", ""},
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary bytes", ""},
 		{"charts/appliance-chart-2.4.0.tgz", "chart", "fake chart bytes", ""},
+		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart bytes", ""},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"k3s/images/coredns.tar", "k3s-images", "fake coredns image tar", "docker.io/rancher/mirrored-coredns-coredns:1.11.3"},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image tar", "internal/appliance-ui:2.4.0"},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/automation-dev.tar", "oci-images", "fake automation-dev builder image tar", "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
+		{"oci-images/zot.tar", "oci-images", "fake zot image tar", "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 	}
 	if includeArgo {
 		entries = append(entries,
@@ -133,7 +136,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 		"releaseId":     "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
-		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0"},
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "zotVersion": "2.1.7"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
 	}
@@ -294,6 +297,13 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		}
 		return "", nil
 	}
+	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && strings.Contains(call, "registry_ed25519_private.key") {
+		seedFile := base64.StdEncoding.EncodeToString(make([]byte, ed25519.SeedSize))
+		return base64.StdEncoding.EncodeToString([]byte(seedFile)), nil
+	}
+	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && strings.Contains(call, "registry_ed25519_public.pem") {
+		return "", errors.New("simulated missing secret")
+	}
 	if name == "kubectl" && contains(args, "get") && contains(args, "secret") {
 		if f.secretExists {
 			return "", nil
@@ -359,6 +369,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "automation-dev.tar":
 		return []string{"registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
+	case "zot.tar":
+		return []string{"registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	case "argo-controller.tar":
 		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
 	case "argo-executor.tar":

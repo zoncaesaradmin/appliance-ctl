@@ -14,6 +14,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/redact"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/repair"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -55,6 +56,18 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, 
 		sig.ChartHealth = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: chartErr.Error()}
 	} else {
 		sig.ChartHealth = diagnostics.ChartHealth{Checked: true, Healthy: chartHealthy, Message: chartMsg}
+	}
+	if productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact) {
+		if healthy, msg, registryErr := helm.CheckReleaseHealth(ctx, run, kubeconfig, "appliance-registry", "registry"); registryErr != nil {
+			sig.RegistryHealth = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: registryErr.Error()}
+		} else {
+			sig.RegistryHealth = diagnostics.ChartHealth{Checked: true, Healthy: healthy, Message: msg}
+		}
+		if healthy, msg, pvcErr := helm.CheckPVCBound(ctx, run, kubeconfig, "registry", "appliance-registry-data"); pvcErr != nil {
+			sig.RegistryStorage = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: pvcErr.Error()}
+		} else {
+			sig.RegistryStorage = diagnostics.ChartHealth{Checked: true, Healthy: healthy, Message: msg}
+		}
 	}
 
 	if ingressPresent, ingressErr := k3s.IngressRouteExists(ctx, run, kubeconfig, namespace); ingressErr != nil {
@@ -101,6 +114,20 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		entry := map[string]any{"name": "chart", "healthy": sig.ChartHealth.Healthy}
 		if !sig.ChartHealth.Healthy {
 			entry["detail"] = sig.ChartHealth.Message
+		}
+		componentHealth = append(componentHealth, entry)
+	}
+	if sig.RegistryHealth.Checked {
+		entry := map[string]any{"name": "registry", "healthy": sig.RegistryHealth.Healthy}
+		if !sig.RegistryHealth.Healthy {
+			entry["detail"] = sig.RegistryHealth.Message
+		}
+		componentHealth = append(componentHealth, entry)
+	}
+	if sig.RegistryStorage.Checked {
+		entry := map[string]any{"name": "registry-storage", "healthy": sig.RegistryStorage.Healthy}
+		if !sig.RegistryStorage.Healthy {
+			entry["detail"] = sig.RegistryStorage.Message
 		}
 		componentHealth = append(componentHealth, entry)
 	}

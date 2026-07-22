@@ -33,6 +33,8 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
+	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
+	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1"}`)
 	writeFile(t, root, "checksums.txt", "sha256sum entries")
@@ -65,6 +67,8 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
+			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
 			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
@@ -76,6 +80,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 		"compatibility": map[string]any{
 			"k3sVersion":              "v1.30.4+k3s1",
 			"chartVersion":            "2.4.0",
+			"zotVersion":              "2.1.7",
 			"supportedUpgradeSources": []string{"2.3.0"},
 		},
 	}
@@ -114,6 +119,8 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
+	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
+	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1","argoVersion":"3.5.10"}`)
 	writeFile(t, root, "checksums.txt", "sha256sum entries")
@@ -151,6 +158,8 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
+			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1","argoVersion":"3.5.10"}`)},
 			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
@@ -167,6 +176,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 		"compatibility": map[string]any{
 			"k3sVersion":   "v1.30.4+k3s1",
 			"chartVersion": "2.4.0",
+			"zotVersion":   "2.1.7",
 			"argoVersion":  "3.5.10",
 		},
 	}
@@ -225,6 +235,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
+	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
+	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1"}`)
 	writeFile(t, root, "checksums.txt", "sha256sum entries")
@@ -257,6 +269,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
+			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
 			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
@@ -268,6 +282,7 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 		"compatibility": map[string]any{
 			"k3sVersion":   "v1.30.4+k3s1",
 			"chartVersion": "2.4.0",
+			"zotVersion":   "2.1.7",
 		},
 	}
 	data, err := json.Marshal(doc)

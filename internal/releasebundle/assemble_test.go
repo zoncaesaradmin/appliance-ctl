@@ -34,6 +34,8 @@ func buildReleaseInputDir(t *testing.T) string {
 		"control-plane.oci.tar.zst":            "control-plane",
 		"appliance-ui.oci.tar.zst":             "ui-image",
 		"appliance-chart-2.4.0.tgz":            "chart",
+		"zot.oci.tar.zst":                      "zot-image",
+		"appliance-registry-2.1.7.tgz":         "zot-chart",
 		"configuration.schema.json":            `{"type":"object"}`,
 		"compatibility.json":                   `{"k3sVersion":"v1.30.4+k3s1"}`,
 		"checksums.txt":                        "checksums",
@@ -70,6 +72,8 @@ func buildReleaseInputDir(t *testing.T) string {
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane"), "imageReference": "internal/control-plane:2.4.0"},
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-image"), "imageReference": "internal/appliance-ui:2.4.0"},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart")},
+			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
 			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("checksums")},
@@ -81,6 +85,7 @@ func buildReleaseInputDir(t *testing.T) string {
 		"compatibility": map[string]any{
 			"k3sVersion":              "v1.30.4+k3s1",
 			"chartVersion":            "2.4.0",
+			"zotVersion":              "2.1.7",
 			"supportedUpgradeSources": []string{"2.3.0"},
 		},
 	}

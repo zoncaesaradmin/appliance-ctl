@@ -25,6 +25,7 @@ type Resolved struct {
 
 	K3sBinaryPath     string
 	ChartPath         string
+	RegistryChartPath string
 	ArgoChartPath     string
 	ArgoCRDPaths      []string
 	ConfigurationPath string
@@ -34,6 +35,7 @@ type Resolved struct {
 	// BuilderImageReference is the single bundled builder/dev-container image
 	// used by Argo build pods (automation-dev).
 	BuilderImageReference string
+	ZotImageReference     string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -70,6 +72,13 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
 	argoChartPath := optionalArgoChartPath(b)
+	registryChartPath := ""
+	if strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
+		registryChartPath, err = requiredRegistryChartPath(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
 	zonctlBinaryPath, err := applianceBinaryPath(b, "zonctl-real")
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -90,10 +99,21 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	}
 	for _, e := range b.Entries("oci-images") {
 		name, requireReference := imageName(e)
-		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: images.CategoryApplication, RequireReference: requireReference})
+		category := images.CategoryApplication
+		if isZotImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+			category = images.CategoryDependency
+		}
+		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
 	}
 	workspaceProvisionerImageReference := workspaceProvisionerImageReference(b)
 	builderImageReference := builderImageReference(b)
+	zotImageReference := ""
+	if strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
+		zotImageReference, err = requiredZotImageReference(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
 
 	return Resolved{
 		BundleVersion:                      b.BundleVersion,
@@ -102,14 +122,43 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 		ZonctlBinaryPath:                   zonctlBinaryPath,
 		K3sBinaryPath:                      k3sBinaryPath,
 		ChartPath:                          chartPath,
+		RegistryChartPath:                  registryChartPath,
 		ArgoChartPath:                      argoChartPath,
 		ArgoCRDPaths:                       argoCRDPaths,
 		ConfigurationPath:                  configurationPath,
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
 		BuilderImageReference:              builderImageReference,
+		ZotImageReference:                  zotImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
+}
+
+func isZotImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/zot@sha256:")
+}
+
+func isWorkflowDependencyReference(ref string) bool {
+	ref = strings.TrimSpace(ref)
+	return strings.Contains(ref, "/argoproj/workflow-controller:") ||
+		strings.Contains(ref, "/argoproj/argoexec:")
+}
+
+func requiredZotImageReference(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isZotImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple zot image entries")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no canonical registry.local/zot@sha256 image entry")
+	}
+	return found, nil
 }
 
 func imageName(e bundle.Entry) (string, bool) {
@@ -152,7 +201,7 @@ func applianceChartPath(b *bundle.Bundle) (string, error) {
 	}
 	for _, e := range entries {
 		base := strings.ToLower(filepath.Base(e.Path))
-		if strings.HasPrefix(base, "appliance-chart-") {
+		if base == "appliance-chart.tgz" || strings.HasPrefix(base, "appliance-chart-") {
 			return e.Path, nil
 		}
 	}
@@ -167,6 +216,24 @@ func optionalArgoChartPath(b *bundle.Bundle) string {
 		}
 	}
 	return ""
+}
+
+func requiredRegistryChartPath(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("chart") {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if !strings.HasPrefix(base, "appliance-registry-") {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple appliance-registry chart entries")
+		}
+		found = e.Path
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no appliance-registry chart entry")
+	}
+	return found, nil
 }
 
 func crdPaths(b *bundle.Bundle) []string {

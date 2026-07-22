@@ -38,6 +38,8 @@
         "controlPlaneImage",
         "uiImage",
         "applianceChart",
+        "zotImage",
+        "zotChart",
         "configurationSchema",
         "compatibility",
         "checksums",
@@ -50,6 +52,8 @@
         "controlPlaneImage": { "$ref": "#/$defs/artifact" },
         "uiImage": { "$ref": "#/$defs/artifact" },
         "applianceChart": { "$ref": "#/$defs/artifact" },
+        "zotImage": { "$ref": "#/$defs/artifact" },
+        "zotChart": { "$ref": "#/$defs/artifact" },
         "configurationSchema": { "$ref": "#/$defs/artifact" },
         "compatibility": { "$ref": "#/$defs/artifact" },
         "checksums": { "$ref": "#/$defs/artifact" },
@@ -71,10 +75,11 @@
     "compatibility": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["k3sVersion", "chartVersion"],
+      "required": ["k3sVersion", "chartVersion", "zotVersion"],
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },
+        "zotVersion": { "type": "string", "minLength": 1 },
         "argoVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",

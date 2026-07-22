@@ -1,10 +1,13 @@
 package helm
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +22,7 @@ import (
 const (
 	sessionPrivateFile  = "session_ed25519_private.key"
 	registryPrivateFile = "registry_ed25519_private.key"
+	registryPublicFile  = "registry_ed25519_public.pem"
 	apiTokenPepperFile  = "api_token_pepper.key"
 	refreshPepperFile   = "refresh_pepper.key"
 	pepperLength        = 32
@@ -26,6 +30,82 @@ const (
 
 type chartPrereqs struct {
 	KeysSecretName string
+}
+
+// EnsureRegistryPublicKeySecret derives the registry verification key from
+// the control-plane signing seed and creates a target Secret containing only
+// public material. The private seed never leaves its original Secret.
+func EnsureRegistryPublicKeySecret(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, sourceSecret, targetNamespace, targetSecret string) (PreparedRelease, error) {
+	prepared := PreparedRelease{}
+	check := evidence.Check{
+		ID:       "chart-prereq-secret-" + evidence.SanitizeIDSegment(targetSecret),
+		Category: "chart", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	}
+	if err := EnsureNamespace(ctx, run, kubeconfig, targetNamespace); err != nil {
+		check.Status, check.Message = evidence.StatusFail, err.Error()
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, err
+	}
+	encodedFile, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", sourceNamespace,
+		"get", "secret", sourceSecret, "-o", "jsonpath={.data."+registryPrivateFile+"}")
+	if err != nil {
+		check.Status, check.Message = evidence.StatusFail, "control-plane registry signing key is unavailable"
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, fmt.Errorf("helm: read registry signing seed from control-plane Secret: %w", err)
+	}
+	fileBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedFile))
+	if err != nil {
+		return prepared, fmt.Errorf("helm: decode registry signing key Secret data: %w", err)
+	}
+	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(fileBytes)))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		return prepared, fmt.Errorf("helm: registry signing key must contain a base64 Ed25519 seed")
+	}
+	pub := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return prepared, fmt.Errorf("helm: marshal registry public key: %w", err)
+	}
+	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	existingEncoded, existingErr := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace,
+		"get", "secret", targetSecret, "-o", "jsonpath={.data."+registryPublicFile+"}")
+	if existingErr == nil {
+		existing, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(existingEncoded))
+		if decodeErr != nil || !bytes.Equal(existing, publicPEM) {
+			check.Status, check.Message = evidence.StatusFail, "registry public verification Secret does not match the control-plane signing key"
+			prepared.Checks = append(prepared.Checks, check)
+			return prepared, fmt.Errorf("helm: registry public verification Secret is stale or invalid; refusing to start zot")
+		}
+		check.Status, check.Message = evidence.StatusPass, fmt.Sprintf("registry public verification Secret %s matches the control-plane signing key", targetSecret)
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, nil
+	}
+	if !secretNotFound(existingErr) {
+		check.Status, check.Message = evidence.StatusFail, existingErr.Error()
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, fmt.Errorf("helm: inspect registry public verification Secret: %w", existingErr)
+	}
+	tempDir, err := os.MkdirTemp("", "appliance-registry-public-*")
+	if err != nil {
+		return prepared, fmt.Errorf("helm: create registry public-key temp dir: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+	publicPath := filepath.Join(tempDir, registryPublicFile)
+	if err := os.WriteFile(publicPath, publicPEM, 0o600); err != nil {
+		return prepared, fmt.Errorf("helm: write registry public key: %w", err)
+	}
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace,
+		"create", "secret", "generic", targetSecret, "--from-file="+publicPath); err != nil && !secretAlreadyExists(err) {
+		check.Status, check.Message = evidence.StatusFail, err.Error()
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, fmt.Errorf("helm: create registry public verification Secret: %w", err)
+	}
+	check.Status, check.Message = evidence.StatusPass, fmt.Sprintf("created registry public verification Secret %s without private material", targetSecret)
+	prepared.Checks = append(prepared.Checks, check)
+	prepared.cleanups = append(prepared.cleanups, func() error {
+		return deleteSecret(ctx, run, kubeconfig, targetNamespace, targetSecret)
+	})
+	return prepared, nil
 }
 
 // PreparedRelease captures prerequisite evidence plus any cleanup the

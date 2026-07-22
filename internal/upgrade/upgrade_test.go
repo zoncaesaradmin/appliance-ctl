@@ -3,6 +3,7 @@ package upgrade_test
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,11 +39,13 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"bin/zonctl-real", "appliance", "fake zonctl binary " + spec.bundleVersion, ""},
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion, ""},
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion, ""},
+		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart", ""},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image " + spec.bundleVersion, "internal/control-plane:" + spec.bundleVersion},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image " + spec.bundleVersion, "internal/appliance-ui:" + spec.bundleVersion},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/automation-dev.tar", "oci-images", "fake automation-dev builder image " + spec.bundleVersion, "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
+		{"oci-images/zot.tar", "oci-images", "fake zot image " + spec.bundleVersion, "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 	}
 
 	var manifestEntries []map[string]any
@@ -74,6 +77,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		"builtAt":       "2026-07-04T00:00:00Z",
 		"compatibility": map[string]any{
 			"k3sVersion": spec.k3sVersion, "chartVersion": spec.chartVersion,
+			"zotVersion":              "2.1.7",
 			"supportedUpgradeSources": spec.supportedSources,
 		},
 		"signingKeyId": "release-signing-key",
@@ -344,8 +348,8 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 			importCalls++
 		}
 	}
-	if importCalls != 4 {
-		t.Fatalf("expected 4 image import calls during same-version refresh (control-plane + UI + workspace provisioner + automation-dev), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 5 {
+		t.Fatalf("expected 5 image import calls during same-version refresh (zot + control-plane + UI + workspace provisioner + automation-dev), got %d: %v", importCalls, fcli.calls)
 	}
 }
 
@@ -632,6 +636,9 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	case name == "kubectl" && contains(args, "create") && contains(args, "namespace"):
 		f.missingNamespace = false
 		return "", nil
+	case name == "kubectl" && contains(args, "get") && contains(args, "secret") && strings.Contains(call, "registry_ed25519_private.key"):
+		seedFile := base64.StdEncoding.EncodeToString(make([]byte, ed25519.SeedSize))
+		return base64.StdEncoding.EncodeToString([]byte(seedFile)), nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "secret"):
 		if f.secrets == nil {
 			f.secrets = map[string]bool{}
@@ -702,6 +709,8 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "automation-dev.tar":
 		return []string{"registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
+	case "zot.tar":
+		return []string{"registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	default:
 		return nil
 	}

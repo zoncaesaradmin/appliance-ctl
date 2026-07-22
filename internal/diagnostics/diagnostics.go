@@ -28,8 +28,10 @@ type Signals struct {
 	// and K3s active). Checked distinguishes "not checked" from "checked
 	// and unhealthy" so a not-yet-installed or K3s-down host doesn't get
 	// a misleading chart/ingress failure on top of the real cause.
-	ChartHealth   ChartHealth
-	IngressHealth IngressHealth
+	ChartHealth     ChartHealth
+	RegistryHealth  ChartHealth
+	RegistryStorage ChartHealth
+	IngressHealth   IngressHealth
 }
 
 // ChartHealth reports whether the appliance's Helm release is deployed.
@@ -93,6 +95,26 @@ func Evaluate(sig Signals) []evidence.Check {
 		checks = append(checks, evidence.Check{
 			ID: "chart-release-health", Category: "chart", Status: status,
 			Message: sig.ChartHealth.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	if sig.RegistryHealth.Checked {
+		status := evidence.StatusPass
+		if !sig.RegistryHealth.Healthy {
+			status = evidence.StatusFail
+		}
+		checks = append(checks, evidence.Check{
+			ID: "registry-release-health", Category: "registry", Status: status,
+			Message: sig.RegistryHealth.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	if sig.RegistryStorage.Checked {
+		status := evidence.StatusPass
+		if !sig.RegistryStorage.Healthy {
+			status = evidence.StatusFail
+		}
+		checks = append(checks, evidence.Check{
+			ID: "registry-storage-bound", Category: "storage", Status: status,
+			Message: sig.RegistryStorage.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
 		})
 	}
 
