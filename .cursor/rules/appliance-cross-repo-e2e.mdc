@@ -57,6 +57,9 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | Digests in Helm values | `PrepareValuesFile` | chart ConfigMap, `config.Load`, chart schema |
 | Catalog `automation-dev` alias | catalog / examples | `ResolveBuilderImage`, `builderImageReference` |
 | Offline images present | preload/tag | Argo `IfNotPresent` pods |
+| Builder Git HTTPS access | UI `PUT /builder/git-access` → CP secret `builder-git-access` | `resolveWorkspaceGitCredential` → Argo mount + `GIT_ASKPASS` clone |
+| Writable tool home for builds | Argo `HOME`/`GOPATH`/`GOCACHE` under `/tmp/appliance-home` | automation-dev image ENV (`/home/vscode/...`) must be overridden |
+| Catalog make/script args | `build-catalog.example.yaml` / operator catalog | Must match real repo Makefile/scripts (forgeline: `make build`, not root `build.sh`) |
 
 ## If you change X → also check Y
 
@@ -67,6 +70,9 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 - **Tag/import algorithm** → `preload.go` / tests; install+upgrade fake-ctr tests
 - **PrepareValuesFile keys** → chart `configmap.yaml` env names; config Load; chart_test
 - **Argo image / pullPolicy** → offline contract; preload completeness
+- **Git clone / credential mount** → `buildergit` secret shape (`host`/`username`/`token`); `argo.gitAuthPreamble` + workspace-prepare tests; UI git-access form; docs/developer-workflows-v1.md
+- **Builder HOME/GOPATH** → `argo.workflowToolHomeEnv` + build preamble mkdir; automation-dev image ENV; platformkit/forgeline make targets
+- **Build catalog targets** → real Makefile/script paths in each product repo; `build-catalog.example.yaml`; operator `build-catalog.yaml`
 - **Workspace UID/path** → install EnsureOwnedDir; chart PVC; argo pod patch; storage invariants in all three AGENTS.md
 - **Only one repo** → insufficient; re-check sibling contract consumers
 
