@@ -659,12 +659,13 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	ownedPaths := map[string][2]int{}
 	var workspaceChowns [][2]int
 	orch := &install.Orchestrator{
 		K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts,
 		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
-			if path == hostdirs.RegistryLogDir {
-				// Artifact-capable profiles also prepare zot logs; keep that off the host root.
+			if path != workspaceDir {
+				ownedPaths[path] = [2]int{uid, gid}
 				return nil
 			}
 			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, func(_ string, u, g int) error {
@@ -680,6 +681,20 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 
 	if len(workspaceChowns) != 1 || workspaceChowns[0][0] != hostdirs.ApplianceDirOwnerUID || workspaceChowns[0][1] != hostdirs.ApplianceSharedFSGID {
 		t.Fatalf("expected exactly one workspace chown to %d:%d, got %v", hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, workspaceChowns)
+	}
+	wantOwnedPaths := map[string][2]int{
+		hostdirs.ControlPlaneLogDir:   {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.RegistryLogDir:       {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+	}
+	if len(ownedPaths) != len(wantOwnedPaths) {
+		t.Fatalf("expected service log ownership for %v, got %v", wantOwnedPaths, ownedPaths)
+	}
+	for path, want := range wantOwnedPaths {
+		if got, ok := ownedPaths[path]; !ok || got != want {
+			t.Fatalf("expected service log ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
+		}
 	}
 	info, err := os.Stat(workspaceDir)
 	if err != nil {
@@ -697,21 +712,21 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 	}
 }
 
-// Core profile never enables build or artifact capabilities, so there is
-// no workspace or registry log volume to own — install must not touch
-// those directories at all in that case.
-func TestInstall_DoesNotOwnWorkspaceDirectoryForNonBuilderProfile(t *testing.T) {
+// Core profile still runs the control plane, UI, and workflow controller, so
+// zonctl must seed those host-visible log directories itself, but it must not
+// create builder-only workspace storage.
+func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
 	opts.WorkspaceRootDir = filepath.Join(t.TempDir(), "workspaces")
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	chownCalled := false
+	ownedPaths := map[string][2]int{}
 	orch := &install.Orchestrator{
 		K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts,
-		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
-			chownCalled = true
+		EnsureOwnedDir: func(path string, uid, gid int, _ os.FileMode) error {
+			ownedPaths[path] = [2]int{uid, gid}
 			return nil
 		},
 	}
@@ -719,11 +734,62 @@ func TestInstall_DoesNotOwnWorkspaceDirectoryForNonBuilderProfile(t *testing.T) 
 	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
 		t.Fatalf("expected install to succeed, got: %v", err)
 	}
-	if chownCalled {
-		t.Error("expected no host-directory ownership step for the default (core) profile")
+	wantOwnedPaths := map[string][2]int{
+		hostdirs.ControlPlaneLogDir:   {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+	}
+	if len(ownedPaths) != len(wantOwnedPaths) {
+		t.Fatalf("expected only core service log ownership %v, got %v", wantOwnedPaths, ownedPaths)
+	}
+	for path, want := range wantOwnedPaths {
+		if got, ok := ownedPaths[path]; !ok || got != want {
+			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
+		}
 	}
 	if _, err := os.Stat(opts.WorkspaceRootDir); !os.IsNotExist(err) {
 		t.Error("expected the workspace directory to not be created for a non-builder profile")
+	}
+}
+
+func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "storage"
+	opts.WorkspaceRootDir = filepath.Join(t.TempDir(), "workspaces")
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	ownedPaths := map[string][2]int{}
+	orch := &install.Orchestrator{
+		K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts,
+		EnsureOwnedDir: func(path string, uid, gid int, _ os.FileMode) error {
+			ownedPaths[path] = [2]int{uid, gid}
+			return nil
+		},
+	}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected storage-profile install to succeed, got: %v", err)
+	}
+	wantOwnedPaths := map[string][2]int{
+		hostdirs.ControlPlaneLogDir: {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:           {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.RegistryLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+	}
+	if len(ownedPaths) != len(wantOwnedPaths) {
+		t.Fatalf("expected only storage service log ownership %v, got %v", wantOwnedPaths, ownedPaths)
+	}
+	for path, want := range wantOwnedPaths {
+		if got, ok := ownedPaths[path]; !ok || got != want {
+			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
+		}
+	}
+	if _, ok := ownedPaths[hostdirs.ArgoControllerLogDir]; ok {
+		t.Fatalf("storage profile must not prepare %s: %v", hostdirs.ArgoControllerLogDir, ownedPaths)
+	}
+	if _, err := os.Stat(opts.WorkspaceRootDir); !os.IsNotExist(err) {
+		t.Error("expected the workspace directory to not be created for the storage profile")
 	}
 }
 

@@ -364,15 +364,21 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, prepared.Cleanup)
 
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
-		if err := o.EnsureOwnedDir(hostdirs.RegistryLogDir, hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.ServiceLogDirMode); err != nil {
-			return nil, checks, fmt.Errorf("install: prepare registry log directory: %w", err)
+	for _, dir := range hostdirs.ServiceLogDirs(
+		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact),
+		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows),
+	) {
+		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
+			return nil, checks, fmt.Errorf("install: prepare service log directory %s: %w", dir.Path, err)
 		}
 		checks = append(checks, evidence.Check{
-			ID: "registry-log-directory-owned", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.RegistryLogDir, hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+			ID: dir.CheckID, Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", dir.Path, dir.UID, dir.GID),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
+	}
+
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
 			opts.ChartNamespace, "appliance-keys", registryNamespace, productconfig.DefaultRegistryPublicKeySecret)
 		checks = append(checks, registryKeys.Checks...)

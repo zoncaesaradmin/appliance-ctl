@@ -37,18 +37,86 @@ const (
 	ApplianceDirOwnerUID = 0
 	ApplianceSharedFSGID = 20000
 
+	// ControlPlaneDirOwnerUID is the fixed numeric identity for the main
+	// control-plane pod.
+	ControlPlaneDirOwnerUID = 10001
+	// UIDirOwnerUID is the fixed numeric identity for the UI pod.
+	UIDirOwnerUID = 10002
 	// RegistryDirOwnerUID is the fixed numeric identity for the offline zot
 	// registry pod (appliance-registry chart runAsUser).
 	RegistryDirOwnerUID = 10003
+	// ArgoControllerDirOwnerUID is the fixed numeric identity for the
+	// workflow-controller pod.
+	ArgoControllerDirOwnerUID = 65532
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
 	ServiceLogDirMode = os.FileMode(0o755) | os.ModeSetgid
 
+	// ControlPlaneLogDir is the host-visible control-plane log directory under
+	// the shared appliance log tree.
+	ControlPlaneLogDir = "/data/zon/logs/control-plane"
+	// UILogDir is the host-visible UI log directory under the shared appliance
+	// log tree.
+	UILogDir = "/data/zon/logs/ui"
 	// RegistryLogDir is the host-visible zot log directory under the shared
 	// appliance log tree.
 	RegistryLogDir = "/data/zon/logs/zot"
+	// ArgoControllerLogDir is the host-visible workflow-controller log
+	// directory under the shared appliance log tree.
+	ArgoControllerLogDir = "/data/zon/logs/argo-controller"
 )
+
+// OwnedDir describes one appliance-managed host directory whose ownership and
+// mode zonctl must seed before Kubernetes mounts it into a pod.
+type OwnedDir struct {
+	CheckID string
+	Path    string
+	UID     int
+	GID     int
+	Mode    os.FileMode
+}
+
+// ServiceLogDirs returns the host-visible log directories the selected
+// capability set requires. Control-plane and UI logs always exist; registry and
+// workflow-controller logs are added only when those capabilities are enabled.
+func ServiceLogDirs(includeArtifact, includeWorkflows bool) []OwnedDir {
+	dirs := []OwnedDir{
+		{
+			CheckID: "control-plane-log-directory-owned",
+			Path:    ControlPlaneLogDir,
+			UID:     ControlPlaneDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		},
+		{
+			CheckID: "ui-log-directory-owned",
+			Path:    UILogDir,
+			UID:     UIDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		},
+	}
+	if includeArtifact {
+		dirs = append(dirs, OwnedDir{
+			CheckID: "registry-log-directory-owned",
+			Path:    RegistryLogDir,
+			UID:     RegistryDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		})
+	}
+	if includeWorkflows {
+		dirs = append(dirs, OwnedDir{
+			CheckID: "argo-controller-log-directory-owned",
+			Path:    ArgoControllerLogDir,
+			UID:     ArgoControllerDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		})
+	}
+	return dirs
+}
 
 // WorkspaceDirMode is deliberately world-readable and world-writable
 // (not just group-writable via ApplianceSharedFSGID). An operator needs

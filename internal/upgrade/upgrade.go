@@ -320,17 +320,19 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
-	if targetArtifact {
-		if err := o.EnsureOwnedDir(hostdirs.RegistryLogDir, hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.ServiceLogDirMode); err != nil {
-			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare registry log directory: %w", err), rollback)
+	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetWorkflows) {
+		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare service log directory %s: %w", dir.Path, err), rollback)
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
 		checks = append(checks, evidence.Check{
-			ID: "registry-log-directory-owned", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.RegistryLogDir, hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+			ID: dir.CheckID, Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", dir.Path, dir.UID, dir.GID),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
+	}
+	if targetArtifact {
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
 			opts.ChartNamespace, "appliance-keys", registryNamespace, productconfig.DefaultRegistryPublicKeySecret)
 		checks = append(checks, registryKeys.Checks...)

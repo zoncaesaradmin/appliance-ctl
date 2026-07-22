@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -592,7 +593,14 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	ownedPaths := map[string][2]int{}
+	orch := &upgrade.Orchestrator{
+		K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run,
+		EnsureOwnedDir: func(path string, uid, gid int, _ os.FileMode) error {
+			ownedPaths[path] = [2]int{uid, gid}
+			return nil
+		},
+	}
 
 	opts := env.options("2.4.0")
 	opts.ApplianceProfile = "storage"
@@ -610,6 +618,22 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 	}
 	if !sawArgoUninstall {
 		t.Fatalf("expected workflows release removal when switching to storage profile, got calls: %v", fcli.calls)
+	}
+	wantOwnedPaths := map[string][2]int{
+		hostdirs.ControlPlaneLogDir: {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:           {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.RegistryLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+	}
+	if len(ownedPaths) != len(wantOwnedPaths) {
+		t.Fatalf("expected only storage-profile log directory prep %v, got %v", wantOwnedPaths, ownedPaths)
+	}
+	for path, want := range wantOwnedPaths {
+		if got, ok := ownedPaths[path]; !ok || got != want {
+			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
+		}
+	}
+	if _, ok := ownedPaths[hostdirs.ArgoControllerLogDir]; ok {
+		t.Fatalf("storage upgrade must not prepare %s: %v", hostdirs.ArgoControllerLogDir, ownedPaths)
 	}
 }
 
@@ -670,6 +694,47 @@ func TestUpgrade_RegistryFailureAfterArtifactEnablementUninstallsFreshRelease(t 
 	}
 	if !sawLogs {
 		t.Fatalf("expected registry diagnostics logs capture, got calls: %v", fcli.calls)
+	}
+}
+
+func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	ownedPaths := map[string][2]int{}
+	orch := &upgrade.Orchestrator{
+		K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run,
+		EnsureOwnedDir: func(path string, uid, gid int, _ os.FileMode) error {
+			ownedPaths[path] = [2]int{uid, gid}
+			return nil
+		},
+	}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	if _, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0")); err != nil {
+		t.Fatalf("expected core-profile upgrade to succeed, got: %v", err)
+	}
+
+	wantOwnedPaths := map[string][2]int{
+		hostdirs.ControlPlaneLogDir:   {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+	}
+	if len(ownedPaths) != len(wantOwnedPaths) {
+		t.Fatalf("expected only core-profile log directory prep %v, got %v", wantOwnedPaths, ownedPaths)
+	}
+	for path, want := range wantOwnedPaths {
+		if got, ok := ownedPaths[path]; !ok || got != want {
+			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
+		}
+	}
+	if _, ok := ownedPaths[hostdirs.RegistryLogDir]; ok {
+		t.Fatalf("core upgrade must not prepare %s: %v", hostdirs.RegistryLogDir, ownedPaths)
 	}
 }
 
