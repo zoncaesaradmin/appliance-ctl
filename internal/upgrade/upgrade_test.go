@@ -636,6 +636,24 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	case name == "kubectl" && contains(args, "create") && contains(args, "namespace"):
 		f.missingNamespace = false
 		return "", nil
+	case name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json"):
+		secretName := ""
+		for i := 0; i < len(args)-1; i++ {
+			if args[i] == "secret" {
+				secretName = args[i+1]
+				break
+			}
+		}
+		if secretName == "appliance-keys" {
+			seedFile := base64.StdEncoding.EncodeToString(make([]byte, ed25519.SeedSize))
+			payload, _ := json.Marshal(map[string]any{
+				"data": map[string]string{
+					"registry_ed25519_private.key": base64.StdEncoding.EncodeToString([]byte(seedFile)),
+				},
+			})
+			return string(payload), nil
+		}
+		return "", fmt.Errorf("simulated secret not found")
 	case name == "kubectl" && contains(args, "get") && contains(args, "secret") && strings.Contains(call, "registry_ed25519_private.key"):
 		seedFile := base64.StdEncoding.EncodeToString(make([]byte, ed25519.SeedSize))
 		return base64.StdEncoding.EncodeToString([]byte(seedFile)), nil

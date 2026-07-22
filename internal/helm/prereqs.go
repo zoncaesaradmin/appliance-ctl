@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -32,6 +33,10 @@ type chartPrereqs struct {
 	KeysSecretName string
 }
 
+type secretJSON struct {
+	Data map[string]string `json:"data"`
+}
+
 // EnsureRegistryPublicKeySecret derives the registry verification key from
 // the control-plane signing seed and creates a target Secret containing only
 // public material. The private seed never leaves its original Secret.
@@ -46,22 +51,18 @@ func EnsureRegistryPublicKeySecret(ctx context.Context, run cli.Runner, kubeconf
 		prepared.Checks = append(prepared.Checks, check)
 		return prepared, err
 	}
-	// Secret keys contain dots (e.g. registry_ed25519_private.key). Plain
-	// jsonpath={.data.foo.bar} walks nested fields; bracket form is required.
-	encodedFile, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", sourceNamespace,
-		"get", "secret", sourceSecret, "-o", secretDataJSONPath(registryPrivateFile))
+	// Read via -o json + map lookup. Secret keys contain dots
+	// (registry_ed25519_private.key); kubectl jsonpath treats dots as field
+	// separators and bracket forms are version-fragile.
+	fileBytes, err := readSecretData(ctx, run, kubeconfig, sourceNamespace, sourceSecret, registryPrivateFile)
 	if err != nil {
 		check.Status, check.Message = evidence.StatusFail, "control-plane registry signing key is unavailable"
 		prepared.Checks = append(prepared.Checks, check)
 		return prepared, fmt.Errorf("helm: read registry signing seed from control-plane Secret: %w", err)
 	}
-	fileBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encodedFile))
+	seed, err := decodeEd25519Seed(fileBytes)
 	if err != nil {
-		return prepared, fmt.Errorf("helm: decode registry signing key Secret data: %w", err)
-	}
-	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(fileBytes)))
-	if err != nil || len(seed) != ed25519.SeedSize {
-		return prepared, fmt.Errorf("helm: registry signing key must contain a base64 Ed25519 seed")
+		return prepared, fmt.Errorf("helm: registry signing key must contain a base64 Ed25519 seed: %w", err)
 	}
 	pub := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
 	der, err := x509.MarshalPKIXPublicKey(pub)
@@ -69,11 +70,9 @@ func EnsureRegistryPublicKeySecret(ctx context.Context, run cli.Runner, kubeconf
 		return prepared, fmt.Errorf("helm: marshal registry public key: %w", err)
 	}
 	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
-	existingEncoded, existingErr := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace,
-		"get", "secret", targetSecret, "-o", secretDataJSONPath(registryPublicFile))
+	existing, existingErr := readSecretData(ctx, run, kubeconfig, targetNamespace, targetSecret, registryPublicFile)
 	if existingErr == nil {
-		existing, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(existingEncoded))
-		if decodeErr != nil || !bytes.Equal(existing, publicPEM) {
+		if !bytes.Equal(existing, publicPEM) {
 			check.Status, check.Message = evidence.StatusFail, "registry public verification Secret does not match the control-plane signing key"
 			prepared.Checks = append(prepared.Checks, check)
 			return prepared, fmt.Errorf("helm: registry public verification Secret is stale or invalid; refusing to start zot")
@@ -108,6 +107,59 @@ func EnsureRegistryPublicKeySecret(ctx context.Context, run cli.Runner, kubeconf
 		return deleteSecret(ctx, run, kubeconfig, targetNamespace, targetSecret)
 	})
 	return prepared, nil
+}
+
+func readSecretData(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName, key string) ([]byte, error) {
+	out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace,
+		"get", "secret", secretName, "-o", "json")
+	if err != nil {
+		return nil, err
+	}
+	payload, err := extractJSONObject(out)
+	if err != nil {
+		return nil, fmt.Errorf("parse Secret %s/%s JSON: %w", namespace, secretName, err)
+	}
+	var secret secretJSON
+	if err := json.Unmarshal(payload, &secret); err != nil {
+		return nil, fmt.Errorf("decode Secret %s/%s JSON: %w", namespace, secretName, err)
+	}
+	encoded, ok := secret.Data[key]
+	if !ok || strings.TrimSpace(encoded) == "" {
+		return nil, fmt.Errorf("Secret %s/%s missing data key %q", namespace, secretName, key)
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil {
+		return nil, fmt.Errorf("decode Secret %s/%s key %q: %w", namespace, secretName, key, err)
+	}
+	return raw, nil
+}
+
+func extractJSONObject(out string) ([]byte, error) {
+	start := strings.Index(out, "{")
+	end := strings.LastIndex(out, "}")
+	if start < 0 || end < start {
+		return nil, fmt.Errorf("no JSON object in command output")
+	}
+	return []byte(out[start : end+1]), nil
+}
+
+// decodeEd25519Seed accepts the installer-managed format (base64 text of a
+// 32-byte seed) and also a raw 32-byte seed for resilience.
+func decodeEd25519Seed(fileBytes []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(fileBytes)
+	if len(trimmed) == ed25519.SeedSize {
+		seed := make([]byte, ed25519.SeedSize)
+		copy(seed, trimmed)
+		return seed, nil
+	}
+	seed, err := base64.StdEncoding.DecodeString(string(trimmed))
+	if err != nil {
+		return nil, err
+	}
+	if len(seed) != ed25519.SeedSize {
+		return nil, fmt.Errorf("seed length %d, want %d", len(seed), ed25519.SeedSize)
+	}
+	return seed, nil
 }
 
 // PreparedRelease captures prerequisite evidence plus any cleanup the
@@ -331,10 +383,4 @@ func secretAlreadyExists(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "alreadyexists") || strings.Contains(msg, "already exists")
-}
-
-// secretDataJSONPath selects one Secret data key. Keys with dots must use the
-// bracket form; otherwise kubectl treats each segment as a nested field.
-func secretDataJSONPath(key string) string {
-	return "jsonpath={.data['" + key + "']}"
 }

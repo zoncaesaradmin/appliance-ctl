@@ -13,8 +13,8 @@ import (
 	"strings"
 )
 
-// Runner invokes name with args and returns its combined output. It is
-// the seam every CLI-shelling adapter in this repo is built against.
+// Runner invokes name with args and returns stdout on success. It is the
+// seam every CLI-shelling adapter in this repo is built against.
 type Runner func(ctx context.Context, name string, args ...string) (string, error)
 
 // InputRunner is the stdin-aware variant used when a command must read
@@ -22,7 +22,9 @@ type Runner func(ctx context.Context, name string, args ...string) (string, erro
 type InputRunner func(ctx context.Context, stdin []byte, name string, args ...string) (string, error)
 
 // Exec is the default, real Runner: it runs the named binary via
-// exec.CommandContext and returns its combined stdout/stderr.
+// exec.CommandContext. On success it returns stdout only so kubectl/helm
+// warnings on stderr cannot corrupt machine-parsed payloads (Secret data,
+// jsonpath values, digests). On failure, stderr is included in the error.
 func Exec(ctx context.Context, name string, args ...string) (string, error) {
 	return ExecInput(ctx, nil, name, args...)
 }
@@ -34,9 +36,14 @@ func ExecInput(ctx context.Context, stdin []byte, name string, args ...string) (
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
-	out, err := cmd.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	out := stdout.String()
 	if err != nil {
-		return string(out), fmt.Errorf("cli: %s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		detail := strings.TrimSpace(out + "\n" + stderr.String())
+		return out, fmt.Errorf("cli: %s %s: %w: %s", name, strings.Join(args, " "), err, detail)
 	}
-	return string(out), nil
+	return out, nil
 }
