@@ -265,6 +265,16 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 	return tmp.Name(), cleanup, nil
 }
 
+func PreferredRegistryPublicHost(nodeName string, tlsSANs ...string) string {
+	for _, candidate := range tlsSANs {
+		candidate = strings.TrimSpace(candidate)
+		if candidate != "" {
+			return candidate
+		}
+	}
+	return strings.TrimSpace(nodeName)
+}
+
 func loadBuildCatalog(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

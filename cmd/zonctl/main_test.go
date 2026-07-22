@@ -385,3 +385,10 @@ func TestRun_InterruptedOperationBlocksNewCommandExceptRecovery(t *testing.T) {
 	// Teardown may still fail on non-Linux CI (no systemd); the gate itself is what this test covers.
 	_ = code
 }
+
+func TestEffectiveTLSSANs_DefaultsToNodeName(t *testing.T) {
+	got := effectiveTLSSANs("appliance.internal.example.com")
+	if len(got) != 1 || got[0] != "appliance.internal.example.com" {
+		t.Fatalf("effectiveTLSSANs = %#v, want appliance.internal.example.com", got)
+	}
+}

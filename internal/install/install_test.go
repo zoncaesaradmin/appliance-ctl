@@ -266,6 +266,7 @@ type fakeCLI struct {
 	kubectlPods    string          // `kubectl get pods` output, for cluster-adoption tests
 	secretExists   bool
 	lastHelmValues string
+	helmValues     map[string]string
 	importedImages []string
 	calls          []string
 }
@@ -284,6 +285,12 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		if valuesPath := valuesPathFromHelmCall(call); valuesPath != "" {
 			if data, err := os.ReadFile(valuesPath); err == nil {
 				f.lastHelmValues = string(data)
+				if releaseName := helmReleaseNameFromCall(call); releaseName != "" {
+					if f.helmValues == nil {
+						f.helmValues = map[string]string{}
+					}
+					f.helmValues[releaseName] = string(data)
+				}
 			}
 		}
 	}
@@ -408,6 +415,16 @@ func valuesPathFromHelmCall(call string) string {
 	for i := 0; i < len(fields)-1; i++ {
 		if fields[i] == "--values" {
 			return fields[i+1]
+		}
+	}
+	return ""
+}
+
+func helmReleaseNameFromCall(call string) string {
+	fields := strings.Fields(call)
+	for i := 0; i < len(fields)-2; i++ {
+		if fields[i] == "upgrade" && fields[i+1] == "--install" {
+			return fields[i+2]
 		}
 	}
 	return ""
@@ -591,6 +608,35 @@ func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
 
 	if !strings.Contains(fcli.lastHelmValues, "applianceProfile: builder") {
 		t.Fatalf("prepared values file missing builder profile: %s", fcli.lastHelmValues)
+	}
+}
+
+func TestInstall_ArtifactProfileUsesNodeNameForRegistryPublicHost(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "storage"
+	opts.NodeName = "appliance.internal.example.com"
+	opts.TLSSANs = []string{"appliance.internal.example.com"}
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+
+	registryValues := fcli.helmValues["appliance-registry"]
+	for _, want := range []string{
+		"realm: https://appliance.internal.example.com/api/v1/registry/token",
+		"host: appliance.internal.example.com",
+	} {
+		if !strings.Contains(registryValues, want) {
+			t.Fatalf("registry values missing %q:\n%s", want, registryValues)
+		}
+	}
+	if strings.Contains(registryValues, "appliance.local") {
+		t.Fatalf("registry values should not fall back to appliance.local:\n%s", registryValues)
 	}
 }
 
@@ -826,6 +872,42 @@ func TestInstall_RollsBackCreatedSecretWhenHelmFails(t *testing.T) {
 	}
 }
 
+func TestInstall_RegistryFailureCollectsDiagnosticsAndRollsBack(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "storage"
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{
+		failOn:       map[string]bool{"upgrade --install appliance-registry": true},
+		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
+	}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	if _, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err == nil {
+		t.Fatal("expected simulated registry failure to abort install")
+	} else if len(checks) == 0 {
+		t.Fatal("expected failure diagnostics checks")
+	}
+
+	var sawStatus, sawDescribe, sawLogs, sawUninstall bool
+	for _, call := range fcli.calls {
+		sawStatus = sawStatus || strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "status appliance-registry")
+		sawDescribe = sawDescribe || strings.Contains(call, "describe pods -l app.kubernetes.io/instance=appliance-registry")
+		sawLogs = sawLogs || strings.Contains(call, "logs --all-containers=true --tail=200 -l app.kubernetes.io/instance=appliance-registry")
+		sawUninstall = sawUninstall || strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall appliance-registry")
+	}
+	if !sawStatus || !sawDescribe || !sawLogs {
+		t.Fatalf("expected registry diagnostics commands, got calls: %v", fcli.calls)
+	}
+	if !sawUninstall {
+		t.Fatalf("expected fresh registry release uninstall on failure, got calls: %v", fcli.calls)
+	}
+	if fk3s.stopCalls == 0 {
+		t.Fatal("expected rollback after registry failure to stop k3s")
+	}
+}
+
 func TestInstall_AutoAdoptsSafeExistingClusterWhenK3SPortsAreAlreadyBound(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
@@ -961,6 +1043,36 @@ func TestInstall_PreserveFailedStateSkipsRollbackOnChartFailure(t *testing.T) {
 		if strings.Contains(c, "image rm") {
 			t.Fatalf("expected imported images to remain during preserved failed state, got calls: %v", fcli.calls)
 		}
+	}
+}
+
+func TestInstall_RegistryFailurePreserveFailedStateSkipsRollback(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "storage"
+	opts.PreserveFailedState = true
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{
+		failOn:       map[string]bool{"upgrade --install appliance-registry": true},
+		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
+	}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil {
+		t.Fatal("expected simulated registry failure to abort install")
+	}
+	if !strings.Contains(err.Error(), "--preserve-failed-state") {
+		t.Fatalf("expected preserve-failed-state error, got: %v", err)
+	}
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "uninstall appliance-registry") || strings.Contains(call, "image rm") {
+			t.Fatalf("expected registry failure state to be preserved, got calls: %v", fcli.calls)
+		}
+	}
+	if fk3s.stopCalls != 0 {
+		t.Fatalf("expected no k3s stop when preserving failed registry state, got %d", fk3s.stopCalls)
 	}
 }
 

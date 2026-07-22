@@ -385,9 +385,19 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 		checks = append(checks, registryCheck)
 		if applyErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), errors.Join(applier.Rollback(ctx, registryReleaseName, true), runRollbacks()))
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+				Name:       registryReleaseName,
+				ChartPath:  resolved.RegistryChartPath,
+				Namespace:  registryNamespace,
+				ValuesPath: registryValuesPath,
+			})...)
+			var cleanupErr error
+			if !opts.PreserveFailedState {
+				cleanupErr = errors.Join(applier.Uninstall(ctx, registryReleaseName), runRollbacks())
+			}
+			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
 		}
-		rollbacks = append(rollbacks, func() error { return applier.Rollback(ctx, registryReleaseName, true) })
+		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, registryReleaseName) })
 	}
 
 	clusterRun := o.ClusterRun

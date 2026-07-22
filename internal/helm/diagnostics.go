@@ -41,6 +41,22 @@ func CollectFailureDiagnostics(ctx context.Context, run cli.Runner, kubeconfig s
 			category: "chart",
 			args:     []string{"--kubeconfig", kubeconfig, "--namespace", rel.Namespace, "get", "events", "--sort-by=.lastTimestamp"},
 		},
+		{
+			idSuffix: "pod-describe",
+			category: "chart",
+			args: []string{
+				"--kubeconfig", kubeconfig, "--namespace", rel.Namespace,
+				"describe", "pods", "-l", "app.kubernetes.io/instance=" + rel.Name,
+			},
+		},
+		{
+			idSuffix: "pod-logs",
+			category: "chart",
+			args: []string{
+				"--kubeconfig", kubeconfig, "--namespace", rel.Namespace,
+				"logs", "--all-containers=true", "--tail=200", "-l", "app.kubernetes.io/instance=" + rel.Name,
+			},
+		},
 	}
 
 	checks := make([]evidence.Check, 0, len(commands))

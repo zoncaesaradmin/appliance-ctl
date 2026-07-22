@@ -133,6 +133,13 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
+	hadArtifactBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact)
+	hadWorkflowsBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityWorkflows)
+	targetArtifact := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact)
+	targetWorkflows := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows)
+	if hadArtifactBefore && !targetArtifact {
+		return nil, checks, fmt.Errorf("upgrade: changing from artifact-capable profile %q to non-artifact profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
+	}
 	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
@@ -140,7 +147,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	defer cleanupPreparedValues()
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+	if targetArtifact {
 		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, firstUpgradeString(opts.TLSSANs))
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
@@ -306,7 +313,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+	if hadWorkflowsBefore && !targetWorkflows {
+		if err := applier.Uninstall(ctx, argoReleaseName); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: remove workflows capability: %w", err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+	if targetArtifact {
 		if err := o.EnsureOwnedDir(hostdirs.RegistryLogDir, hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.ServiceLogDirMode); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare registry log directory: %w", err), rollback)
 			checks = append(checks, rollbackChecks...)
@@ -330,16 +344,27 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		})
 		checks = append(checks, registryCheck)
 		if registryErr != nil {
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+				Name:       registryReleaseName,
+				ChartPath:  resolved.RegistryChartPath,
+				Namespace:  registryNamespace,
+				ValuesPath: registryValuesPath,
+			})...)
+			registryWasFreshInstall := !hadArtifactBefore
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", registryErr), func() []evidence.Check {
 				_ = registryKeys.Cleanup()
-				_ = applier.Rollback(ctx, registryReleaseName, false)
+				if registryWasFreshInstall {
+					_ = applier.Uninstall(ctx, registryReleaseName)
+				} else {
+					_ = applier.Rollback(ctx, registryReleaseName, false)
+				}
 				return rollback()
 			})
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
 	}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows) {
+	if targetWorkflows {
 		for _, crdPath := range resolved.ArgoCRDPaths {
 			if _, applyErr := o.HelmRun(ctx, "kubectl", "--kubeconfig", opts.KubeconfigPath, "apply", "-f", crdPath); applyErr != nil {
 				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: apply Argo CRD %s: %w", crdPath, applyErr), rollback)

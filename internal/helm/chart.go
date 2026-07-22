@@ -80,13 +80,7 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 // revision instead, per "the declared N-1 rollback."
 func (a *Applier) Rollback(ctx context.Context, releaseName string, wasFreshInstall bool) error {
 	if wasFreshInstall {
-		if _, err := a.Run(ctx, "helm", "--kubeconfig", a.Kubeconfig, "uninstall", releaseName); err != nil {
-			if helmReleaseMissing(err) {
-				return nil
-			}
-			return fmt.Errorf("helm: rollback (uninstall) %s: %w", releaseName, err)
-		}
-		return nil
+		return a.Uninstall(ctx, releaseName)
 	}
 
 	if _, err := a.Run(ctx, "helm", "--kubeconfig", a.Kubeconfig, "rollback", releaseName); err != nil {
@@ -94,6 +88,18 @@ func (a *Applier) Rollback(ctx context.Context, releaseName string, wasFreshInst
 			return nil
 		}
 		return fmt.Errorf("helm: rollback %s: %w", releaseName, err)
+	}
+	return nil
+}
+
+// Uninstall removes a Helm release and tolerates missing-release results so
+// callers can use it for capability cleanup and failed fresh installs.
+func (a *Applier) Uninstall(ctx context.Context, releaseName string) error {
+	if _, err := a.Run(ctx, "helm", "--kubeconfig", a.Kubeconfig, "uninstall", releaseName); err != nil {
+		if helmReleaseMissing(err) {
+			return nil
+		}
+		return fmt.Errorf("helm: uninstall %s: %w", releaseName, err)
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/redact"
 )
 
@@ -172,6 +173,14 @@ func run(args []string) int {
 	logger := newLogger(redact.New(), opts.output)
 	result := dispatch(spec, opts, logger)
 	return emit(result, opts.output)
+}
+
+func effectiveTLSSANs(nodeName string) []string {
+	host := productconfig.PreferredRegistryPublicHost(nodeName)
+	if host == "" {
+		return nil
+	}
+	return []string{host}
 }
 
 func newLogger(r *redact.Redactor, output string) *slog.Logger {

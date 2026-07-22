@@ -62,6 +62,36 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 	}
 }
 
+func TestPrepareRegistryValuesFile_UsesProvidedPublicHost(t *testing.T) {
+	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage, "appliance.internal.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"realm: https://appliance.internal.example.com/api/v1/registry/token",
+		"host: appliance.internal.example.com",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered registry values missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestPreferredRegistryPublicHost(t *testing.T) {
+	if got := productconfig.PreferredRegistryPublicHost("node-1", "appliance.internal.example.com"); got != "appliance.internal.example.com" {
+		t.Fatalf("PreferredRegistryPublicHost with TLS SAN = %q, want appliance.internal.example.com", got)
+	}
+	if got := productconfig.PreferredRegistryPublicHost("node-1"); got != "node-1" {
+		t.Fatalf("PreferredRegistryPublicHost fallback = %q, want node-1", got)
+	}
+}
+
 func TestResolveApplianceProfile_DefaultsToCore(t *testing.T) {
 	profile, err := productconfig.ResolveApplianceProfile("", "")
 	if err != nil {

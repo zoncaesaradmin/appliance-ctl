@@ -48,6 +48,7 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		BuildCatalogPath:       opts.buildCatalogPath,
 		WorkspaceRootDir:       defaultWorkspaceRootDir,
 		NodeName:               opts.nodeName,
+		TLSSANs:                effectiveTLSSANs(opts.nodeName),
 		PreserveFailedState:    opts.preserveFailedState,
 		ZonctlRealDestPath:     defaultZonctlRealPath,
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,

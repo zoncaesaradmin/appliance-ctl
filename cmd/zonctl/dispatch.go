@@ -267,6 +267,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		BuildCatalogPath:       opts.buildCatalogPath,
 		WorkspaceRootDir:       defaultWorkspaceRootDir,
 		NodeName:               opts.nodeName,
+		TLSSANs:                effectiveTLSSANs(opts.nodeName),
 		ZonctlRealDestPath:     defaultZonctlRealPath,
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,
 		ChartReleaseName:       defaultChartReleaseName,

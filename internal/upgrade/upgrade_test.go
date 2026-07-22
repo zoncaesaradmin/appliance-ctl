@@ -553,6 +553,126 @@ func TestUpgrade_HTTPSSourcesDoNotCreateSourceCredentialSecrets(t *testing.T) {
 	}
 }
 
+func TestUpgrade_ArtifactProfileUsesNodeNameForRegistryPublicHost(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	opts := env.options("2.4.0")
+	opts.ApplianceProfile = "storage"
+	opts.TLSSANs = []string{"appliance.internal.example.com"}
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
+		t.Fatalf("expected upgrade to succeed, got: %v", err)
+	}
+
+	registryValues := fcli.helmValues["appliance-registry"]
+	for _, want := range []string{
+		"realm: https://appliance.internal.example.com/api/v1/registry/token",
+		"host: appliance.internal.example.com",
+	} {
+		if !strings.Contains(registryValues, want) {
+			t.Fatalf("registry values missing %q:\n%s", want, registryValues)
+		}
+	}
+}
+
+func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	opts := env.options("2.4.0")
+	opts.ApplianceProfile = "storage"
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
+		t.Fatalf("expected profile transition upgrade to succeed, got: %v", err)
+	}
+
+	var sawArgoUninstall bool
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall argo-workflows") {
+			sawArgoUninstall = true
+			break
+		}
+	}
+	if !sawArgoUninstall {
+		t.Fatalf("expected workflows release removal when switching to storage profile, got calls: %v", fcli.calls)
+	}
+}
+
+func TestUpgrade_RefusesArtifactCapabilityRemoval(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "storage")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	opts := env.options("2.4.0")
+	opts.ApplianceProfile = "core"
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	_, _, err := orch.Upgrade(context.Background(), offlineSource, opts)
+	if err == nil {
+		t.Fatal("expected artifact capability removal to be refused")
+	}
+	if !strings.Contains(err.Error(), "not supported in place") {
+		t.Fatalf("expected clear refusal, got: %v", err)
+	}
+	if len(fake.calls) != 0 || len(fcli.calls) != 0 {
+		t.Fatalf("expected no mutations before refusal, got k3s=%v cli=%v", fake.calls, fcli.calls)
+	}
+}
+
+func TestUpgrade_RegistryFailureAfterArtifactEnablementUninstallsFreshRelease(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{failOn: map[string]bool{"upgrade --install appliance-registry": true}}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	opts := env.options("2.4.0")
+	opts.ApplianceProfile = "storage"
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	if _, checks, err := orch.Upgrade(context.Background(), offlineSource, opts); err == nil {
+		t.Fatal("expected simulated registry failure to abort upgrade")
+	} else if len(checks) == 0 {
+		t.Fatal("expected diagnostics checks on failure")
+	}
+
+	var sawUninstall, sawRollback, sawLogs bool
+	for _, call := range fcli.calls {
+		sawUninstall = sawUninstall || strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall appliance-registry")
+		sawRollback = sawRollback || strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "rollback appliance-registry")
+		sawLogs = sawLogs || strings.Contains(call, "logs --all-containers=true --tail=200 -l app.kubernetes.io/instance=appliance-registry")
+	}
+	if !sawUninstall || sawRollback {
+		t.Fatalf("expected fresh registry release uninstall instead of rollback, got calls: %v", fcli.calls)
+	}
+	if !sawLogs {
+		t.Fatalf("expected registry diagnostics logs capture, got calls: %v", fcli.calls)
+	}
+}
+
 // fakeCLI simulates ctr/helm/kubectl for the images and helm adapters.
 type fakeCLI struct {
 	failOn               map[string]bool
@@ -562,6 +682,7 @@ type fakeCLI struct {
 	namespacePolls       int
 	secrets              map[string]bool
 	lastHelmValues       string
+	helmValues           map[string]string
 	importedImages       []string
 }
 
@@ -577,6 +698,12 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		if valuesPath := valuesPathFromHelmCall(call); valuesPath != "" {
 			if data, err := os.ReadFile(valuesPath); err == nil {
 				f.lastHelmValues = string(data)
+				if releaseName := helmReleaseNameFromCall(call); releaseName != "" {
+					if f.helmValues == nil {
+						f.helmValues = map[string]string{}
+					}
+					f.helmValues[releaseName] = string(data)
+				}
 			}
 		}
 	}
@@ -741,4 +868,14 @@ func contains(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func helmReleaseNameFromCall(call string) string {
+	fields := strings.Fields(call)
+	for i := 0; i < len(fields)-2; i++ {
+		if fields[i] == "upgrade" && fields[i+1] == "--install" {
+			return fields[i+2]
+		}
+	}
+	return ""
 }
