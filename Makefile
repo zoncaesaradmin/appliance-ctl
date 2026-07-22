@@ -20,21 +20,33 @@ VERIFY_MODTIDY_LOG := $(VERIFY_LOG_DIR)/verify-modtidy.log
 .PHONY: build
 build:
 	mkdir -p $(BIN_DIR)
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(ZONCTL_BIN) ./cmd/zonctl
+	$(GO) build -mod=vendor -ldflags "$(LDFLAGS)" -o $(ZONCTL_BIN) ./cmd/zonctl
+
+.PHONY: vendor
+## vendor: refresh the vendored dependency tree (needed after bumping any
+## require); commit the result. This repo has no go.work, so once
+## vendor/ exists, go build/test/vet default to -mod=vendor on their own
+## and fail loudly ("inconsistent vendoring") if go.mod and
+## vendor/modules.txt ever disagree — the explicit -mod=vendor flags
+## elsewhere in this Makefile are belt-and-suspenders against a
+## GOFLAGS=-mod=mod override in the environment, not load-bearing.
+vendor:
+	$(GO) mod tidy
+	$(GO) mod vendor
 
 .PHONY: unit-test
 unit-test:
-	$(GO) test ./...
+	$(GO) test -mod=vendor ./...
 
 .PHONY: lint
 lint:
-	gofmt -l -s $$(find . -name '*.go' -not -path './.git/*') | tee /tmp/appliance-ctl-gofmt.out
+	gofmt -l -s $$(find . -name '*.go' -not -path './.git/*' -not -path './vendor/*') | tee /tmp/appliance-ctl-gofmt.out
 	test ! -s /tmp/appliance-ctl-gofmt.out
-	$(GO) vet ./...
+	$(GO) vet -mod=vendor ./...
 
 .PHONY: verify-schemas
 verify-schemas:
-	$(GO) test ./internal/manifest/...
+	$(GO) test -mod=vendor ./internal/manifest/...
 
 .PHONY: verify
 verify:
@@ -47,7 +59,7 @@ verify:
 	fi; \
 	echo "verify stage: build (native) passed"; \
 	echo "verify stage: build (linux/amd64 cross-compile)"; \
-	if ! GOOS=linux GOARCH=amd64 $(GO) build ./... >"$(VERIFY_BUILD_LINUX_LOG)" 2>&1; then \
+	if ! GOOS=linux GOARCH=amd64 $(GO) build -mod=vendor ./... >"$(VERIFY_BUILD_LINUX_LOG)" 2>&1; then \
 		echo "verify: build (linux/amd64) failed; inspect $(VERIFY_BUILD_LINUX_LOG)"; \
 		exit 1; \
 	fi; \
@@ -59,7 +71,7 @@ verify:
 	fi; \
 	echo "verify stage: lint passed"; \
 	echo "verify stage: go vet (linux/amd64 cross-compile)"; \
-	if ! GOOS=linux GOARCH=amd64 $(GO) vet ./... >"$(VERIFY_VET_LINUX_LOG)" 2>&1; then \
+	if ! GOOS=linux GOARCH=amd64 $(GO) vet -mod=vendor ./... >"$(VERIFY_VET_LINUX_LOG)" 2>&1; then \
 		echo "verify: go vet (linux/amd64) failed; inspect $(VERIFY_VET_LINUX_LOG)"; \
 		exit 1; \
 	fi; \
@@ -71,7 +83,7 @@ verify:
 	fi; \
 	echo "verify stage: unit tests passed"; \
 	echo "verify stage: race-detector tests"; \
-	if ! $(GO) test ./... -race >"$(VERIFY_RACE_LOG)" 2>&1; then \
+	if ! $(GO) test -mod=vendor ./... -race >"$(VERIFY_RACE_LOG)" 2>&1; then \
 		echo "verify: race-detector tests failed; inspect $(VERIFY_RACE_LOG)"; \
 		exit 1; \
 	fi; \
