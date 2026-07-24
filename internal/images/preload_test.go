@@ -20,12 +20,14 @@ import (
 // records every import/rm invocation for ordering and rollback
 // assertions.
 type fakeCtr struct {
-	alreadyImported  []string
-	failImport       map[string]bool // keyed by archive path
-	failRemove       map[string]bool // keyed by image name
-	nextImportAdds   [][]string
-	sawImportDigests bool
-	calls            []string
+	alreadyImported   []string
+	importedDigests   map[string]string
+	failImport        map[string]bool // keyed by archive path
+	failRemove        map[string]bool // keyed by image name
+	nextImportAdds    [][]string
+	nextImportDigests []string
+	sawImportDigests  bool
+	calls             []string
 }
 
 func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, error) {
@@ -53,7 +55,22 @@ func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, e
 
 	switch verb {
 	case "ls":
-		return strings.Join(f.alreadyImported, "\n"), nil
+		if containsArg(args, "-q") {
+			return strings.Join(f.alreadyImported, "\n"), nil
+		}
+		var lines []string
+		lines = append(lines, "REF TYPE DIGEST SIZE PLATFORMS LABELS")
+		for _, ref := range f.alreadyImported {
+			digest := f.importedDigests[ref]
+			if digest == "" && strings.HasPrefix(ref, "sha256:") {
+				digest = ref
+			}
+			if digest == "" {
+				digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+			}
+			lines = append(lines, fmt.Sprintf("%s application/vnd.oci.image.manifest.v1+json %s 1.0 MiB linux/amd64 -", ref, digest))
+		}
+		return strings.Join(lines, "\n"), nil
 	case "import":
 		f.calls = append(f.calls, "import:"+target)
 		if containsArg(args, "--digests") {
@@ -63,8 +80,13 @@ func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, e
 			return "", errors.New("simulated import failure")
 		}
 		if len(f.nextImportAdds) > 0 {
+			digest := ""
+			if len(f.nextImportDigests) > 0 {
+				digest = f.nextImportDigests[0]
+				f.nextImportDigests = f.nextImportDigests[1:]
+			}
 			for _, ref := range f.nextImportAdds[0] {
-				f.addImported(ref)
+				f.addImported(ref, digest)
 			}
 			f.nextImportAdds = f.nextImportAdds[1:]
 		}
@@ -91,25 +113,49 @@ func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, e
 		if !found {
 			return "", fmt.Errorf("simulated tag source missing: %s", src)
 		}
-		f.addImported(dst)
+		digest := f.importedDigests[src]
+		if digest == "" && strings.HasPrefix(src, "sha256:") {
+			digest = src
+		}
+		f.addImported(dst, digest)
 		return "", nil
 	case "rm":
 		f.calls = append(f.calls, "rm:"+target)
 		if f.failRemove[target] {
 			return "", errors.New("simulated rm failure")
 		}
+		var kept []string
+		for _, ref := range f.alreadyImported {
+			if ref != target {
+				kept = append(kept, ref)
+			}
+		}
+		f.alreadyImported = kept
+		delete(f.importedDigests, target)
 		return "", nil
 	}
 	return "", fmt.Errorf("unrecognized ctr invocation: %v", args)
 }
 
-func (f *fakeCtr) addImported(ref string) {
+func (f *fakeCtr) addImported(ref, digest string) {
 	for _, existing := range f.alreadyImported {
 		if existing == ref {
+			if digest != "" {
+				if f.importedDigests == nil {
+					f.importedDigests = map[string]string{}
+				}
+				f.importedDigests[ref] = digest
+			}
 			return
 		}
 	}
 	f.alreadyImported = append(f.alreadyImported, ref)
+	if digest != "" {
+		if f.importedDigests == nil {
+			f.importedDigests = map[string]string{}
+		}
+		f.importedDigests[ref] = digest
+	}
 }
 
 func containsArg(args []string, want string) bool {
@@ -296,7 +342,12 @@ func TestPreloadAll_DoesNotRetagStaleLocalAliasBeforeImport(t *testing.T) {
 			"localhost/appliance-control-plane:bundled",
 			"localhost/appliance-control-plane:20da399",
 		},
-		nextImportAdds: [][]string{{contentDigest}},
+		importedDigests: map[string]string{
+			"localhost/appliance-control-plane:bundled": contentDigest,
+			"localhost/appliance-control-plane:20da399": "sha256:20da39920da39920da39920da39920da39920da39920da39920da39920da399",
+		},
+		nextImportAdds:    [][]string{{contentDigest}},
+		nextImportDigests: []string{contentDigest},
 	}
 	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
 
@@ -325,6 +376,61 @@ func TestPreloadAll_DoesNotRetagStaleLocalAliasBeforeImport(t *testing.T) {
 	}
 	if strings.Contains(joined, "tag:localhost/appliance-control-plane:bundled>"+imageRef) {
 		t.Fatalf("stale bundled alias was incorrectly reused: %v", fake.calls)
+	}
+}
+
+func TestPreloadAll_ReimportsStaleExistingDesiredReference(t *testing.T) {
+	dir := t.TempDir()
+	contentDigest := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	staleDigest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	imageRef := "localhost/appliance-control-plane:166382d"
+	path, fileDigest := writeOCIArchive(
+		t,
+		dir,
+		"control-plane.tar",
+		"localhost/appliance-control-plane:bundled",
+		contentDigest,
+	)
+
+	fake := &fakeCtr{
+		alreadyImported: []string{
+			imageRef,
+			"localhost/appliance-control-plane:bundled",
+		},
+		importedDigests: map[string]string{
+			imageRef: staleDigest,
+			"localhost/appliance-control-plane:bundled": staleDigest,
+		},
+		nextImportAdds:    [][]string{{contentDigest}},
+		nextImportDigests: []string{contentDigest},
+	}
+	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
+
+	result, err := imp.PreloadAll(context.Background(), []images.Image{
+		{
+			Name:             imageRef,
+			ArchivePath:      path,
+			ExpectedDigest:   fileDigest,
+			Category:         images.CategoryApplication,
+			RequireReference: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOfCheck(t, result.Checks, "image-preload-localhost-appliance-control-plane-166382d"); got != evidence.StatusPass {
+		t.Fatalf("expected pass status, got %s", got)
+	}
+
+	joined := strings.Join(fake.calls, ",")
+	if !strings.Contains(joined, "rm:"+imageRef) {
+		t.Fatalf("expected stale desired ref removal, got %v", fake.calls)
+	}
+	if !strings.Contains(joined, "import:"+path) {
+		t.Fatalf("expected archive import after stale removal, got %v", fake.calls)
+	}
+	if !strings.Contains(joined, "tag:"+contentDigest+">"+imageRef) {
+		t.Fatalf("expected desired ref to be retagged from imported digest, got %v", fake.calls)
 	}
 }
 

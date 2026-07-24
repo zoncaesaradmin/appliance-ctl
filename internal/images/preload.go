@@ -47,6 +47,34 @@ func (imp *Importer) Imported(ctx context.Context) (map[string]bool, error) {
 	return set, nil
 }
 
+// ImportedDigests returns the current manifest digest for each image
+// reference containerd knows about.
+func (imp *Importer) ImportedDigests(ctx context.Context) (map[string]string, error) {
+	out, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "ls")
+	if err != nil {
+		return nil, fmt.Errorf("images: list imported image digests: %w", err)
+	}
+	return parseImportedDigests(out), nil
+}
+
+func parseImportedDigests(out string) map[string]string {
+	digests := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 0 || strings.EqualFold(fields[0], "REF") {
+			continue
+		}
+		ref := fields[0]
+		for _, field := range fields[1:] {
+			if strings.HasPrefix(field, "sha256:") && len(field) == len("sha256:")+64 {
+				digests[ref] = field
+				break
+			}
+		}
+	}
+	return digests
+}
+
 // WaitReady polls the containerd store (the same call Imported uses)
 // until it responds successfully, ctx is done, or timeout elapses,
 // sleeping interval between attempts. K3s's systemd unit is reported
@@ -92,6 +120,10 @@ type PreloadResult struct {
 // report and decide whether to roll back NewlyImported.
 func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadResult, error) {
 	already, err := imp.Imported(ctx)
+	if err != nil {
+		return PreloadResult{}, err
+	}
+	importedDigests, err := imp.ImportedDigests(ctx)
 	if err != nil {
 		return PreloadResult{}, err
 	}
@@ -150,10 +182,22 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 		}
 
 		if already[img.Name] {
-			check.Status = evidence.StatusPass
-			check.Message = fmt.Sprintf("%s already imported (idempotent no-op)", img.Name)
-			result.Checks = append(result.Checks, check)
-			continue
+			if img.RequireReference && contentDigest != "" && importedDigests[img.Name] != "" && importedDigests[img.Name] != contentDigest {
+				if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "rm", img.Name); err != nil {
+					check.Status = evidence.StatusFail
+					check.Message = fmt.Sprintf("remove stale existing reference %s (%s != %s): %v", img.Name, importedDigests[img.Name], contentDigest, err)
+					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+					result.Checks = append(result.Checks, check)
+					continue
+				}
+				delete(already, img.Name)
+				delete(importedDigests, img.Name)
+			} else {
+				check.Status = evidence.StatusPass
+				check.Message = fmt.Sprintf("%s already imported (idempotent no-op)", img.Name)
+				result.Checks = append(result.Checks, check)
+				continue
+			}
 		}
 
 		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "import", "--digests", importPath); err != nil {
@@ -175,6 +219,14 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 		newRefs := newImageReferences(already, afterImport)
 		result.NewlyImported = append(result.NewlyImported, newRefs...)
 		already = afterImport
+		importedDigests, err = imp.ImportedDigests(ctx)
+		if err != nil {
+			check.Status = evidence.StatusFail
+			check.Message = fmt.Sprintf("verify imported digest %s: %v", img.Name, err)
+			failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+			result.Checks = append(result.Checks, check)
+			continue
+		}
 
 		if img.RequireReference && !afterImport[img.Name] {
 			if contentDigest != "" {
@@ -195,6 +247,14 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 				}
 				result.NewlyImported = append(result.NewlyImported, newImageReferences(already, afterTag)...)
 				already = afterTag
+				importedDigests, err = imp.ImportedDigests(ctx)
+				if err != nil {
+					check.Status = evidence.StatusFail
+					check.Message = fmt.Sprintf("verify tagged digest %s: %v", img.Name, err)
+					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+					result.Checks = append(result.Checks, check)
+					continue
+				}
 				afterImport = afterTag
 			}
 			if !afterImport[img.Name] {
