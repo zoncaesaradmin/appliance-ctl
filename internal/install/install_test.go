@@ -627,13 +627,11 @@ func TestInstall_ArtifactProfileUsesNodeNameForRegistryPublicHost(t *testing.T) 
 	}
 
 	registryValues := fcli.helmValues["appliance-registry"]
-	for _, want := range []string{
-		"realm: https://appliance.internal.example.com/api/v1/registry/token",
-		"host: appliance.internal.example.com",
-	} {
-		if !strings.Contains(registryValues, want) {
-			t.Fatalf("registry values missing %q:\n%s", want, registryValues)
-		}
+	if !strings.Contains(registryValues, "realm: https://appliance.internal.example.com/api/v1/registry/token") {
+		t.Fatalf("registry values missing realm override:\n%s", registryValues)
+	}
+	if strings.Contains(registryValues, "host: appliance.internal.example.com") {
+		t.Fatalf("registry ingress host should remain empty by default so /v2 matches appliance IP access too:\n%s", registryValues)
 	}
 	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://appliance.internal.example.com") {
 		t.Fatalf("prepared values file missing canonical origin override:\n%s", fcli.lastHelmValues)

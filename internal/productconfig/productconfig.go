@@ -225,7 +225,11 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 			"publicKeySecretName": DefaultRegistryPublicKeySecret,
 			"publicKeySecretKey":  "registry_ed25519_public.pem",
 		},
-		"ingress": map[string]any{"host": host},
+		// Keep the public /v2 route host-agnostic by default so it remains
+		// reachable through the same appliance IP/URL operators already use
+		// for the UI and API, even when the token realm still prefers a
+		// hostname-derived canonical origin.
+		"ingress": map[string]any{},
 		"persistence": map[string]any{
 			"storageClassName": "local-path", "accessMode": "ReadWriteOnce", "size": "100Gi",
 		},

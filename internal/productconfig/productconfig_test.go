@@ -75,13 +75,11 @@ func TestPrepareRegistryValuesFile_UsesProvidedPublicHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, want := range []string{
-		"realm: https://appliance.internal.example.com/api/v1/registry/token",
-		"host: appliance.internal.example.com",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("rendered registry values missing %q:\n%s", want, text)
-		}
+	if !strings.Contains(text, "realm: https://appliance.internal.example.com/api/v1/registry/token") {
+		t.Fatalf("rendered registry values missing realm override:\n%s", text)
+	}
+	if strings.Contains(text, "host: appliance.internal.example.com") {
+		t.Fatalf("registry ingress host should remain empty by default so /v2 matches appliance IP access too:\n%s", text)
 	}
 }
 
