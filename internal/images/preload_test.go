@@ -279,6 +279,55 @@ func TestPreloadAll_Idempotency(t *testing.T) {
 	}
 }
 
+func TestPreloadAll_DoesNotRetagStaleLocalAliasBeforeImport(t *testing.T) {
+	dir := t.TempDir()
+	contentDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	imageRef := "localhost/appliance-control-plane:166382d"
+	path, fileDigest := writeOCIArchive(
+		t,
+		dir,
+		"control-plane.tar",
+		"localhost/appliance-control-plane:bundled",
+		contentDigest,
+	)
+
+	fake := &fakeCtr{
+		alreadyImported: []string{
+			"localhost/appliance-control-plane:bundled",
+			"localhost/appliance-control-plane:20da399",
+		},
+		nextImportAdds: [][]string{{contentDigest}},
+	}
+	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
+
+	result, err := imp.PreloadAll(context.Background(), []images.Image{
+		{
+			Name:             imageRef,
+			ArchivePath:      path,
+			ExpectedDigest:   fileDigest,
+			Category:         images.CategoryApplication,
+			RequireReference: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOfCheck(t, result.Checks, "image-preload-localhost-appliance-control-plane-166382d"); got != evidence.StatusPass {
+		t.Fatalf("expected pass status, got %s", got)
+	}
+
+	joined := strings.Join(fake.calls, ",")
+	if !strings.Contains(joined, "import:"+path) {
+		t.Fatalf("expected archive import, got %v", fake.calls)
+	}
+	if !strings.Contains(joined, "tag:"+contentDigest+">"+imageRef) {
+		t.Fatalf("expected desired tag to come from imported digest, got %v", fake.calls)
+	}
+	if strings.Contains(joined, "tag:localhost/appliance-control-plane:bundled>"+imageRef) {
+		t.Fatalf("stale bundled alias was incorrectly reused: %v", fake.calls)
+	}
+}
+
 func TestPreloadAll_DecompressesTarZstBeforeImport(t *testing.T) {
 	dir := t.TempDir()
 	path, digest := writeCompressedArchive(t, dir, "k3s-airgap-images-amd64.tar.zst", "not-a-real-tar-but-good-enough-for-unit-test")

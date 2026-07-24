@@ -156,29 +156,6 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 			continue
 		}
 
-		// Prefer retagging content that is already in the store under an
-		// import-DATE / :bundled name over re-importing the same layers.
-		if img.RequireReference && contentDigest != "" {
-			if err := imp.ensureImageReference(ctx, img.Name, contentDigest, already); err == nil {
-				afterTag, err := imp.Imported(ctx)
-				if err != nil {
-					check.Status = evidence.StatusFail
-					check.Message = fmt.Sprintf("verify tagged reference %s: %v", img.Name, err)
-					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
-					result.Checks = append(result.Checks, check)
-					continue
-				}
-				if afterTag[img.Name] {
-					result.NewlyImported = append(result.NewlyImported, newImageReferences(already, afterTag)...)
-					already = afterTag
-					check.Status = evidence.StatusPass
-					check.Message = fmt.Sprintf("%s tagged onto existing local content %s", img.Name, contentDigest)
-					result.Checks = append(result.Checks, check)
-					continue
-				}
-			}
-		}
-
 		if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "import", "--digests", importPath); err != nil {
 			check.Status = evidence.StatusFail
 			check.Message = fmt.Sprintf("import %s: %v", img.Name, err)
@@ -195,12 +172,13 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 			result.Checks = append(result.Checks, check)
 			continue
 		}
-		result.NewlyImported = append(result.NewlyImported, newImageReferences(already, afterImport)...)
+		newRefs := newImageReferences(already, afterImport)
+		result.NewlyImported = append(result.NewlyImported, newRefs...)
 		already = afterImport
 
 		if img.RequireReference && !afterImport[img.Name] {
 			if contentDigest != "" {
-				if err := imp.ensureImageReference(ctx, img.Name, contentDigest, afterImport); err != nil {
+				if err := imp.ensureImageReference(ctx, img.Name, contentDigest, afterImport, newRefs); err != nil {
 					check.Status = evidence.StatusFail
 					check.Message = err.Error()
 					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
@@ -239,7 +217,12 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 	return result, nil
 }
 
-func (imp *Importer) ensureImageReference(ctx context.Context, desiredName, contentDigest string, present map[string]bool) error {
+func (imp *Importer) ensureImageReference(
+	ctx context.Context,
+	desiredName, contentDigest string,
+	present map[string]bool,
+	preferredSources []string,
+) error {
 	desiredName = strings.TrimSpace(desiredName)
 	if desiredName == "" {
 		return fmt.Errorf("images: desired image reference is empty")
@@ -252,7 +235,7 @@ func (imp *Importer) ensureImageReference(ctx context.Context, desiredName, cont
 	}
 
 	var lastErr error
-	for _, src := range TagCandidatesForReference(desiredName, contentDigest, present) {
+	for _, src := range TagCandidatesForReference(contentDigest, present, preferredSources) {
 		if src == desiredName {
 			continue
 		}

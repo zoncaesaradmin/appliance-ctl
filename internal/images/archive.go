@@ -171,9 +171,11 @@ func digestFromImageRef(ref string) (string, bool) {
 	return digest, true
 }
 
-// TagCandidatesForReference returns ctr image tag source candidates that may
-// already exist after import for the given desired digest-pinned name.
-func TagCandidatesForReference(desiredName, contentDigest string, present map[string]bool) []string {
+// TagCandidatesForReference returns ctr image tag source candidates that are
+// safe to use for a desired reference. Preferred sources should come from the
+// just-imported refs for the current archive so stale local aliases are not
+// silently re-used across upgrades.
+func TagCandidatesForReference(contentDigest string, present map[string]bool, preferredSources []string) []string {
 	var out []string
 	seen := map[string]bool{}
 	add := func(ref string) {
@@ -185,19 +187,13 @@ func TagCandidatesForReference(desiredName, contentDigest string, present map[st
 		out = append(out, ref)
 	}
 
-	localName := imageRefLocalName(desiredName)
-	add(localName + ":" + BundledImageTag)
-	add(localName)
+	for _, ref := range preferredSources {
+		add(ref)
+	}
 	add(contentDigest)
 	if present != nil {
 		for ref := range present {
-			if ref == desiredName {
-				continue
-			}
 			if ref == contentDigest || strings.HasSuffix(ref, "@"+contentDigest) || strings.Contains(ref, contentDigest) {
-				add(ref)
-			}
-			if localName != "" && (ref == localName || strings.HasPrefix(ref, localName+":")) {
 				add(ref)
 			}
 		}
