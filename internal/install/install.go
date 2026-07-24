@@ -170,7 +170,8 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if targetVersion == "" {
 		return nil, checks, fmt.Errorf("install: resolved bundle version is empty")
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.ZotImageReference)
+	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.TLSSANs...)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, publicHost, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -178,7 +179,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
-		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, firstString(opts.TLSSANs))
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, publicHost)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}

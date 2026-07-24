@@ -139,7 +139,8 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if hadArtifactBefore && !targetArtifact {
 		return nil, checks, fmt.Errorf("upgrade: changing from artifact-capable profile %q to non-artifact profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.ZotImageReference)
+	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.TLSSANs...)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, publicHost, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -147,7 +148,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if targetArtifact {
-		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, firstUpgradeString(opts.TLSSANs))
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, publicHost)
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}

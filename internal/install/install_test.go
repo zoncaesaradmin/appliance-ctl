@@ -635,6 +635,9 @@ func TestInstall_ArtifactProfileUsesNodeNameForRegistryPublicHost(t *testing.T) 
 			t.Fatalf("registry values missing %q:\n%s", want, registryValues)
 		}
 	}
+	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://appliance.internal.example.com") {
+		t.Fatalf("prepared values file missing canonical origin override:\n%s", fcli.lastHelmValues)
+	}
 	if strings.Contains(registryValues, "appliance.local") {
 		t.Fatalf("registry values should not fall back to appliance.local:\n%s", registryValues)
 	}

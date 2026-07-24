@@ -87,7 +87,7 @@ func ResolveApplianceProfile(requested, current string) (string, error) {
 	return profile, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference string, registry ...string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, publicHost string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfile(profile, "")
 	if err != nil {
 		return "", func() {}, err
@@ -128,6 +128,9 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
+	if host := strings.TrimSpace(publicHost); host != "" {
+		config["canonicalOrigin"] = "https://" + host
+	}
 	artifactEnabled := HasCapability(effectiveProfile, CapabilityArtifact)
 	if artifactEnabled {
 		config["zotBaseURL"] = DefaultZotBaseURL
