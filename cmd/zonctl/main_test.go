@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/support"
 )
@@ -183,6 +184,26 @@ func TestRun_PreflightProducesSchemaShapedResult(t *testing.T) {
 	})
 	if !strings.Contains(out, `"overallStatus"`) || !strings.Contains(out, `"evidenceReportId"`) {
 		t.Errorf("expected preflight result data to include overallStatus and evidenceReportId, got: %s", out)
+	}
+}
+
+func TestWithFailureDiagnosticsIncludesEvidencePathAndFirstDiagnostic(t *testing.T) {
+	msg := withFailureDiagnostics(
+		"install: helm failed",
+		[]evidence.Check{
+			{ID: "prep", Status: evidence.StatusPass, Message: "ok"},
+			{ID: "helm-release-appliance-pod-logs", Status: evidence.StatusOperatorAction, Message: "line one\nline two"},
+		},
+		"/var/lib/zon/state/evidence/evidence-test.json",
+	)
+	for _, want := range []string{
+		"install: helm failed",
+		"evidence report: /var/lib/zon/state/evidence/evidence-test.json",
+		"first diagnostic: helm-release-appliance-pod-logs: line one line two",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("message %q missing %q", msg, want)
+		}
 	}
 }
 

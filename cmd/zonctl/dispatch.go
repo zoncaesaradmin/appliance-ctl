@@ -240,16 +240,19 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	if err != nil {
 		logger.Error("failed to resolve install source", "error", err)
 		reportID := "evidence-" + txn.ID
+		reportPath := ""
 		if len(resolveChecks) > 0 {
 			if report, buildErr := evidence.BuildReport("install", installVersion, reportID, resolveChecks, time.Now()); buildErr == nil {
 				if !opts.dryRun {
 					if persistErr := persistEvidence(opts.stateDir, reportID, report); persistErr != nil {
 						logger.Warn("failed to persist evidence report", "error", persistErr)
+					} else {
+						reportPath = evidenceReportPath(opts.stateDir, reportID)
 					}
 				}
 			}
 		}
-		return finish(result, "failed", 1, "install: "+err.Error(), nil)
+		return finish(result, "failed", 1, withFailureDiagnostics("install: "+err.Error(), resolveChecks, reportPath), nil)
 	}
 	installOpts := install.Options{
 		ApplianceVersion:       version,
@@ -282,10 +285,13 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	installed, checks, err := orch.Install(ctx, source, installOpts)
 
 	reportID := "evidence-" + txn.ID
+	reportPath := ""
 	if report, buildErr := evidence.BuildReport("install", installVersion, reportID, checks, time.Now()); buildErr == nil {
 		if !opts.dryRun {
 			if persistErr := persistEvidence(opts.stateDir, reportID, report); persistErr != nil {
 				logger.Warn("failed to persist evidence report", "error", persistErr)
+			} else {
+				reportPath = evidenceReportPath(opts.stateDir, reportID)
 			}
 		}
 	} else {
@@ -294,7 +300,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 
 	if err != nil {
 		logger.Error("install failed", "error", err, "transactionId", txn.ID)
-		return finish(result, "failed", 1, err.Error(), nil)
+		return finish(result, "failed", 1, withFailureDiagnostics(err.Error(), checks, reportPath), nil)
 	}
 
 	logger.Info("install complete", "transactionId", txn.ID, "installedVersion", installed.InstalledVersion)
@@ -313,6 +319,41 @@ func persistEvidence(stateDir, reportID string, report []byte) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, reportID+".json"), report, 0o640)
+}
+
+func evidenceReportPath(stateDir, reportID string) string {
+	return filepath.Join(stateDir, "evidence", reportID+".json")
+}
+
+func withFailureDiagnostics(message string, checks []evidence.Check, reportPath string) string {
+	message = strings.TrimSpace(message)
+	if reportPath != "" {
+		message += "; evidence report: " + reportPath
+	}
+	if summary := firstOperatorActionSummary(checks); summary != "" {
+		message += "; first diagnostic: " + summary
+	}
+	return message
+}
+
+func firstOperatorActionSummary(checks []evidence.Check) string {
+	for _, check := range checks {
+		if check.Status != evidence.StatusOperatorAction {
+			continue
+		}
+		msg := strings.Join(strings.Fields(check.Message), " ")
+		if msg == "" {
+			msg = check.ID
+		} else {
+			msg = check.ID + ": " + msg
+		}
+		const limit = 320
+		if len(msg) > limit {
+			return msg[:limit] + "..."
+		}
+		return msg
+	}
+	return ""
 }
 
 func finish(result commandResult, status string, exitCode int, message string, data json.RawMessage) commandResult {
