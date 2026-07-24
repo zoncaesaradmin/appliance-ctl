@@ -2,6 +2,7 @@ package bootstrapadmin_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,5 +35,30 @@ func TestInit_ReturnedCheckSatisfiesEvidenceSchema(t *testing.T) {
 
 	if _, buildErr := evidence.BuildReport("install", "0.1.0", "evidence-test", []evidence.Check{check}, time.Now()); buildErr != nil {
 		t.Fatalf("expected the returned check to satisfy the evidence.v1 schema, got: %v", buildErr)
+	}
+}
+
+func TestInit_ExecsRenderedControlPlaneDeploymentName(t *testing.T) {
+	var gotArgs []string
+	run := func(_ context.Context, _ []byte, _ string, args ...string) (string, error) {
+		gotArgs = append([]string{}, args...)
+		return "", nil
+	}
+
+	_, err := bootstrapadmin.Init(context.Background(), bootstrapadmin.Options{
+		Run:           run,
+		Kubeconfig:    "/etc/rancher/k3s/k3s.yaml",
+		Namespace:     "appliance-system",
+		ReleaseName:   "appliance",
+		AdminUsername: "admin",
+		AdminPassword: []byte("a-fully-valid-password"),
+	})
+	if err != nil {
+		t.Fatalf("expected Init to succeed with a working runner, got: %v", err)
+	}
+
+	joined := strings.Join(gotArgs, " ")
+	if !strings.Contains(joined, "exec -i deploy/control-plane --") {
+		t.Fatalf("bootstrap exec target = %q, want deploy/control-plane", joined)
 	}
 }

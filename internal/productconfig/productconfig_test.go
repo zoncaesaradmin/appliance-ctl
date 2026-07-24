@@ -57,6 +57,7 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 		!strings.Contains(text, "accessMode: ReadWriteOnce") ||
 		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) ||
 		!strings.Contains(text, "kubernetes.io/metadata.name: appliance-system") ||
+		!strings.Contains(text, "app.kubernetes.io/name: control-plane") ||
 		!strings.Contains(text, "hostPath: /data/zon/logs/zot") {
 		t.Fatalf("unexpected registry values:\n%s", text)
 	}

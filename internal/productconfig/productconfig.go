@@ -232,7 +232,10 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 				"kubernetes.io/metadata.name": "appliance-system",
 			},
 			"controlPlanePodLabels": map[string]any{
-				"app.kubernetes.io/name": "appliance-control-plane",
+				// appliance-control-plane's chart helper trims the
+				// "appliance-" prefix, so the rendered control-plane pod
+				// label is "control-plane", not the chart name.
+				"app.kubernetes.io/name": "control-plane",
 			},
 			// K3s ships Traefik in kube-system; empty selectors leave /v2 unreachable.
 			"traefikNamespaceLabel": map[string]any{

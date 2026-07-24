@@ -10,7 +10,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 )
 
-const chartName = "appliance-control-plane"
+const deploymentName = "control-plane"
 
 // Options describes the in-cluster first-admin bootstrap call zonctl runs
 // after the chart rollout is ready.
@@ -63,7 +63,7 @@ func Init(ctx context.Context, opts Options) (evidence.Check, error) {
 		return check, fmt.Errorf("bootstrap: administrator password is required")
 	}
 
-	deployment := fmt.Sprintf("deploy/%s-%s", opts.ReleaseName, chartName)
+	deployment := "deploy/" + deploymentName
 	args := []string{
 		"--kubeconfig", opts.Kubeconfig,
 		"--namespace", opts.Namespace,
