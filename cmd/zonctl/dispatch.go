@@ -17,6 +17,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/manifest"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
 
@@ -214,16 +215,16 @@ type resolvedInstallSource struct {
 	checks   []evidence.Check
 }
 
-func (s resolvedInstallSource) Resolve(context.Context) (install.Resolved, []evidence.Check, error) {
+func (s resolvedInstallSource) Resolve(context.Context, string) (install.Resolved, []evidence.Check, error) {
 	return s.resolved, s.checks, nil
 }
 
-func resolveVerifiedInstallSource(ctx context.Context, opts cliOptions) (install.Source, install.Resolved, []evidence.Check, error) {
+func resolveVerifiedInstallSource(ctx context.Context, opts cliOptions, effectiveProfile string) (install.Source, install.Resolved, []evidence.Check, error) {
 	source, err := resolveInstallSource(opts)
 	if err != nil {
 		return nil, install.Resolved{}, nil, err
 	}
-	resolved, checks, err := source.Resolve(ctx)
+	resolved, checks, err := source.Resolve(ctx, effectiveProfile)
 	if err != nil {
 		return nil, resolved, checks, err
 	}
@@ -231,7 +232,11 @@ func resolveVerifiedInstallSource(ctx context.Context, opts cliOptions) (install
 }
 
 func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction, priorInstallAttempted bool, logger *slog.Logger, result commandResult) commandResult {
-	source, resolved, resolveChecks, err := resolveVerifiedInstallSource(ctx, opts)
+	effectiveProfile, profileErr := productconfig.ResolveApplianceProfile(opts.applianceProfile, "")
+	if profileErr != nil {
+		return finish(result, "failed", 1, "install: "+profileErr.Error(), nil)
+	}
+	source, resolved, resolveChecks, err := resolveVerifiedInstallSource(ctx, opts, effectiveProfile)
 	installVersion := version
 	if trimmed := strings.TrimSpace(resolved.BundleVersion); trimmed != "" {
 		installVersion = trimmed

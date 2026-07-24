@@ -10,11 +10,25 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/upgrade"
 )
 
 func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction, logger *slog.Logger, result commandResult) commandResult {
-	source, resolved, resolveChecks, err := resolveVerifiedInstallSource(ctx, opts)
+	installed, loadErr := state.Load(installedStatePath(opts.stateDir))
+	if loadErr != nil {
+		return finish(result, "failed", 1, "upgrade: "+loadErr.Error(), nil)
+	}
+	currentProfile := ""
+	if installed != nil {
+		currentProfile = installed.ApplianceProfile
+	}
+	effectiveProfile, profileErr := productconfig.ResolveApplianceProfile(opts.applianceProfile, currentProfile)
+	if profileErr != nil {
+		return finish(result, "failed", 1, "upgrade: "+profileErr.Error(), nil)
+	}
+	source, resolved, resolveChecks, err := resolveVerifiedInstallSource(ctx, opts, effectiveProfile)
 	upgradeVersion := version
 	if trimmed := strings.TrimSpace(resolved.BundleVersion); trimmed != "" {
 		upgradeVersion = trimmed

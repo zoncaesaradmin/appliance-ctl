@@ -154,7 +154,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return joinCleanupError(primary, cleanup)
 	}
 
-	resolved, resolveChecks, err := source.Resolve(ctx)
+	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, "")
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
+	resolved, resolveChecks, err := source.Resolve(ctx, effectiveProfile)
 	checks = append(checks, resolveChecks...)
 	if err != nil {
 		return nil, checks, err
@@ -165,11 +169,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	if targetVersion == "" {
 		return nil, checks, fmt.Errorf("install: resolved bundle version is empty")
-	}
-
-	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, "")
-	if err != nil {
-		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.ZotImageReference)
 	if err != nil {

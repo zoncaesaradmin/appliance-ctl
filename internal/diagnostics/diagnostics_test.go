@@ -119,6 +119,7 @@ func TestEvaluate_ChartAndIngressChecksSatisfyEvidenceSchema(t *testing.T) {
 		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
 		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance is deployed"},
+		RegistryHealth: diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance-registry is deployed"},
 		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace appliance-system"},
 	})
 	if _, err := evidence.BuildReport("status", "2.4.0", "evidence-test", checks, time.Now()); err != nil {

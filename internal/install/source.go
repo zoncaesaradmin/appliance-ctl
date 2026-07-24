@@ -10,6 +10,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/bundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
 
@@ -47,8 +48,12 @@ type Resolved struct {
 // Source acquires and verifies every artifact Install needs, returning
 // local paths. V1 uses a signed local bundle only, but the interface
 // keeps the orchestration logic decoupled from bundle layout details.
+// The effectiveProfile is the already-resolved target appliance profile
+// so source resolution can ignore workflow-only artifacts for
+// non-workflow profiles while still failing closed for profiles that
+// actually require those artifacts.
 type Source interface {
-	Resolve(ctx context.Context) (Resolved, []evidence.Check, error)
+	Resolve(ctx context.Context, effectiveProfile string) (Resolved, []evidence.Check, error)
 }
 
 // OfflineSource resolves artifacts from a verified local air-gap bundle.
@@ -57,7 +62,12 @@ type OfflineSource struct {
 	PublicKey *verify.PublicKey
 }
 
-func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check, error) {
+func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Resolved, []evidence.Check, error) {
+	effectiveProfile, err := productconfig.ResolveApplianceProfile(requestedProfile, "")
+	if err != nil {
+		return Resolved{}, nil, fmt.Errorf("install: %w", err)
+	}
+
 	b, checks, err := bundle.Load(s.BundleDir, s.PublicKey)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -71,7 +81,15 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
-	argoChartPath := optionalArgoChartPath(b)
+	argoChartPath := ""
+	argoCRDPaths := []string(nil)
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows) {
+		argoChartPath = optionalArgoChartPath(b)
+		argoCRDPaths = crdPaths(b)
+		if argoChartPath != "" && len(argoCRDPaths) == 0 {
+			return Resolved{}, checks, fmt.Errorf("install: bundle has an argo-workflows chart but no argo-crds artifact; the workflow controller cannot start without its CRDs")
+		}
+	}
 	registryChartPath := ""
 	if strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
 		registryChartPath, err = requiredRegistryChartPath(b)
@@ -86,10 +104,6 @@ func (s OfflineSource) Resolve(ctx context.Context) (Resolved, []evidence.Check,
 	configurationPath, err := configurationPath(b)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
-	}
-	argoCRDPaths := crdPaths(b)
-	if argoChartPath != "" && len(argoCRDPaths) == 0 {
-		return Resolved{}, checks, fmt.Errorf("install: bundle has an argo-workflows chart but no argo-crds artifact; the workflow controller cannot start without its CRDs")
 	}
 
 	var k3sImages, ociImages []images.Image

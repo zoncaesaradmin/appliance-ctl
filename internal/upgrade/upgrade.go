@@ -115,7 +115,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: installed-state does not record appliance ownership")
 	}
 
-	resolved, resolveChecks, err := source.Resolve(ctx)
+	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, installed.ApplianceProfile)
+	if err != nil {
+		return nil, checks, fmt.Errorf("upgrade: %w", err)
+	}
+	resolved, resolveChecks, err := source.Resolve(ctx, effectiveProfile)
 	checks = append(checks, resolveChecks...)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
@@ -128,11 +132,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: resolved bundle version is empty")
 	}
 	sameVersionRefresh := strings.TrimSpace(installed.InstalledVersion) == targetVersion
-
-	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, installed.ApplianceProfile)
-	if err != nil {
-		return nil, checks, fmt.Errorf("upgrade: %w", err)
-	}
 	hadArtifactBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact)
 	hadWorkflowsBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityWorkflows)
 	targetArtifact := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact)

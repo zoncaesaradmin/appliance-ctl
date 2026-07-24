@@ -103,7 +103,7 @@ func Evaluate(sig Signals) []evidence.Check {
 			status = evidence.StatusFail
 		}
 		checks = append(checks, evidence.Check{
-			ID: "registry-release-health", Category: "registry", Status: status,
+			ID: "registry-release-health", Category: "chart", Status: status,
 			Message: sig.RegistryHealth.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
 		})
 	}
