@@ -37,6 +37,7 @@ type Compatibility struct {
 	ChartVersion string
 	ArgoVersion  string
 	ZotVersion   string
+	DNSVersion   string
 	// SupportedUpgradeSources lists appliance versions this release may
 	// upgrade from (the N-1 policy).
 	SupportedUpgradeSources []string
@@ -62,6 +63,7 @@ type manifestDoc struct {
 		ChartVersion            string   `json:"chartVersion"`
 		ArgoVersion             string   `json:"argoVersion"`
 		ZotVersion              string   `json:"zotVersion"`
+		DNSVersion              string   `json:"dnsVersion"`
 		SupportedUpgradeSources []string `json:"supportedUpgradeSources"`
 	} `json:"compatibility"`
 	SigningKeyID string `json:"signingKeyId"`
@@ -116,6 +118,7 @@ func Load(rootDir string, pub *verify.PublicKey) (*Bundle, []evidence.Check, err
 			ChartVersion:            doc.Compatibility.ChartVersion,
 			ArgoVersion:             doc.Compatibility.ArgoVersion,
 			ZotVersion:              doc.Compatibility.ZotVersion,
+			DNSVersion:              doc.Compatibility.DNSVersion,
 			SupportedUpgradeSources: doc.Compatibility.SupportedUpgradeSources,
 		},
 	}

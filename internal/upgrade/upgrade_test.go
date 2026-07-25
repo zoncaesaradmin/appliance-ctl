@@ -41,12 +41,14 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion, ""},
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion, ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart", ""},
+		{"charts/appliance-dns-1.14.4.tgz", "chart", "fake dns chart", ""},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image " + spec.bundleVersion, "internal/control-plane:" + spec.bundleVersion},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image " + spec.bundleVersion, "internal/appliance-ui:" + spec.bundleVersion},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/automation-dev.tar", "oci-images", "fake automation-dev builder image " + spec.bundleVersion, "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/zot.tar", "oci-images", "fake zot image " + spec.bundleVersion, "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		{"oci-images/appliance-coredns.tar", "oci-images", "fake appliance coredns image " + spec.bundleVersion, "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 	}
 
 	var manifestEntries []map[string]any
@@ -79,6 +81,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		"compatibility": map[string]any{
 			"k3sVersion": spec.k3sVersion, "chartVersion": spec.chartVersion,
 			"zotVersion":              "2.1.7",
+			"dnsVersion":              "1.14.4",
 			"supportedUpgradeSources": spec.supportedSources,
 		},
 		"signingKeyId": "release-signing-key",
@@ -588,55 +591,62 @@ func TestUpgrade_ArtifactProfileUsesRequestedPublicHostForRegistry(t *testing.T)
 }
 
 func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
-	bundleDir, pub := buildBundle(t, bundleSpec{
-		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
-		supportedSources: []string{"2.3.0"},
-	})
+	for _, profile := range []string{"storage", "storage-lan-dns"} {
+		t.Run(profile, func(t *testing.T) {
+			env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+			bundleDir, pub := buildBundle(t, bundleSpec{
+				bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+				supportedSources: []string{"2.3.0"},
+			})
 
-	fake := &fakeK3s{}
-	fcli := &fakeCLI{}
-	ownedPaths := map[string][2]int{}
-	orch := &upgrade.Orchestrator{
-		K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run,
-		EnsureOwnedDir: func(path string, uid, gid int, _ os.FileMode) error {
-			ownedPaths[path] = [2]int{uid, gid}
-			return nil
-		},
-	}
+			fake := &fakeK3s{}
+			fcli := &fakeCLI{}
+			ownedPaths := map[string][2]int{}
+			orch := &upgrade.Orchestrator{
+				K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run,
+				EnsureOwnedDir: func(path string, uid, gid int, _ os.FileMode) error {
+					ownedPaths[path] = [2]int{uid, gid}
+					return nil
+				},
+			}
 
-	opts := env.options("2.4.0")
-	opts.ApplianceProfile = "storage"
-	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
-	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
-		t.Fatalf("expected profile transition upgrade to succeed, got: %v", err)
-	}
+			opts := env.options("2.4.0")
+			opts.ApplianceProfile = profile
+			offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+			if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
+				t.Fatalf("expected profile transition upgrade to succeed, got: %v", err)
+			}
 
-	var sawArgoUninstall bool
-	for _, call := range fcli.calls {
-		if strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall argo-workflows") {
-			sawArgoUninstall = true
-			break
-		}
-	}
-	if !sawArgoUninstall {
-		t.Fatalf("expected workflows release removal when switching to storage profile, got calls: %v", fcli.calls)
-	}
-	wantOwnedPaths := map[string][2]int{
-		hostdirs.ControlPlaneLogDir: {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:           {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.RegistryLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-	}
-	if len(ownedPaths) != len(wantOwnedPaths) {
-		t.Fatalf("expected only storage-profile log directory prep %v, got %v", wantOwnedPaths, ownedPaths)
-	}
-	for path, want := range wantOwnedPaths {
-		if got, ok := ownedPaths[path]; !ok || got != want {
-			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
-		}
-	}
-	if _, ok := ownedPaths[hostdirs.ArgoControllerLogDir]; ok {
-		t.Fatalf("storage upgrade must not prepare %s: %v", hostdirs.ArgoControllerLogDir, ownedPaths)
+			var sawArgoUninstall bool
+			for _, call := range fcli.calls {
+				if strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall argo-workflows") {
+					sawArgoUninstall = true
+					break
+				}
+			}
+			if !sawArgoUninstall {
+				t.Fatalf("expected workflows release removal when switching to %s profile, got calls: %v", profile, fcli.calls)
+			}
+			wantOwnedPaths := map[string][2]int{
+				hostdirs.ControlPlaneLogDir: {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.UILogDir:           {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.RegistryLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+			}
+			if profile == "storage-lan-dns" {
+				wantOwnedPaths[hostdirs.DNSLogDir] = [2]int{hostdirs.DNSDirOwnerUID, hostdirs.ApplianceSharedFSGID}
+			}
+			if len(ownedPaths) != len(wantOwnedPaths) {
+				t.Fatalf("expected only %s-profile log directory prep %v, got %v", profile, wantOwnedPaths, ownedPaths)
+			}
+			for path, want := range wantOwnedPaths {
+				if got, ok := ownedPaths[path]; !ok || got != want {
+					t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
+				}
+			}
+			if _, ok := ownedPaths[hostdirs.ArgoControllerLogDir]; ok {
+				t.Fatalf("%s upgrade must not prepare %s: %v", profile, hostdirs.ArgoControllerLogDir, ownedPaths)
+			}
+		})
 	}
 }
 
@@ -660,6 +670,32 @@ func TestUpgrade_RefusesArtifactCapabilityRemoval(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not supported in place") {
 		t.Fatalf("expected clear refusal, got: %v", err)
+	}
+	if len(fake.calls) != 0 || len(fcli.calls) != 0 {
+		t.Fatalf("expected no mutations before refusal, got k3s=%v cli=%v", fake.calls, fcli.calls)
+	}
+}
+
+func TestUpgrade_RefusesDNSCapabilityRemoval(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "lan-dns")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	opts := env.options("2.4.0")
+	opts.ApplianceProfile = "core"
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	_, _, err := orch.Upgrade(context.Background(), offlineSource, opts)
+	if err == nil {
+		t.Fatal("expected dns capability removal to be refused")
+	}
+	if !strings.Contains(err.Error(), "not supported in place") || !strings.Contains(err.Error(), "dns-capable") {
+		t.Fatalf("expected clear dns refusal, got: %v", err)
 	}
 	if len(fake.calls) != 0 || len(fcli.calls) != 0 {
 		t.Fatalf("expected no mutations before refusal, got k3s=%v cli=%v", fake.calls, fcli.calls)
@@ -924,6 +960,8 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
 	case "zot.tar":
 		return []string{"registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	case "appliance-coredns.tar":
+		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 	default:
 		return nil
 	}

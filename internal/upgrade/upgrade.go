@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,6 +68,8 @@ const (
 	registryNamespace   = "registry"
 	argoReleaseName     = "argo-workflows"
 	argoNamespace       = "workflows"
+	dnsReleaseName      = "appliance-dns"
+	dnsNamespace        = "dns"
 )
 
 // Orchestrator holds the injectable adapters Upgrade drives.
@@ -135,10 +138,15 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	sameVersionRefresh := strings.TrimSpace(installed.InstalledVersion) == targetVersion
 	hadArtifactBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact)
 	hadWorkflowsBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityWorkflows)
+	hadDNSBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityDNS)
 	targetArtifact := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact)
 	targetWorkflows := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows)
+	targetDNS := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS)
 	if hadArtifactBefore && !targetArtifact {
 		return nil, checks, fmt.Errorf("upgrade: changing from artifact-capable profile %q to non-artifact profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
+	}
+	if hadDNSBefore && !targetDNS {
+		return nil, checks, fmt.Errorf("upgrade: changing from dns-capable profile %q to non-dns profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
 	}
 	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.PublicHost, opts.TLSSANs...)
 	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, publicHost, resolved.ZotImageReference)
@@ -154,6 +162,15 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
 		defer cleanupRegistryValues()
+	}
+	dnsValuesPath := ""
+	cleanupDNSValues := func() {}
+	if targetDNS {
+		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, publicHost, preferredUpgradeLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...))
+		if err != nil {
+			return nil, checks, fmt.Errorf("upgrade: %w", err)
+		}
+		defer cleanupDNSValues()
 	}
 
 	// Gated on the Build capability, not the "builder" profile name
@@ -321,7 +338,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
-	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetWorkflows) {
+	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetWorkflows, targetDNS) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare service log directory %s: %w", dir.Path, err), rollback)
 			checks = append(checks, rollbackChecks...)
@@ -360,6 +377,31 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 					_ = applier.Uninstall(ctx, registryReleaseName)
 				} else {
 					_ = applier.Rollback(ctx, registryReleaseName, false)
+				}
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+	if targetDNS {
+		dnsCheck, dnsErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
+		})
+		checks = append(checks, dnsCheck)
+		if dnsErr != nil {
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+				Name:       dnsReleaseName,
+				ChartPath:  resolved.DNSChartPath,
+				Namespace:  dnsNamespace,
+				ValuesPath: dnsValuesPath,
+			})...)
+			dnsWasFreshInstall := !hadDNSBefore
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", dnsErr), func() []evidence.Check {
+				if dnsWasFreshInstall {
+					_ = applier.Uninstall(ctx, dnsReleaseName)
+				} else {
+					_ = applier.Rollback(ctx, dnsReleaseName, false)
 				}
 				return rollback()
 			})
@@ -440,6 +482,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
 			ZotVersion:   upgradeComponentZotVersion(effectiveProfile, resolved.Compatibility.ZotVersion),
+			DNSVersion:   upgradeComponentDNSVersion(effectiveProfile, resolved.Compatibility.DNSVersion),
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -481,6 +524,10 @@ func upgradeProfileOCIImages(all []images.Image, profile string) []images.Image 
 				!productconfig.HasCapability(profile, productconfig.CapabilityWorkflows) {
 				continue
 			}
+			if strings.HasPrefix(image.Name, "registry.local/coredns@") &&
+				!productconfig.HasCapability(profile, productconfig.CapabilityDNS) {
+				continue
+			}
 		}
 		out = append(out, image)
 	}
@@ -490,6 +537,43 @@ func upgradeProfileOCIImages(all []images.Image, profile string) []images.Image 
 func upgradeComponentZotVersion(profile, version string) string {
 	if productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
 		return version
+	}
+	return ""
+}
+
+func upgradeComponentDNSVersion(profile, version string) string {
+	if productconfig.HasCapability(profile, productconfig.CapabilityDNS) {
+		return version
+	}
+	return ""
+}
+
+// preferredUpgradeLocalIPv4 mirrors internal/install's preferredLocalIPv4:
+// the first candidate that parses as a literal IPv4 address seeds LAN
+// DNS's localZone A record on upgrade too, so re-running with the same
+// host options keeps producing the same record.
+func preferredUpgradeLocalIPv4(candidates ...string) string {
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if ip := net.ParseIP(candidate); ip != nil && ip.To4() != nil {
+			return candidate
+		}
+	}
+	ifaces, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range ifaces {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP == nil || ipNet.IP.IsLoopback() {
+			continue
+		}
+		if v4 := ipNet.IP.To4(); v4 != nil {
+			return v4.String()
+		}
 	}
 	return ""
 }

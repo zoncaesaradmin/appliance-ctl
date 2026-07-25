@@ -31,6 +31,7 @@ type Signals struct {
 	ChartHealth     ChartHealth
 	RegistryHealth  ChartHealth
 	RegistryStorage ChartHealth
+	DNSHealth       ChartHealth
 	IngressHealth   IngressHealth
 }
 
@@ -115,6 +116,16 @@ func Evaluate(sig Signals) []evidence.Check {
 		checks = append(checks, evidence.Check{
 			ID: "registry-storage-bound", Category: "storage", Status: status,
 			Message: sig.RegistryStorage.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	if sig.DNSHealth.Checked {
+		status := evidence.StatusPass
+		if !sig.DNSHealth.Healthy {
+			status = evidence.StatusFail
+		}
+		checks = append(checks, evidence.Check{
+			ID: "dns-release-health", Category: "chart", Status: status,
+			Message: sig.DNSHealth.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
 		})
 	}
 

@@ -445,14 +445,16 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 		BundleDir: dir,
 		PublicKey: &verify.PublicKey{ID: "release-signing-key", Key: pub},
 	}
-	resolved, _, err := source.Resolve(context.Background(), "storage")
-	if err != nil {
-		t.Fatalf("expected storage profile to ignore irrelevant Argo bundle artifacts, got: %v", err)
-	}
-	if resolved.ArgoChartPath != "" {
-		t.Fatalf("expected storage profile to ignore bundled Argo chart, got %s", resolved.ArgoChartPath)
-	}
-	if len(resolved.ArgoCRDPaths) != 0 {
-		t.Fatalf("expected storage profile to ignore bundled Argo CRDs, got %v", resolved.ArgoCRDPaths)
+	for _, profile := range []string{"storage", "storage-lan-dns"} {
+		resolved, _, err := source.Resolve(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("expected %s profile to ignore irrelevant Argo bundle artifacts, got: %v", profile, err)
+		}
+		if resolved.ArgoChartPath != "" {
+			t.Fatalf("expected %s profile to ignore bundled Argo chart, got %s", profile, resolved.ArgoChartPath)
+		}
+		if len(resolved.ArgoCRDPaths) != 0 {
+			t.Fatalf("expected %s profile to ignore bundled Argo CRDs, got %v", profile, resolved.ArgoCRDPaths)
+		}
 	}
 }

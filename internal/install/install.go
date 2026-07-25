@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,8 @@ const (
 	argoNamespace               = "workflows"
 	registryReleaseName         = "appliance-registry"
 	registryNamespace           = "registry"
+	dnsReleaseName              = "appliance-dns"
+	dnsNamespace                = "dns"
 )
 
 // Options fully parameterizes a fresh install. Every path is explicit
@@ -186,6 +189,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		defer cleanupRegistryValues()
 	}
+	dnsValuesPath := ""
+	cleanupDNSValues := func() {}
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
+		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, publicHost, preferredLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...))
+		if err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
+		defer cleanupDNSValues()
+	}
 
 	// Gated on the Build capability, not the "builder" profile name
 	// directly: more than one profile can enable Build, and this
@@ -212,7 +224,16 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: detect k3s service: %w", err)
 	}
 
-	facts, err := o.DetectHost(host.Options{DataDir: opts.K3sDataDir, RequiredPorts: preflight.RequiredPorts})
+	requiredPorts := append([]int{}, preflight.RequiredPorts...)
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
+		// LAN DNS runs with hostNetwork so it can answer port 53 directly
+		// on the host's own interfaces; a pre-existing resolver (e.g.
+		// systemd-resolved still bound to *:53) must be caught here,
+		// before any host mutation, not discovered later as an opaque
+		// CoreDNS CrashLoopBackOff.
+		requiredPorts = append(requiredPorts, 53)
+	}
+	facts, err := o.DetectHost(host.Options{DataDir: opts.K3sDataDir, RequiredPorts: requiredPorts})
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: detect host: %w", err)
 	}
@@ -368,6 +389,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	for _, dir := range hostdirs.ServiceLogDirs(
 		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact),
 		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows),
+		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS),
 	) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare service log directory %s: %w", dir.Path, err)
@@ -405,6 +427,31 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
 		}
 		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, registryReleaseName) })
+	}
+
+	// LAN DNS installs before the control plane, just like the registry
+	// above: the control plane's own config carries a dnsReadyURL health
+	// check (see productconfig.PrepareValuesFile) that assumes the
+	// release already exists by the time the main chart's pods start.
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
+		dnsCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
+		})
+		checks = append(checks, dnsCheck)
+		if applyErr != nil {
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+				Name:       dnsReleaseName,
+				ChartPath:  resolved.DNSChartPath,
+				Namespace:  dnsNamespace,
+				ValuesPath: dnsValuesPath,
+			})...)
+			var cleanupErr error
+			if !opts.PreserveFailedState {
+				cleanupErr = errors.Join(applier.Uninstall(ctx, dnsReleaseName), runRollbacks())
+			}
+			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
+		}
+		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, dnsReleaseName) })
 	}
 
 	clusterRun := o.ClusterRun
@@ -501,6 +548,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
 			ZotVersion:   componentZotVersion(effectiveProfile, resolved.Compatibility.ZotVersion),
+			DNSVersion:   componentDNSVersion(effectiveProfile, resolved.Compatibility.DNSVersion),
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -537,6 +585,10 @@ func profileOCIImages(all []images.Image, profile string) []images.Image {
 				!productconfig.HasCapability(profile, productconfig.CapabilityWorkflows) {
 				continue
 			}
+			if strings.HasPrefix(image.Name, "registry.local/coredns@") &&
+				!productconfig.HasCapability(profile, productconfig.CapabilityDNS) {
+				continue
+			}
 		}
 		out = append(out, image)
 	}
@@ -546,6 +598,44 @@ func profileOCIImages(all []images.Image, profile string) []images.Image {
 func componentZotVersion(profile, version string) string {
 	if productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
 		return version
+	}
+	return ""
+}
+
+func componentDNSVersion(profile, version string) string {
+	if productconfig.HasCapability(profile, productconfig.CapabilityDNS) {
+		return version
+	}
+	return ""
+}
+
+// preferredLocalIPv4 returns the first candidate that parses as a literal
+// IPv4 address, for seeding LAN DNS's localZone A record. Hostnames and IPv6
+// literals are skipped: CoreDNS's own name resolution can't yet be relied on
+// to resolve the appliance's own hostname (that's the record being created),
+// and the LAN clients this record serves are assumed to be IPv4-only.
+func preferredLocalIPv4(candidates ...string) string {
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if ip := net.ParseIP(candidate); ip != nil && ip.To4() != nil {
+			return candidate
+		}
+	}
+	ifaces, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range ifaces {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP == nil || ipNet.IP.IsLoopback() {
+			continue
+		}
+		if v4 := ipNet.IP.To4(); v4 != nil {
+			return v4.String()
+		}
 	}
 	return ""
 }

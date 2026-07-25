@@ -13,6 +13,7 @@ const (
 	workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	builderImage              = "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
 	zotImage                  = "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
 
 func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T) {
@@ -39,6 +40,60 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered values missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
+	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, "", "", "", "appliance.internal.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(rendered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"applianceProfile: lan-dns",
+		"dnsReadyURL: " + productconfig.DefaultDNSReadyURL,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered values missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "zotBaseURL:") {
+		t.Fatalf("lan-dns must not inject zotBaseURL:\n%s", text)
+	}
+}
+
+func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
+	path, cleanup, err := productconfig.PrepareDNSValuesFile(t.TempDir(), corednsImage, "appliance.internal.example.com", "192.0.2.10", "1.1.1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		"hostNetwork: true",
+		"hostname: appliance",
+		"ipv4: 192.0.2.10",
+		"name: appliance.local",
+		"hostPath: /data/zon/logs/dns",
+		"- 1.1.1.1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered dns values missing %q:\n%s", want, text)
 		}
 	}
 }
@@ -112,6 +167,20 @@ func TestResolveApplianceProfile_PreservesCurrentWhenRequestedEmpty(t *testing.T
 	}
 	if profile != productconfig.ProfileStorage {
 		t.Fatalf("profile = %q, want %q", profile, productconfig.ProfileStorage)
+	}
+}
+
+func TestResolveApplianceProfile_AcceptsLANDNSProfiles(t *testing.T) {
+	for _, requested := range []string{"lan-dns", "storage-lan-dns"} {
+		t.Run(requested, func(t *testing.T) {
+			profile, err := productconfig.ResolveApplianceProfile(requested, "")
+			if err != nil {
+				t.Fatalf("ResolveApplianceProfile(%q) returned error: %v", requested, err)
+			}
+			if profile != requested {
+				t.Fatalf("profile = %q, want %q", profile, requested)
+			}
+		})
 	}
 }
 

@@ -38,7 +38,9 @@
       "enum": [
         "core",
         "builder",
-        "storage"
+        "storage",
+        "lan-dns",
+        "storage-lan-dns"
       ],
       "description": "Product-facing appliance profile selected for this installation."
     },
@@ -62,6 +64,11 @@
           "type": "string",
           "minLength": 1,
           "description": "Installed zot version when the artifact capability is enabled."
+        },
+        "dnsVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Installed CoreDNS version when the dns capability is enabled."
         }
       }
     },

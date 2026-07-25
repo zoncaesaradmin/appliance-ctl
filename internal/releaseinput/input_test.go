@@ -35,6 +35,8 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
 	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
+	writeFile(t, root, "coredns.oci.tar.zst", "dns-image")
+	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1"}`)
 	writeFile(t, root, "checksums.txt", "sha256sum entries")
@@ -69,6 +71,8 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
+			"dnsImage":            map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+			"dnsChart":            map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
 			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
@@ -81,6 +85,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 			"k3sVersion":              "v1.30.4+k3s1",
 			"chartVersion":            "2.4.0",
 			"zotVersion":              "2.1.7",
+			"dnsVersion":              "1.14.4",
 			"supportedUpgradeSources": []string{"2.3.0"},
 		},
 	}
@@ -121,6 +126,8 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
 	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
+	writeFile(t, root, "coredns.oci.tar.zst", "dns-image")
+	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1","argoVersion":"3.5.10"}`)
 	writeFile(t, root, "checksums.txt", "sha256sum entries")
@@ -160,6 +167,8 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
+			"dnsImage":            map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+			"dnsChart":            map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1","argoVersion":"3.5.10"}`)},
 			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
@@ -177,6 +186,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"k3sVersion":   "v1.30.4+k3s1",
 			"chartVersion": "2.4.0",
 			"zotVersion":   "2.1.7",
+			"dnsVersion":   "1.14.4",
 			"argoVersion":  "3.5.10",
 		},
 	}
@@ -237,6 +247,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
 	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
+	writeFile(t, root, "coredns.oci.tar.zst", "dns-image")
+	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
 	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1"}`)
 	writeFile(t, root, "checksums.txt", "sha256sum entries")
@@ -271,6 +283,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
+			"dnsImage":            map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+			"dnsChart":            map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
 			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
@@ -283,6 +297,7 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 			"k3sVersion":   "v1.30.4+k3s1",
 			"chartVersion": "2.4.0",
 			"zotVersion":   "2.1.7",
+			"dnsVersion":   "1.14.4",
 		},
 	}
 	data, err := json.Marshal(doc)

@@ -69,6 +69,13 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, 
 			sig.RegistryStorage = diagnostics.ChartHealth{Checked: true, Healthy: healthy, Message: msg}
 		}
 	}
+	if productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityDNS) {
+		if healthy, msg, dnsErr := helm.CheckReleaseHealth(ctx, run, kubeconfig, "appliance-dns", "dns"); dnsErr != nil {
+			sig.DNSHealth = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: dnsErr.Error()}
+		} else {
+			sig.DNSHealth = diagnostics.ChartHealth{Checked: true, Healthy: healthy, Message: msg}
+		}
+	}
 
 	if ingressPresent, ingressErr := k3s.IngressRouteExists(ctx, run, kubeconfig, namespace); ingressErr != nil {
 		sig.IngressHealth = diagnostics.IngressHealth{Checked: true, Present: false, Message: ingressErr.Error()}
@@ -128,6 +135,13 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		entry := map[string]any{"name": "registry-storage", "healthy": sig.RegistryStorage.Healthy}
 		if !sig.RegistryStorage.Healthy {
 			entry["detail"] = sig.RegistryStorage.Message
+		}
+		componentHealth = append(componentHealth, entry)
+	}
+	if sig.DNSHealth.Checked {
+		entry := map[string]any{"name": "dns", "healthy": sig.DNSHealth.Healthy}
+		if !sig.DNSHealth.Healthy {
+			entry["detail"] = sig.DNSHealth.Message
 		}
 		componentHealth = append(componentHealth, entry)
 	}

@@ -32,6 +32,17 @@
       "digest": "sha256:bc57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
       "sizeBytes": 32768
     },
+    "dnsImage": {
+      "path": "coredns.oci.tar.zst",
+      "digest": "sha256:dc57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
+      "sizeBytes": 20971520,
+      "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "dnsChart": {
+      "path": "appliance-dns-1.14.4.tgz",
+      "digest": "sha256:ec57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
+      "sizeBytes": 16384
+    },
     "configurationSchema": {
       "path": "configuration.schema.json",
       "digest": "sha256:cbe0d029431ea4c792ecc23daf793f18bd5b57eed6c8419ac5a89b1cdf40c25c",
@@ -68,6 +79,7 @@
     "k3sVersion": "v1.30.4+k3s1",
     "chartVersion": "2.4.0",
     "zotVersion": "2.1.7",
+    "dnsVersion": "1.14.4",
     "supportedUpgradeSources": [
       "2.3.0",
       "2.3.1"

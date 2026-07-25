@@ -20,7 +20,7 @@ Install:             ctr import (gets :bundled or import-DATE) → ctr image tag
 Runtime:             config.*ImageDigest == digest pin → Argo pod image (IfNotPresent)
 ```
 
-Names today: `workspace-provisioner` (alpine/git), `automation-dev` (builder), and `zot` (artifact registry dependency).
+Names today: `workspace-provisioner` (alpine/git), `automation-dev` (builder), `zot` (artifact registry dependency), and `coredns` (LAN DNS data plane).
 
 Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manifest).
 
@@ -65,6 +65,8 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | zot image/chart/version | appliance-code release-input + release exporter | ctl schema/load/assemble/source, release validator |
 | Registry signing key | control-plane private seed | installer-derived public-only zot Secret |
 | Artifact capability | profile catalog | zot preload/chart/PVC/status; core skips zot |
+| `:bundled` coredns + `@sha256` dnsImage | `export-coredns-image-archive.sh` / finalize | ctl assemble/source/preload; release `validate_dns` |
+| DNS capability | profile catalog | appliance-dns Helm before CP; `dnsReadyURL`; dig verify; core/storage/builder skip |
 | Builder Git HTTPS access | UI `PUT /builder/git-access` → CP secret `builder-git-access` | `resolveWorkspaceGitCredential` → Argo mount + `GIT_ASKPASS` clone |
 | Writable tool home for builds | Argo `HOME`/`GOPATH`/`GOCACHE` under `/tmp/appliance-home` | automation-dev image ENV (`/home/vscode/...`) must be overridden |
 | Catalog make/script args | `build-catalog.example.yaml` / operator catalog | Must match real repo Makefile/scripts (forgeline: `make build`, not root `build.sh`) |

@@ -2,6 +2,7 @@ package productconfig
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path"
@@ -13,15 +14,19 @@ import (
 )
 
 const (
-	ProfileCore    = "core"
-	ProfileBuilder = "builder"
-	ProfileStorage = "storage"
+	ProfileCore          = "core"
+	ProfileBuilder       = "builder"
+	ProfileStorage       = "storage"
+	ProfileLANDNS        = "lan-dns"
+	ProfileStorageLANDNS = "storage-lan-dns"
 )
 
 var supportedProfiles = map[string]struct{}{
-	ProfileCore:    {},
-	ProfileBuilder: {},
-	ProfileStorage: {},
+	ProfileCore:          {},
+	ProfileBuilder:       {},
+	ProfileStorage:       {},
+	ProfileLANDNS:        {},
+	ProfileStorageLANDNS: {},
 }
 
 // Capability is the granular unit appliance behavior should actually be
@@ -40,17 +45,27 @@ const (
 	CapabilityWorkflows Capability = "workflows"
 	CapabilityBuild     Capability = "build"
 	CapabilityArtifact  Capability = "artifact"
+	CapabilityDNS       Capability = "dns"
 )
 
 var profileCapabilities = map[string][]Capability{
-	ProfileCore:    {CapabilityBase, CapabilityWorkflows},
-	ProfileBuilder: {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact},
-	ProfileStorage: {CapabilityBase, CapabilityArtifact},
+	ProfileCore:          {CapabilityBase, CapabilityWorkflows},
+	ProfileBuilder:       {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact},
+	ProfileStorage:       {CapabilityBase, CapabilityArtifact},
+	ProfileLANDNS:        {CapabilityBase, CapabilityDNS},
+	ProfileStorageLANDNS: {CapabilityBase, CapabilityArtifact, CapabilityDNS},
 }
 
 const (
 	DefaultZotBaseURL              = "http://appliance-registry.registry.svc.cluster.local:5000"
 	DefaultRegistryPublicKeySecret = "appliance-registry-verification-key"
+	// DefaultDNSReadyURL is the CoreDNS health-plugin readiness endpoint
+	// the control plane polls to gate any dns-capability-dependent
+	// behavior on the LAN DNS release actually being up, mirroring how
+	// zotBaseURL gates artifact-capability behavior on the registry
+	// release.
+	// CoreDNS ready plugin listens on :8181 (/ready); health is :8080 (/health).
+	DefaultDNSReadyURL = "http://appliance-dns.dns.svc.cluster.local:8181/ready"
 )
 
 // HasCapability reports whether the given (already-resolved) profile
@@ -82,7 +97,7 @@ func ResolveApplianceProfile(requested, current string) (string, error) {
 		profile = ProfileCore
 	}
 	if _, ok := supportedProfiles[profile]; !ok {
-		return "", fmt.Errorf("unknown appliance profile %q (supported: %s, %s, %s)", profile, ProfileCore, ProfileBuilder, ProfileStorage)
+		return "", fmt.Errorf("unknown appliance profile %q (supported: %s, %s, %s, %s, %s)", profile, ProfileCore, ProfileBuilder, ProfileStorage, ProfileLANDNS, ProfileStorageLANDNS)
 	}
 	return profile, nil
 }
@@ -136,6 +151,11 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		config["zotBaseURL"] = DefaultZotBaseURL
 	} else {
 		delete(config, "zotBaseURL")
+	}
+	if HasCapability(effectiveProfile, CapabilityDNS) {
+		config["dnsReadyURL"] = DefaultDNSReadyURL
+	} else {
+		delete(config, "dnsReadyURL")
 	}
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
@@ -271,6 +291,85 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 	if err := tmp.Close(); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("product config: close registry values file: %w", err)
+	}
+	return tmp.Name(), cleanup, nil
+}
+
+// PrepareDNSValuesFile renders the small installer-owned values layer for
+// the separate appliance-dns (CoreDNS) release, mirroring
+// PrepareRegistryValuesFile's shape for zot: the chart archive remains
+// immutable, and only the verified digest pin, upstream resolvers, the
+// appliance's own LAN-visible local zone record, and persistence-free
+// logging are supplied at install time. hostname/ipv4 populate a single
+// localZone A record so LAN clients without any other DNS can resolve the
+// appliance by name; upstreams are the resolvers CoreDNS forwards
+// everything else to.
+func PrepareDNSValuesFile(baseDir, corednsImageReference, hostname, ipv4 string, upstreams ...string) (string, func(), error) {
+	if !validDNSImageDigest(corednsImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid coredns image reference %q", corednsImageReference)
+	}
+	resolvers := make([]string, 0, len(upstreams))
+	for _, resolver := range upstreams {
+		resolver = strings.TrimSpace(resolver)
+		if resolver != "" {
+			resolvers = append(resolvers, resolver)
+		}
+	}
+	if len(resolvers) == 0 {
+		resolvers = []string{"1.1.1.1", "8.8.8.8"}
+	}
+	hostLabel := strings.TrimSpace(hostname)
+	if hostLabel == "" || net.ParseIP(hostLabel) != nil {
+		hostLabel = "appliance"
+	} else if i := strings.IndexByte(hostLabel, '.'); i > 0 {
+		// localZone.hostname is a single left-hand label under the zone;
+		// strip any FQDN/public-host suffix the installer may have passed.
+		hostLabel = hostLabel[:i]
+	}
+	ipv4 = strings.TrimSpace(ipv4)
+	if ipv4 == "" {
+		return "", func() {}, fmt.Errorf("product config: dns local zone ipv4 must not be empty")
+	}
+	values := map[string]any{
+		"namespace": map[string]any{"create": false, "name": "dns"},
+		"image": map[string]any{
+			"repository": "registry.local/coredns",
+			"digest":     strings.TrimPrefix(strings.TrimSpace(corednsImageReference), "registry.local/coredns@"),
+			"pullPolicy": "IfNotPresent",
+		},
+		// LAN DNS must be reachable at the standard port 53 from every
+		// device on the network, not just from inside the cluster's pod
+		// network, so it runs with the host's own network namespace
+		// instead of a ClusterIP Service.
+		"hostNetwork": true,
+		"localZone": map[string]any{
+			"name":     "appliance.local",
+			"hostname": hostLabel,
+			"ipv4":     ipv4,
+		},
+		"upstreamResolvers": resolvers,
+		"logs": map[string]any{
+			"hostPath": "/data/zon/logs/dns",
+			"prepare":  map[string]any{"enabled": false},
+		},
+	}
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: render dns values: %w", err)
+	}
+	tmp, err := os.CreateTemp(baseDir, ".zonctl-dns-values-*.yaml")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: create dns values file: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(tmp.Name()) }
+	if _, err := tmp.Write(rendered); err != nil {
+		tmp.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: write dns values file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: close dns values file: %w", err)
 	}
 	return tmp.Name(), cleanup, nil
 }
@@ -594,6 +693,15 @@ func validBuilderImageDigest(image string) bool {
 func validZotImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/zot@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
+}
+
+func validDNSImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/coredns@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

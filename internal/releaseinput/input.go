@@ -32,6 +32,7 @@ type Compatibility struct {
 	ChartVersion            string
 	ArgoVersion             string
 	ZotVersion              string
+	DnsVersion              string
 	SupportedUpgradeSources []string
 }
 
@@ -54,6 +55,8 @@ type Artifacts struct {
 	ApplianceChart      FileArtifact
 	ZotImage            FileArtifact
 	ZotChart            FileArtifact
+	DnsImage            FileArtifact
+	DnsChart            FileArtifact
 	ArgoWorkflowsChart  FileArtifact
 	ArgoControllerImage FileArtifact
 	ArgoExecutorImage   FileArtifact
@@ -77,6 +80,8 @@ type doc struct {
 		ApplianceChart      fileArtifact   `json:"applianceChart"`
 		ZotImage            fileArtifact   `json:"zotImage"`
 		ZotChart            fileArtifact   `json:"zotChart"`
+		DnsImage            fileArtifact   `json:"dnsImage"`
+		DnsChart            fileArtifact   `json:"dnsChart"`
 		ArgoWorkflowsChart  fileArtifact   `json:"argoWorkflowsChart"`
 		ArgoControllerImage fileArtifact   `json:"argoControllerImage"`
 		ArgoExecutorImage   fileArtifact   `json:"argoExecutorImage"`
@@ -135,6 +140,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			ApplianceChart:      toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
 			ZotImage:            toFileArtifact(rootDir, parsed.Artifacts.ZotImage),
 			ZotChart:            toFileArtifact(rootDir, parsed.Artifacts.ZotChart),
+			DnsImage:            toFileArtifact(rootDir, parsed.Artifacts.DnsImage),
+			DnsChart:            toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
 			ArgoWorkflowsChart:  toFileArtifact(rootDir, parsed.Artifacts.ArgoWorkflowsChart),
 			ArgoControllerImage: toFileArtifact(rootDir, parsed.Artifacts.ArgoControllerImage),
 			ArgoExecutorImage:   toFileArtifact(rootDir, parsed.Artifacts.ArgoExecutorImage),
@@ -156,6 +163,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "appliance-chart", Path: input.Artifacts.ApplianceChart.Path, ExpectedDigest: input.Artifacts.ApplianceChart.Digest, ExpectedSizeBytes: input.Artifacts.ApplianceChart.SizeBytes},
 		{Name: "zot-image", Path: input.Artifacts.ZotImage.Path, ExpectedDigest: input.Artifacts.ZotImage.Digest, ExpectedSizeBytes: input.Artifacts.ZotImage.SizeBytes},
 		{Name: "zot-chart", Path: input.Artifacts.ZotChart.Path, ExpectedDigest: input.Artifacts.ZotChart.Digest, ExpectedSizeBytes: input.Artifacts.ZotChart.SizeBytes},
+		{Name: "dns-image", Path: input.Artifacts.DnsImage.Path, ExpectedDigest: input.Artifacts.DnsImage.Digest, ExpectedSizeBytes: input.Artifacts.DnsImage.SizeBytes},
+		{Name: "dns-chart", Path: input.Artifacts.DnsChart.Path, ExpectedDigest: input.Artifacts.DnsChart.Digest, ExpectedSizeBytes: input.Artifacts.DnsChart.SizeBytes},
 		{Name: "configuration-schema", Path: input.Artifacts.ConfigurationSchema.Path, ExpectedDigest: input.Artifacts.ConfigurationSchema.Digest, ExpectedSizeBytes: input.Artifacts.ConfigurationSchema.SizeBytes},
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
 		{Name: "checksums", Path: input.Artifacts.Checksums.Path, ExpectedDigest: input.Artifacts.Checksums.Digest, ExpectedSizeBytes: input.Artifacts.Checksums.SizeBytes},

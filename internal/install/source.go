@@ -27,6 +27,7 @@ type Resolved struct {
 	K3sBinaryPath     string
 	ChartPath         string
 	RegistryChartPath string
+	DNSChartPath      string
 	ArgoChartPath     string
 	ArgoCRDPaths      []string
 	ConfigurationPath string
@@ -37,6 +38,9 @@ type Resolved struct {
 	// used by Argo build pods (automation-dev).
 	BuilderImageReference string
 	ZotImageReference     string
+	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
+	// image reference used for the lan-dns/storage-lan-dns capability.
+	DNSImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -97,6 +101,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
+	dnsChartPath := ""
+	if strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
+		dnsChartPath, err = requiredDNSChartPath(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
 	zonctlBinaryPath, err := applianceBinaryPath(b, "zonctl-real")
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -114,7 +125,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range b.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isZotImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isZotImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -128,6 +139,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
+	dnsImageReference := ""
+	if strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
+		dnsImageReference, err = requiredDNSImageReference(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
 
 	return Resolved{
 		BundleVersion:                      b.BundleVersion,
@@ -137,12 +155,14 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		K3sBinaryPath:                      k3sBinaryPath,
 		ChartPath:                          chartPath,
 		RegistryChartPath:                  registryChartPath,
+		DNSChartPath:                       dnsChartPath,
 		ArgoChartPath:                      argoChartPath,
 		ArgoCRDPaths:                       argoCRDPaths,
 		ConfigurationPath:                  configurationPath,
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
 		BuilderImageReference:              builderImageReference,
 		ZotImageReference:                  zotImageReference,
+		DNSImageReference:                  dnsImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
@@ -150,6 +170,10 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 
 func isZotImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/zot@sha256:")
+}
+
+func isDNSImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/coredns@sha256:")
 }
 
 func isWorkflowDependencyReference(ref string) bool {
@@ -171,6 +195,23 @@ func requiredZotImageReference(b *bundle.Bundle) (string, error) {
 	}
 	if found == "" {
 		return "", fmt.Errorf("bundle has no canonical registry.local/zot@sha256 image entry")
+	}
+	return found, nil
+}
+
+func requiredDNSImageReference(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isDNSImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple coredns image entries")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no canonical registry.local/coredns@sha256 image entry")
 	}
 	return found, nil
 }
@@ -246,6 +287,24 @@ func requiredRegistryChartPath(b *bundle.Bundle) (string, error) {
 	}
 	if found == "" {
 		return "", fmt.Errorf("bundle has no appliance-registry chart entry")
+	}
+	return found, nil
+}
+
+func requiredDNSChartPath(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("chart") {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if !strings.HasPrefix(base, "appliance-dns-") {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple appliance-dns chart entries")
+		}
+		found = e.Path
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no appliance-dns chart entry")
 	}
 	return found, nil
 }

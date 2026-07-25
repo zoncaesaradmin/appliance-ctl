@@ -358,7 +358,9 @@
                   "enum": [
                     "core",
                     "builder",
-                    "storage"
+                    "storage",
+                    "lan-dns",
+                    "storage-lan-dns"
                   ]
                 }
               }
@@ -617,7 +619,9 @@
                   "enum": [
                     "core",
                     "builder",
-                    "storage"
+                    "storage",
+                    "lan-dns",
+                    "storage-lan-dns"
                   ]
                 }
               }

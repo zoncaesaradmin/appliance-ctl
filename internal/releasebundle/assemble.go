@@ -159,6 +159,30 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			Component:  "chart",
 		}
 	}
+	dnsImageTarget := "oci-images/" + filepath.Base(input.Artifacts.DnsImage.Path)
+	if _, exists := entryByTarget[dnsImageTarget]; !exists {
+		if !isCanonicalDNSReference(input.Artifacts.DnsImage.ImageReference) {
+			return Result{}, fmt.Errorf("releasebundle: coredns imageReference must be registry.local/coredns@sha256:<64 lowercase hex>, got %q", input.Artifacts.DnsImage.ImageReference)
+		}
+		entryByTarget[dnsImageTarget] = EntryConfig{
+			SourcePath:     input.Artifacts.DnsImage.Path,
+			TargetPath:     dnsImageTarget,
+			Component:      "oci-images",
+			ImageReference: input.Artifacts.DnsImage.ImageReference,
+		}
+	}
+	dnsChartBase := filepath.Base(input.Artifacts.DnsChart.Path)
+	if !strings.HasPrefix(strings.ToLower(dnsChartBase), "appliance-dns-") {
+		dnsChartBase = "appliance-dns-" + dnsChartBase
+	}
+	dnsChartTarget := "chart/" + dnsChartBase
+	if _, exists := entryByTarget[dnsChartTarget]; !exists {
+		entryByTarget[dnsChartTarget] = EntryConfig{
+			SourcePath: input.Artifacts.DnsChart.Path,
+			TargetPath: dnsChartTarget,
+			Component:  "chart",
+		}
+	}
 
 	configSchemaTarget := "configuration/configuration.schema.json"
 	if _, exists := entryByTarget[configSchemaTarget]; !exists {
@@ -228,6 +252,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		"k3sVersion":              input.Compatibility.K3sVersion,
 		"chartVersion":            input.Compatibility.ChartVersion,
 		"zotVersion":              input.Compatibility.ZotVersion,
+		"dnsVersion":              input.Compatibility.DnsVersion,
 		"supportedUpgradeSources": supportedUpgradeSources,
 	}
 	if strings.TrimSpace(input.Compatibility.ArgoVersion) != "" {
@@ -274,6 +299,19 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 
 func isCanonicalZotReference(ref string) bool {
 	const prefix = "registry.local/zot@sha256:"
+	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
+		return false
+	}
+	for _, c := range strings.TrimPrefix(ref, prefix) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCanonicalDNSReference(ref string) bool {
+	const prefix = "registry.local/coredns@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}

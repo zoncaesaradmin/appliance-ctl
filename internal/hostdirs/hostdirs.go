@@ -48,6 +48,9 @@ const (
 	// ArgoControllerDirOwnerUID is the fixed numeric identity for the
 	// workflow-controller pod.
 	ArgoControllerDirOwnerUID = 65532
+	// DNSDirOwnerUID is the fixed numeric identity for the offline
+	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser).
+	DNSDirOwnerUID = 10004
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -65,6 +68,9 @@ const (
 	// ArgoControllerLogDir is the host-visible workflow-controller log
 	// directory under the shared appliance log tree.
 	ArgoControllerLogDir = "/data/zon/logs/argo-controller"
+	// DNSLogDir is the host-visible LAN DNS (CoreDNS) log directory under
+	// the shared appliance log tree.
+	DNSLogDir = "/data/zon/logs/dns"
 )
 
 // OwnedDir describes one appliance-managed host directory whose ownership and
@@ -78,9 +84,10 @@ type OwnedDir struct {
 }
 
 // ServiceLogDirs returns the host-visible log directories the selected
-// capability set requires. Control-plane and UI logs always exist; registry and
-// workflow-controller logs are added only when those capabilities are enabled.
-func ServiceLogDirs(includeArtifact, includeWorkflows bool) []OwnedDir {
+// capability set requires. Control-plane and UI logs always exist; registry,
+// workflow-controller, and DNS logs are added only when those capabilities
+// are enabled.
+func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedDir {
 	dirs := []OwnedDir{
 		{
 			CheckID: "control-plane-log-directory-owned",
@@ -111,6 +118,15 @@ func ServiceLogDirs(includeArtifact, includeWorkflows bool) []OwnedDir {
 			CheckID: "argo-controller-log-directory-owned",
 			Path:    ArgoControllerLogDir,
 			UID:     ArgoControllerDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		})
+	}
+	if includeDNS {
+		dirs = append(dirs, OwnedDir{
+			CheckID: "dns-log-directory-owned",
+			Path:    DNSLogDir,
+			UID:     DNSDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
 		})
