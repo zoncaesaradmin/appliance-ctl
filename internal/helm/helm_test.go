@@ -48,6 +48,8 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	case name == "kubectl" && contains(args, "create") && contains(args, "namespace"):
 		f.missingNamespace = false
 		return "", nil
+	case name == "kubectl" && contains(args, "label") && contains(args, "namespace"):
+		return "", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "secret"):
 		if f.secrets == nil {
 			f.secrets = map[string]bool{}
@@ -179,6 +181,29 @@ func TestInstallOrUpgrade_CreatesNamespaceWhenMissing(t *testing.T) {
 	}
 	if !sawCreate {
 		t.Fatalf("expected namespace creation when missing, got calls: %v", fake.calls)
+	}
+}
+
+func TestInstallOrUpgrade_AppliesNamespaceLabels(t *testing.T) {
+	dir := t.TempDir()
+	rel := sampleRelease(t, dir)
+	rel.NamespaceLabels = helm.PrivilegedNamespaceLabels()
+	fake := &fakeCLI{missingNamespace: true}
+	a := &helm.Applier{Run: fake.Run, Kubeconfig: "kubeconfig"}
+
+	if _, err := a.InstallOrUpgrade(context.Background(), rel); err != nil {
+		t.Fatal(err)
+	}
+	var sawLabel bool
+	for _, call := range fake.calls {
+		joined := joinCall(call)
+		if strings.Contains(joined, "label namespace") && strings.Contains(joined, "pod-security.kubernetes.io/enforce=privileged") {
+			sawLabel = true
+			break
+		}
+	}
+	if !sawLabel {
+		t.Fatalf("expected privileged PSA namespace labels, got calls: %v", fake.calls)
 	}
 }
 

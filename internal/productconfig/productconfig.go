@@ -178,11 +178,11 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	}
 	values["config"] = config
 
+	networkPolicy, _ := values["networkPolicy"].(map[string]any)
+	if networkPolicy == nil {
+		networkPolicy = map[string]any{}
+	}
 	if artifactEnabled {
-		networkPolicy, _ := values["networkPolicy"].(map[string]any)
-		if networkPolicy == nil {
-			networkPolicy = map[string]any{}
-		}
 		// Zot ships in the dedicated registry namespace; CP egress must target
 		// that namespace, not the control-plane namespace.
 		networkPolicy["registryNamespaceLabel"] = map[string]any{
@@ -192,6 +192,23 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 			"app.kubernetes.io/name": "appliance-registry",
 		}
 		networkPolicy["registryPort"] = 5000
+	}
+	if HasCapability(effectiveProfile, CapabilityDNS) {
+		// CoreDNS readiness (:8181) is polled by the control plane; allow
+		// that egress only when the dns capability is enabled.
+		networkPolicy["dnsNamespaceLabel"] = map[string]any{
+			"kubernetes.io/metadata.name": "dns",
+		}
+		networkPolicy["dnsPodLabels"] = map[string]any{
+			"app.kubernetes.io/name": "appliance-dns",
+		}
+		networkPolicy["dnsReadyPort"] = 8181
+	} else {
+		delete(networkPolicy, "dnsNamespaceLabel")
+		delete(networkPolicy, "dnsPodLabels")
+		delete(networkPolicy, "dnsReadyPort")
+	}
+	if artifactEnabled || HasCapability(effectiveProfile, CapabilityDNS) {
 		values["networkPolicy"] = networkPolicy
 	}
 
@@ -331,7 +348,9 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, hostname, ipv4 string,
 		return "", func() {}, fmt.Errorf("product config: dns local zone ipv4 must not be empty")
 	}
 	values := map[string]any{
-		"namespace": map[string]any{"create": false, "name": "dns"},
+		// create=true so the chart applies privileged PSA labels required
+		// for hostNetwork CoreDNS before the Deployment is admitted.
+		"namespace": map[string]any{"create": true, "name": "dns"},
 		"image": map[string]any{
 			"repository": "registry.local/coredns",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(corednsImageReference), "registry.local/coredns@"),

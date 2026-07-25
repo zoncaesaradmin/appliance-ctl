@@ -13,9 +13,14 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
+
+// RestoreHostDNS undoes the install-time systemd-resolved stub disable.
+// Tests may replace this; production uses hostdns.Restore.
+var RestoreHostDNS = hostdns.Restore
 
 // removeK3s stops the K3s service and removes the unit, binary, and
 // config files this appliance installed. It never touches the data
@@ -120,6 +125,11 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 		ID: "teardown-preserve-data", Category: "backup-restore", Status: evidence.StatusPass,
 		Message: "appliance data directory preserved", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
+	dnsChecks, dnsErr := restoreHostDNSCheck()
+	checks = append(checks, dnsChecks...)
+	if dnsErr != nil {
+		return checks, dnsErr
+	}
 	return checks, nil
 }
 
@@ -201,5 +211,29 @@ func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPa
 		ID: "teardown-remove-zonctl", Category: "manifest", Status: evidence.StatusPass,
 		Message: "zonctl removed from host", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
+	dnsChecks, dnsErr := restoreHostDNSCheck()
+	checks = append(checks, dnsChecks...)
+	if dnsErr != nil {
+		return checks, dnsErr
+	}
 	return checks, nil
+}
+
+func restoreHostDNSCheck() ([]evidence.Check, error) {
+	if RestoreHostDNS == nil {
+		return nil, nil
+	}
+	start := time.Now()
+	if err := RestoreHostDNS(); err != nil {
+		return []evidence.Check{{
+			ID: "teardown-restore-host-dns", Category: "host", Status: evidence.StatusFail,
+			Message: err.Error(), Timestamp: start.UTC(),
+			DurationMs: time.Since(start).Milliseconds(), Idempotent: true, SecretsRedacted: true,
+		}}, fmt.Errorf("teardown: restore host DNS: %w", err)
+	}
+	return []evidence.Check{{
+		ID: "teardown-restore-host-dns", Category: "host", Status: evidence.StatusPass,
+		Message:   "restored systemd-resolved DNSStubListener / resolv.conf after removing appliance DNS",
+		Timestamp: start.UTC(), DurationMs: time.Since(start).Milliseconds(), Idempotent: true, SecretsRedacted: true,
+	}}, nil
 }

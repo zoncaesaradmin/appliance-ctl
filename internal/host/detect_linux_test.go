@@ -13,6 +13,12 @@ func TestRequiredUFWRules(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("requiredUFWRules: got %v want %v", got, want)
 	}
+
+	got = requiredUFWRules([]int{53, 6443})
+	want = []string{"53/udp", "53/tcp", "6443/tcp"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("requiredUFWRules with DNS: got %v want %v", got, want)
+	}
 }
 
 func TestMissingUFWRules(t *testing.T) {

@@ -258,11 +258,14 @@ func missingUFWRules(statusOutput string, requiredPorts []int) []string {
 }
 
 func requiredUFWRules(requiredPorts []int) []string {
-	rules := make([]string, 0, len(requiredPorts))
+	rules := make([]string, 0, len(requiredPorts)+1)
 	for _, port := range requiredPorts {
 		switch port {
 		case 8472:
 			rules = append(rules, "8472/udp")
+		case 53:
+			// LAN DNS answers on both UDP and TCP 53.
+			rules = append(rules, "53/udp", "53/tcp")
 		default:
 			rules = append(rules, fmt.Sprintf("%d/tcp", port))
 		}

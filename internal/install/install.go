@@ -17,6 +17,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
@@ -118,6 +119,12 @@ type Orchestrator struct {
 	// for why this can't just be left to Kubernetes' own fsGroup
 	// handling.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
+	// PrepareHostDNS frees hostNetwork :53 (disables systemd-resolved stub)
+	// for dns-capable profiles. Tests inject a no-op; production uses
+	// hostdns.Prepare.
+	PrepareHostDNS func() (hostdns.PrepareResult, error)
+	// RestoreHostDNS undoes PrepareHostDNS on rollback/uninstall.
+	RestoreHostDNS func() error
 }
 
 // NewOrchestrator wires an Orchestrator to the real K3s, ctr, helm/kubectl,
@@ -128,6 +135,8 @@ func NewOrchestrator() *Orchestrator {
 		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, os.Chown)
 		},
+		PrepareHostDNS: hostdns.Prepare,
+		RestoreHostDNS: hostdns.Restore,
 	}
 }
 
@@ -226,24 +235,44 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 
 	requiredPorts := append([]int{}, preflight.RequiredPorts...)
 	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
-		// LAN DNS runs with hostNetwork so it can answer port 53 directly
-		// on the host's own interfaces; a pre-existing resolver (e.g.
-		// systemd-resolved still bound to *:53) must be caught here,
-		// before any host mutation, not discovered later as an opaque
-		// CoreDNS CrashLoopBackOff.
+		// Ubuntu's systemd-resolved stub owns 127.0.0.53:53 and blocks any
+		// wildcard bind on :53. Free that before preflight so the port-53
+		// check reflects the post-prep host, and so CoreDNS can start.
+		// NewOrchestrator wires PrepareHostDNS; tests leave it nil as a no-op.
+		if o.PrepareHostDNS != nil {
+			prep, prepErr := o.PrepareHostDNS()
+			if prepErr != nil {
+				return nil, checks, fmt.Errorf("install: prepare host for LAN DNS on port 53: %w", prepErr)
+			}
+			if prep.Changed {
+				if o.RestoreHostDNS != nil {
+					rollbacks = append(rollbacks, o.RestoreHostDNS)
+				}
+				checks = append(checks, evidence.Check{
+					ID: "host-dns-stub-disabled", Category: "host", Status: evidence.StatusPass,
+					Message:   "disabled systemd-resolved DNSStubListener and pointed resolv.conf at uplink resolvers so hostNetwork CoreDNS can bind :53",
+					Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+				})
+			}
+		}
 		requiredPorts = append(requiredPorts, 53)
 	}
 	facts, err := o.DetectHost(host.Options{DataDir: opts.K3sDataDir, RequiredPorts: requiredPorts})
 	if err != nil {
-		return nil, checks, fmt.Errorf("install: detect host: %w", err)
+		return nil, checks, failInstall(fmt.Errorf("install: detect host: %w", err), runRollbacks())
 	}
 	if signal.Detected && signal.Active {
-		facts.PortsInUse = map[int]string{}
+		// K3s already owns the baseline API/CNI ports; clear those so
+		// adopt/reinstall is not blocked. Port 53 is appliance DNS, not
+		// K3s, so keep any remaining conflict visible.
+		for _, port := range preflight.RequiredPorts {
+			delete(facts.PortsInUse, port)
+		}
 	}
 	preflightChecks := preflight.Run(facts)
 	checks = append(checks, toEvidenceChecks(preflightChecks)...)
 	if overall := preflight.OverallStatus(preflightChecks); overall == preflight.StatusOperatorAction || overall == preflight.StatusUnsupported {
-		return nil, checks, fmt.Errorf("install: preflight blocked with status %q; resolve reported findings before installing", overall)
+		return nil, checks, failInstall(fmt.Errorf("install: preflight blocked with status %q; resolve reported findings before installing", overall), runRollbacks())
 	}
 
 	existing, err := state.Load(opts.InstalledStatePath)
@@ -430,12 +459,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	// LAN DNS installs before the control plane, just like the registry
-	// above: the control plane's own config carries a dnsReadyURL health
-	// check (see productconfig.PrepareValuesFile) that assumes the
-	// release already exists by the time the main chart's pods start.
+	// above: the control plane readiness probe polls dnsReadyURL and
+	// assumes the release already exists by the time CP pods start.
 	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
 		dnsCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
+			NamespaceLabels: helm.PrivilegedNamespaceLabels(),
 		})
 		checks = append(checks, dnsCheck)
 		if applyErr != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
@@ -80,6 +81,8 @@ type Orchestrator struct {
 	// EnsureOwnedDir prepares a host directory backing a static hostPath
 	// PersistentVolume with the correct owner; see internal/hostdirs.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
+	PrepareHostDNS func() (hostdns.PrepareResult, error)
+	RestoreHostDNS func() error
 }
 
 // NewOrchestrator wires an Orchestrator to the real adapters.
@@ -89,6 +92,8 @@ func NewOrchestrator() *Orchestrator {
 		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, os.Chown)
 		},
+		PrepareHostDNS: hostdns.Prepare,
+		RestoreHostDNS: hostdns.Restore,
 	}
 }
 
@@ -218,6 +223,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	binaryReverted := false
+	restoreHostDNSOnRollback := false
 	rollback := func() []evidence.Check {
 		var rc []evidence.Check
 		var rollbackErrs []error
@@ -226,6 +232,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				if err := revertFile(path); err != nil {
 					rollbackErrs = append(rollbackErrs, err)
 				}
+			}
+		}
+		if restoreHostDNSOnRollback && o.RestoreHostDNS != nil {
+			if err := o.RestoreHostDNS(); err != nil {
+				rollbackErrs = append(rollbackErrs, err)
 			}
 		}
 		restoreChecks, restoreErr := backup.Restore(ctx, o.K3s, opts.K3sUnitName, backupDir, opts.K3sDataDir)
@@ -385,8 +396,28 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	if targetDNS {
+		// Free :53 immediately before DNS Helm so early upgrade validation
+		// failures do not leave systemd-resolved reconfigured. Only roll the
+		// host change back when this upgrade is newly adding DNS.
+		if o.PrepareHostDNS != nil {
+			prep, prepErr := o.PrepareHostDNS()
+			if prepErr != nil {
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare host for LAN DNS on port 53: %w", prepErr), rollback)
+				checks = append(checks, rollbackChecks...)
+				return nil, checks, failErr
+			}
+			if prep.Changed && !hadDNSBefore {
+				restoreHostDNSOnRollback = true
+				checks = append(checks, evidence.Check{
+					ID: "host-dns-stub-disabled", Category: "host", Status: evidence.StatusPass,
+					Message:   "disabled systemd-resolved DNSStubListener so hostNetwork CoreDNS can bind :53",
+					Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+				})
+			}
+		}
 		dnsCheck, dnsErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
+			NamespaceLabels: helm.PrivilegedNamespaceLabels(),
 		})
 		checks = append(checks, dnsCheck)
 		if dnsErr != nil {

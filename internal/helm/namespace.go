@@ -20,7 +20,9 @@ const (
 // bounded period so an immediate rerun can self-heal once deletion
 // finishes, instead of failing later with an opaque "forbidden: namespace
 // is being terminated" error while creating a secret or chart object.
-func EnsureNamespace(ctx context.Context, run cli.Runner, kubeconfig, namespace string) error {
+// When labels is non-empty they are applied (and overwritten) so PSA
+// exceptions such as privileged for hostNetwork DNS land before pods.
+func EnsureNamespace(ctx context.Context, run cli.Runner, kubeconfig, namespace string, labels map[string]string) error {
 	if namespace == "" {
 		return fmt.Errorf("helm: namespace must not be empty")
 	}
@@ -39,7 +41,7 @@ func EnsureNamespace(ctx context.Context, run cli.Runner, kubeconfig, namespace 
 		}
 		if !found {
 			if err := createNamespace(ctx, run, kubeconfig, namespace); err == nil || namespaceAlreadyExists(err) {
-				return nil
+				return applyNamespaceLabels(ctx, run, kubeconfig, namespace, labels)
 			} else if (namespaceTerminating(err) || isTransientKubeError(err)) && time.Now().Before(deadline) {
 				if err := waitNamespaceRetry(ctx); err != nil {
 					return err
@@ -50,7 +52,7 @@ func EnsureNamespace(ctx context.Context, run cli.Runner, kubeconfig, namespace 
 			}
 		}
 		if phase != "Terminating" {
-			return nil
+			return applyNamespaceLabels(ctx, run, kubeconfig, namespace, labels)
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("helm: namespace %s is still terminating from a previous run; wait for deletion to finish or clear finalizers before retrying", namespace)
@@ -59,6 +61,20 @@ func EnsureNamespace(ctx context.Context, run cli.Runner, kubeconfig, namespace 
 			return err
 		}
 	}
+}
+
+func applyNamespaceLabels(ctx context.Context, run cli.Runner, kubeconfig, namespace string, labels map[string]string) error {
+	if len(labels) == 0 {
+		return nil
+	}
+	args := []string{"--kubeconfig", kubeconfig, "label", "namespace", namespace, "--overwrite"}
+	for key, value := range labels {
+		args = append(args, key+"="+value)
+	}
+	if _, err := run(ctx, "kubectl", args...); err != nil {
+		return fmt.Errorf("helm: label namespace %s: %w", namespace, err)
+	}
+	return nil
 }
 
 func namespacePhase(ctx context.Context, run cli.Runner, kubeconfig, namespace string) (phase string, found bool, retryable bool, err error) {

@@ -17,6 +17,9 @@ type ChartRelease struct {
 	ChartPath  string
 	Namespace  string
 	ValuesPath string
+	// NamespaceLabels are applied via kubectl before Helm runs so PSA
+	// exceptions exist before the first pod is admitted.
+	NamespaceLabels map[string]string
 }
 
 const chartApplyTimeout = 10 * time.Minute
@@ -47,7 +50,7 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 		}
 	}
 
-	if err := EnsureNamespace(ctx, a.Run, a.Kubeconfig, rel.Namespace); err != nil {
+	if err := EnsureNamespace(ctx, a.Run, a.Kubeconfig, rel.Namespace, rel.NamespaceLabels); err != nil {
 		check.Status = evidence.StatusFail
 		check.Message = err.Error()
 		return check, err

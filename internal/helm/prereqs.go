@@ -46,7 +46,7 @@ func EnsureRegistryPublicKeySecret(ctx context.Context, run cli.Runner, kubeconf
 		ID:       "chart-prereq-secret-" + evidence.SanitizeIDSegment(targetSecret),
 		Category: "chart", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	}
-	if err := EnsureNamespace(ctx, run, kubeconfig, targetNamespace); err != nil {
+	if err := EnsureNamespace(ctx, run, kubeconfig, targetNamespace, nil); err != nil {
 		check.Status, check.Message = evidence.StatusFail, err.Error()
 		prepared.Checks = append(prepared.Checks, check)
 		return prepared, err
@@ -186,7 +186,7 @@ func (p PreparedRelease) Cleanup() error {
 // installer-managed Kubernetes objects the chart values declare. This is
 // shared by both install and upgrade so reruns behave consistently.
 func EnsureReleasePrereqs(ctx context.Context, run cli.Runner, kubeconfig string, rel ChartRelease) (PreparedRelease, error) {
-	if err := EnsureNamespace(ctx, run, kubeconfig, rel.Namespace); err != nil {
+	if err := EnsureNamespace(ctx, run, kubeconfig, rel.Namespace, rel.NamespaceLabels); err != nil {
 		return PreparedRelease{}, err
 	}
 	if strings.TrimSpace(rel.ValuesPath) == "" {
@@ -251,7 +251,7 @@ func ensureKeysSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace
 			return false, check, fmt.Errorf("helm: inspect installer-managed keys secret %s: %w", secretName, err)
 		}
 
-		if err := EnsureNamespace(ctx, run, kubeconfig, namespace); err != nil {
+		if err := EnsureNamespace(ctx, run, kubeconfig, namespace, nil); err != nil {
 			check.Status = evidence.StatusFail
 			check.Message = err.Error()
 			return false, check, err

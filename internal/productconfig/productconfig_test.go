@@ -62,6 +62,9 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	for _, want := range []string{
 		"applianceProfile: lan-dns",
 		"dnsReadyURL: " + productconfig.DefaultDNSReadyURL,
+		"kubernetes.io/metadata.name: dns",
+		"app.kubernetes.io/name: appliance-dns",
+		"dnsReadyPort: 8181",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered values missing %q:\n%s", want, text)
@@ -91,6 +94,8 @@ func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
 		"name: appliance.local",
 		"hostPath: /data/zon/logs/dns",
 		"- 1.1.1.1",
+		"create: true",
+		"name: dns",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered dns values missing %q:\n%s", want, text)

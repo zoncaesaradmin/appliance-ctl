@@ -6,9 +6,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/teardown"
 )
+
+func TestMain(m *testing.M) {
+	// Avoid touching the real host's systemd-resolved during unit tests.
+	teardown.RestoreHostDNS = func() error { return nil }
+	os.Exit(m.Run())
+}
 
 type fakeK3s struct {
 	stopCalls         int
@@ -113,6 +120,35 @@ func runFactoryResetForTest(t *testing.T, f installedFiles, fake *fakeK3s, recen
 	t.Helper()
 	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
 	return err
+}
+
+func TestUninstall_RestoresHostDNS(t *testing.T) {
+	f := setupInstalledFiles(t)
+	fake := &fakeK3s{}
+	called := false
+	teardown.RestoreHostDNS = func() error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { teardown.RestoreHostDNS = func() error { return nil } })
+
+	checks, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"})
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if !called {
+		t.Fatal("expected RestoreHostDNS to be called")
+	}
+	var saw bool
+	for _, c := range checks {
+		if c.ID == "teardown-restore-host-dns" && c.Status == evidence.StatusPass {
+			saw = true
+			break
+		}
+	}
+	if !saw {
+		t.Fatalf("missing teardown-restore-host-dns pass check: %#v", checks)
+	}
 }
 
 // Data preservation: uninstall must remove K3s and the ownership record
