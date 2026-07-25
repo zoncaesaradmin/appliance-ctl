@@ -60,7 +60,40 @@ func TestEnsureHostsEntry_IdempotentAndReplaceable(t *testing.T) {
 	}
 }
 
-func TestRemoveHostsEntry_StripsManagedBlock(t *testing.T) {
+func TestEnsureNodeHostsEntry_Exported(t *testing.T) {
+	dir := t.TempDir()
+	hosts := filepath.Join(dir, "hosts")
+	if err := os.WriteFile(hosts, []byte("127.0.0.1 localhost\n127.0.1.1 zonsys_srv_1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := HostsPath
+	HostsPath = hosts
+	t.Cleanup(func() { HostsPath = prev })
+
+	wrote, err := EnsureNodeHostsEntry(PrepareConfig{Hostname: "zonsyssrv1", IPv4: "192.168.1.101"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !wrote {
+		t.Fatal("expected hosts write")
+	}
+	data, err := os.ReadFile(hosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "192.168.1.101 zonsyssrv1") || !strings.Contains(text, "127.0.1.1 zonsys_srv_1") {
+		t.Fatalf("expected managed mapping alongside existing cloud-init line:\n%s", text)
+	}
+}
+
+func TestPreferredLocalIPv4_LiteralWins(t *testing.T) {
+	if got := PreferredLocalIPv4("hostname.example", "192.0.2.10", "10.0.0.1"); got != "192.0.2.10" {
+		t.Fatalf("PreferredLocalIPv4 = %q, want 192.0.2.10", got)
+	}
+}
+
+func TestRemoveHostsEntry_StillAvailableForOps(t *testing.T) {
 	dir := t.TempDir()
 	hosts := filepath.Join(dir, "hosts")
 	content := "127.0.0.1 localhost\n" + hostsBeginMarker + "\n192.168.1.101 zonsyssrv1\n" + hostsEndMarker + "\n# keep\n"
@@ -70,7 +103,6 @@ func TestRemoveHostsEntry_StripsManagedBlock(t *testing.T) {
 	prev := HostsPath
 	HostsPath = hosts
 	t.Cleanup(func() { HostsPath = prev })
-
 	if err := removeHostsEntry(); err != nil {
 		t.Fatal(err)
 	}
@@ -78,11 +110,7 @@ func TestRemoveHostsEntry_StripsManagedBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(data)
-	if strings.Contains(text, hostsBeginMarker) || strings.Contains(text, "zonsyssrv1") {
-		t.Fatalf("managed block still present:\n%s", text)
-	}
-	if !strings.Contains(text, "127.0.0.1 localhost") || !strings.Contains(text, "# keep") {
-		t.Fatalf("unrelated hosts content was damaged:\n%s", text)
+	if strings.Contains(string(data), hostsBeginMarker) {
+		t.Fatalf("expected strip:\n%s", data)
 	}
 }

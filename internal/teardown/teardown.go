@@ -233,7 +233,7 @@ func restoreHostDNSCheck() ([]evidence.Check, error) {
 	}
 	return []evidence.Check{{
 		ID: "teardown-restore-host-dns", Category: "host", Status: evidence.StatusPass,
-		Message:   "restored systemd-resolved DNSStubListener / resolv.conf after removing appliance DNS",
+		Message:   "restored systemd-resolved DNSStubListener / resolv.conf after removing appliance DNS (node /etc/hosts entry kept)",
 		Timestamp: start.UTC(), DurationMs: time.Since(start).Milliseconds(), Idempotent: true, SecretsRedacted: true,
 	}}, nil
 }

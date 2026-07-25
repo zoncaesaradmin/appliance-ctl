@@ -12,6 +12,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
@@ -158,6 +159,23 @@ func runPreflight(opts cliOptions, logger *slog.Logger, result commandResult) co
 	if err != nil {
 		logger.Error("failed to detect k3s service", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
+	}
+
+	// Seed a durable /etc/hosts mapping before Detect so internal-dns-resolvable
+	// (and sudo's hostname check) do not depend on flaky MagicDNS/uplink alone.
+	// Ubuntu images often ship 127.0.1.1 under a different name than hostname(1).
+	if hostname, hostErr := os.Hostname(); hostErr == nil {
+		cfg := hostdns.PrepareConfig{
+			Hostname: strings.TrimSpace(hostname),
+			IPv4:     hostdns.PreferredLocalIPv4(),
+		}
+		if cfg.Hostname != "" && cfg.IPv4 != "" {
+			if wrote, ensureErr := hostdns.EnsureNodeHostsEntry(cfg); ensureErr != nil {
+				logger.Warn("failed to seed /etc/hosts for node hostname", "error", ensureErr, "hostname", cfg.Hostname)
+			} else if wrote {
+				logger.Info("seeded /etc/hosts so node hostname resolves for preflight", "hostname", cfg.Hostname, "ipv4", cfg.IPv4)
+			}
+		}
 	}
 
 	facts, err := host.Detect(host.Options{DataDir: opts.stateDir, RequiredPorts: preflight.RequiredPorts})

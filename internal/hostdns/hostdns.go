@@ -1,15 +1,18 @@
 // Package hostdns prepares the appliance host so LAN DNS (CoreDNS on
-// hostNetwork :53) can bind. On Ubuntu, systemd-resolved's stub listener
-// owns 127.0.0.53:53 (and often 127.0.0.54:53), which blocks any process
-// from binding *:53 — including CoreDNS. The installer owns this
-// reconfiguration for dns-capable profiles and restores it on rollback
-// or uninstall.
+// hostNetwork :53) can bind, and so the node short hostname stays
+// resolvable for sudo/preflight even when uplink or MagicDNS is flaky.
+//
+// On Ubuntu, systemd-resolved's stub listener owns 127.0.0.53:53 (and
+// often 127.0.0.54:53), which blocks any process from binding *:53 —
+// including CoreDNS. The installer owns this reconfiguration for
+// dns-capable profiles and restores the stub on rollback or uninstall.
 //
 // Disabling the stub switches /etc/resolv.conf to uplink resolvers. Short
 // hostnames that previously resolved only via the stub (for example
 // Tailscale MagicDNS) would then fail preflight's internal-dns-resolvable
-// check, so Prepare also seeds a managed /etc/hosts entry for the node
-// name → LAN IPv4.
+// check. EnsureNodeHostsEntry therefore seeds a durable managed /etc/hosts
+// block for the node name → LAN IPv4; that block is intentionally kept
+// across uninstall so the next preflight does not depend on MagicDNS.
 package hostdns
 
 import (
@@ -130,7 +133,7 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 		}
 	}
 
-	wroteHosts, err := ensureHostsEntry(hostname, ipv4, cfg.Aliases)
+	wroteHosts, err := EnsureNodeHostsEntry(PrepareConfig{Hostname: hostname, IPv4: ipv4, Aliases: cfg.Aliases})
 	if err != nil {
 		_ = Restore()
 		return result, err
@@ -150,9 +153,10 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 	return result, nil
 }
 
-// Restore removes the appliance-owned resolved drop-in, restores the stub
-// resolv.conf symlink when resolved is active, and clears the managed
-// /etc/hosts block.
+// Restore removes the appliance-owned resolved drop-in and restores the
+// stub resolv.conf symlink when resolved is active. The managed /etc/hosts
+// node-name block is left in place so uninstall does not reintroduce
+// MagicDNS-only hostname resolution for the next preflight.
 func Restore() error {
 	var errs []error
 	if err := os.Remove(DropInPath); err != nil && !os.IsNotExist(err) {
@@ -170,13 +174,53 @@ func Restore() error {
 			}
 		}
 	}
-	if err := removeHostsEntry(); err != nil {
-		errs = append(errs, err)
-	}
 	if len(errs) > 0 {
 		return fmt.Errorf("%v", errs)
 	}
 	return nil
+}
+
+// EnsureNodeHostsEntry writes a durable managed /etc/hosts block mapping
+// Hostname (and optional Aliases) to IPv4. It is safe to call from
+// preflight and install; identical content is a no-op.
+func EnsureNodeHostsEntry(cfg PrepareConfig) (bool, error) {
+	hostname := strings.TrimSpace(cfg.Hostname)
+	ipv4 := strings.TrimSpace(cfg.IPv4)
+	if hostname == "" {
+		return false, fmt.Errorf("hostdns: hostname is required for /etc/hosts seeding")
+	}
+	if ip := net.ParseIP(ipv4); ip == nil || ip.To4() == nil {
+		return false, fmt.Errorf("hostdns: ipv4 %q is required for /etc/hosts seeding", cfg.IPv4)
+	}
+	return ensureHostsEntry(hostname, ipv4, cfg.Aliases)
+}
+
+// PreferredLocalIPv4 returns the first candidate that parses as a literal
+// IPv4 address, otherwise the first non-loopback interface IPv4.
+func PreferredLocalIPv4(candidates ...string) string {
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if ip := net.ParseIP(candidate); ip != nil && ip.To4() != nil {
+			return candidate
+		}
+	}
+	ifaces, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range ifaces {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP == nil || ipNet.IP.IsLoopback() {
+			continue
+		}
+		if v4 := ipNet.IP.To4(); v4 != nil {
+			return v4.String()
+		}
+	}
+	return ""
 }
 
 func ensureUpstreamResolvConf(result *PrepareResult) error {
