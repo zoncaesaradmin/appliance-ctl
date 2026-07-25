@@ -554,7 +554,7 @@ func TestUpgrade_HTTPSSourcesDoNotCreateSourceCredentialSecrets(t *testing.T) {
 	}
 }
 
-func TestUpgrade_ArtifactProfileUsesNodeNameForRegistryPublicHost(t *testing.T) {
+func TestUpgrade_ArtifactProfileUsesRequestedPublicHostForRegistry(t *testing.T) {
 	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
@@ -567,20 +567,22 @@ func TestUpgrade_ArtifactProfileUsesNodeNameForRegistryPublicHost(t *testing.T) 
 
 	opts := env.options("2.4.0")
 	opts.ApplianceProfile = "storage"
-	opts.TLSSANs = []string{"appliance.internal.example.com"}
+	opts.NodeName = "zonsyssrv1"
+	opts.PublicHost = "192.168.1.101"
+	opts.TLSSANs = []string{"zonsyssrv1", "192.168.1.101"}
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
 		t.Fatalf("expected upgrade to succeed, got: %v", err)
 	}
 
 	registryValues := fcli.helmValues["appliance-registry"]
-	if !strings.Contains(registryValues, "realm: https://appliance.internal.example.com/api/v1/registry/token") {
+	if !strings.Contains(registryValues, "realm: https://192.168.1.101/api/v1/registry/token") {
 		t.Fatalf("registry values missing realm override:\n%s", registryValues)
 	}
-	if strings.Contains(registryValues, "host: appliance.internal.example.com") {
+	if strings.Contains(registryValues, "host: 192.168.1.101") {
 		t.Fatalf("registry ingress host should remain empty by default so /v2 matches appliance IP access too:\n%s", registryValues)
 	}
-	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://appliance.internal.example.com") {
+	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://192.168.1.101") {
 		t.Fatalf("prepared values file missing canonical origin override:\n%s", fcli.lastHelmValues)
 	}
 }

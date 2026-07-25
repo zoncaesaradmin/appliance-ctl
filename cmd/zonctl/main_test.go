@@ -408,8 +408,21 @@ func TestRun_InterruptedOperationBlocksNewCommandExceptRecovery(t *testing.T) {
 }
 
 func TestEffectiveTLSSANs_DefaultsToNodeName(t *testing.T) {
-	got := effectiveTLSSANs("appliance.internal.example.com")
+	got := effectiveTLSSANs("appliance.internal.example.com", "")
 	if len(got) != 1 || got[0] != "appliance.internal.example.com" {
 		t.Fatalf("effectiveTLSSANs = %#v, want appliance.internal.example.com", got)
+	}
+}
+
+func TestEffectiveTLSSANs_PrefersExplicitPublicHostAndKeepsExtras(t *testing.T) {
+	got := effectiveTLSSANs("zonsyssrv1", "appliance.example.internal", "192.168.1.101", "zonsyssrv1")
+	want := []string{"appliance.example.internal", "zonsyssrv1", "192.168.1.101"}
+	if len(got) != len(want) {
+		t.Fatalf("effectiveTLSSANs length = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("effectiveTLSSANs = %#v, want %#v", got, want)
+		}
 	}
 }

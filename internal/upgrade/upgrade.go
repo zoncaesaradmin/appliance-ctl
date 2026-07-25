@@ -45,6 +45,7 @@ type Options struct {
 	// directory was created before this fix shipped self-heals.
 	WorkspaceRootDir       string
 	NodeName               string
+	PublicHost             string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -139,7 +140,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if hadArtifactBefore && !targetArtifact {
 		return nil, checks, fmt.Errorf("upgrade: changing from artifact-capable profile %q to non-artifact profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
 	}
-	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.TLSSANs...)
+	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.PublicHost, opts.TLSSANs...)
 	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, publicHost, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)

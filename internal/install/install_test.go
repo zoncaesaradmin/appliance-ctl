@@ -611,12 +611,13 @@ func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
 	}
 }
 
-func TestInstall_ArtifactProfileUsesNodeNameForRegistryPublicHost(t *testing.T) {
+func TestInstall_ArtifactProfileUsesRequestedPublicHostForRegistry(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "storage"
-	opts.NodeName = "appliance.internal.example.com"
-	opts.TLSSANs = []string{"appliance.internal.example.com"}
+	opts.NodeName = "zonsyssrv1"
+	opts.PublicHost = "192.168.1.101"
+	opts.TLSSANs = []string{"zonsyssrv1", "192.168.1.101"}
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -627,13 +628,13 @@ func TestInstall_ArtifactProfileUsesNodeNameForRegistryPublicHost(t *testing.T) 
 	}
 
 	registryValues := fcli.helmValues["appliance-registry"]
-	if !strings.Contains(registryValues, "realm: https://appliance.internal.example.com/api/v1/registry/token") {
+	if !strings.Contains(registryValues, "realm: https://192.168.1.101/api/v1/registry/token") {
 		t.Fatalf("registry values missing realm override:\n%s", registryValues)
 	}
-	if strings.Contains(registryValues, "host: appliance.internal.example.com") {
+	if strings.Contains(registryValues, "host: 192.168.1.101") {
 		t.Fatalf("registry ingress host should remain empty by default so /v2 matches appliance IP access too:\n%s", registryValues)
 	}
-	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://appliance.internal.example.com") {
+	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://192.168.1.101") {
 		t.Fatalf("prepared values file missing canonical origin override:\n%s", fcli.lastHelmValues)
 	}
 	if strings.Contains(registryValues, "appliance.local") {

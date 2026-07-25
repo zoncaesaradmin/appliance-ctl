@@ -84,10 +84,13 @@ func TestPrepareRegistryValuesFile_UsesProvidedPublicHost(t *testing.T) {
 }
 
 func TestPreferredRegistryPublicHost(t *testing.T) {
-	if got := productconfig.PreferredRegistryPublicHost("node-1", "appliance.internal.example.com"); got != "appliance.internal.example.com" {
+	if got := productconfig.PreferredRegistryPublicHost("node-1", "", "appliance.internal.example.com"); got != "appliance.internal.example.com" {
 		t.Fatalf("PreferredRegistryPublicHost with TLS SAN = %q, want appliance.internal.example.com", got)
 	}
-	if got := productconfig.PreferredRegistryPublicHost("node-1"); got != "node-1" {
+	if got := productconfig.PreferredRegistryPublicHost("node-1", "public.example.com", "appliance.internal.example.com"); got != "public.example.com" {
+		t.Fatalf("PreferredRegistryPublicHost with explicit public host = %q, want public.example.com", got)
+	}
+	if got := productconfig.PreferredRegistryPublicHost("node-1", ""); got != "node-1" {
 		t.Fatalf("PreferredRegistryPublicHost fallback = %q, want node-1", got)
 	}
 }

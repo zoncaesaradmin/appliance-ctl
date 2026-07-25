@@ -54,6 +54,8 @@ type cliOptions struct {
 	applianceProfile    string
 	buildCatalogPath    string
 	nodeName            string
+	publicHost          string
+	tlsSANs             []string
 	preserveFailedState bool
 	backupID            string
 	confirm             string
@@ -108,6 +110,21 @@ func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
+type stringListFlag []string
+
+func (f *stringListFlag) String() string {
+	return strings.Join(*f, ",")
+}
+
+func (f *stringListFlag) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	*f = append(*f, value)
+	return nil
+}
+
 func run(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, usage())
@@ -131,6 +148,9 @@ func run(args []string) int {
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage); install defaults to core and upgrade preserves the installed profile when omitted")
 	buildCatalogPath := fs.String("build-catalog", "", "path to developer workflow build catalog JSON/YAML to pass as product config into the control plane")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
+	publicHost := fs.String("public-host", "", "client-reachable canonical appliance host for public URLs and registry token realm (for example DNS name or IP)")
+	var tlsSANs stringListFlag
+	fs.Var(&tlsSANs, "tls-san", "additional TLS subjectAltName to include on the appliance certificate; repeatable")
 	preserveFailedState := fs.Bool("preserve-failed-state", false, "debug mode: do not roll back a failed install or upgrade; preserve the partial target state for investigation")
 	backupID := fs.String("backup-id", "", "backup identifier to restore from (required for restore; optionally the verified recovery point for factory-reset)")
 	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall/factory-reset)")
@@ -161,6 +181,8 @@ func run(args []string) int {
 		applianceProfile:    *applianceProfile,
 		buildCatalogPath:    *buildCatalogPath,
 		nodeName:            *nodeName,
+		publicHost:          *publicHost,
+		tlsSANs:             append([]string(nil), tlsSANs...),
 		preserveFailedState: *preserveFailedState,
 		backupID:            *backupID,
 		confirm:             *confirm,
@@ -175,12 +197,27 @@ func run(args []string) int {
 	return emit(result, opts.output)
 }
 
-func effectiveTLSSANs(nodeName string) []string {
-	host := productconfig.PreferredRegistryPublicHost(nodeName)
-	if host == "" {
-		return nil
+func effectiveTLSSANs(nodeName, publicHost string, extra ...string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	appendUnique := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
 	}
-	return []string{host}
+
+	appendUnique(productconfig.PreferredRegistryPublicHost(nodeName, publicHost, extra...))
+	appendUnique(nodeName)
+	for _, san := range extra {
+		appendUnique(san)
+	}
+	return out
 }
 
 func newLogger(r *redact.Redactor, output string) *slog.Logger {

@@ -71,6 +71,7 @@ type Options struct {
 	// internal/hostdirs.
 	WorkspaceRootDir       string
 	NodeName               string
+	PublicHost             string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -170,7 +171,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if targetVersion == "" {
 		return nil, checks, fmt.Errorf("install: resolved bundle version is empty")
 	}
-	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.TLSSANs...)
+	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.PublicHost, opts.TLSSANs...)
 	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, publicHost, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)

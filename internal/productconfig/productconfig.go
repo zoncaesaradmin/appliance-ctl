@@ -275,7 +275,10 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 	return tmp.Name(), cleanup, nil
 }
 
-func PreferredRegistryPublicHost(nodeName string, tlsSANs ...string) string {
+func PreferredRegistryPublicHost(nodeName, publicHost string, tlsSANs ...string) string {
+	if host := strings.TrimSpace(publicHost); host != "" {
+		return host
+	}
 	for _, candidate := range tlsSANs {
 		candidate = strings.TrimSpace(candidate)
 		if candidate != "" {
