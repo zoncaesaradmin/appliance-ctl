@@ -94,7 +94,7 @@ func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
 		"name: appliance.local",
 		"hostPath: /data/zon/logs/dns",
 		"- 1.1.1.1",
-		"create: true",
+		"create: false",
 		"name: dns",
 	} {
 		if !strings.Contains(text, want) {

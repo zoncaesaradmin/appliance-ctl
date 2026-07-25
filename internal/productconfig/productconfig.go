@@ -348,9 +348,11 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, hostname, ipv4 string,
 		return "", func() {}, fmt.Errorf("product config: dns local zone ipv4 must not be empty")
 	}
 	values := map[string]any{
-		// create=true so the chart applies privileged PSA labels required
-		// for hostNetwork CoreDNS before the Deployment is admitted.
-		"namespace": map[string]any{"create": true, "name": "dns"},
+		// create=false: zonctl EnsureNamespace already creates the dns
+		// namespace (with privileged PSA labels) before Helm runs. If the
+		// chart also owned Namespace, Helm would refuse to adopt the
+		// pre-created object (missing meta.helm.sh ownership).
+		"namespace": map[string]any{"create": false, "name": "dns"},
 		"image": map[string]any{
 			"repository": "registry.local/coredns",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(corednsImageReference), "registry.local/coredns@"),
