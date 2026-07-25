@@ -81,7 +81,7 @@ type Orchestrator struct {
 	// EnsureOwnedDir prepares a host directory backing a static hostPath
 	// PersistentVolume with the correct owner; see internal/hostdirs.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
-	PrepareHostDNS func() (hostdns.PrepareResult, error)
+	PrepareHostDNS func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
 	RestoreHostDNS func() error
 }
 
@@ -400,7 +400,17 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		// failures do not leave systemd-resolved reconfigured. Only roll the
 		// host change back when this upgrade is newly adding DNS.
 		if o.PrepareHostDNS != nil {
-			prep, prepErr := o.PrepareHostDNS()
+			hostname := strings.TrimSpace(opts.NodeName)
+			if hostname == "" {
+				if h, err := os.Hostname(); err == nil {
+					hostname = strings.TrimSpace(h)
+				}
+			}
+			prep, prepErr := o.PrepareHostDNS(hostdns.PrepareConfig{
+				Hostname: hostname,
+				IPv4:     preferredUpgradeLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...),
+				Aliases:  append([]string{opts.PublicHost}, opts.TLSSANs...),
+			})
 			if prepErr != nil {
 				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare host for LAN DNS on port 53: %w", prepErr), rollback)
 				checks = append(checks, rollbackChecks...)
@@ -410,7 +420,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				restoreHostDNSOnRollback = true
 				checks = append(checks, evidence.Check{
 					ID: "host-dns-stub-disabled", Category: "host", Status: evidence.StatusPass,
-					Message:   "disabled systemd-resolved DNSStubListener so hostNetwork CoreDNS can bind :53",
+					Message:   "prepared host for LAN DNS (systemd-resolved stub disabled and/or node hostname seeded in /etc/hosts)",
 					Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 				})
 			}

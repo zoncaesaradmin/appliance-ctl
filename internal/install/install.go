@@ -120,9 +120,9 @@ type Orchestrator struct {
 	// handling.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
 	// PrepareHostDNS frees hostNetwork :53 (disables systemd-resolved stub)
-	// for dns-capable profiles. Tests inject a no-op; production uses
-	// hostdns.Prepare.
-	PrepareHostDNS func() (hostdns.PrepareResult, error)
+	// and seeds /etc/hosts for the node name so preflight still passes after
+	// the stub (and MagicDNS) is gone. Tests leave this nil as a no-op.
+	PrepareHostDNS func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
 	// RestoreHostDNS undoes PrepareHostDNS on rollback/uninstall.
 	RestoreHostDNS func() error
 }
@@ -238,9 +238,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		// Ubuntu's systemd-resolved stub owns 127.0.0.53:53 and blocks any
 		// wildcard bind on :53. Free that before preflight so the port-53
 		// check reflects the post-prep host, and so CoreDNS can start.
+		// Also seed /etc/hosts: after the stub is gone, short names that only
+		// resolved via MagicDNS/stub would fail internal-dns-resolvable.
 		// NewOrchestrator wires PrepareHostDNS; tests leave it nil as a no-op.
 		if o.PrepareHostDNS != nil {
-			prep, prepErr := o.PrepareHostDNS()
+			prep, prepErr := o.PrepareHostDNS(hostDNSPrepareConfig(opts))
 			if prepErr != nil {
 				return nil, checks, fmt.Errorf("install: prepare host for LAN DNS on port 53: %w", prepErr)
 			}
@@ -248,9 +250,10 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 				if o.RestoreHostDNS != nil {
 					rollbacks = append(rollbacks, o.RestoreHostDNS)
 				}
+				msg := "prepared host for LAN DNS (systemd-resolved stub disabled and/or node hostname seeded in /etc/hosts)"
 				checks = append(checks, evidence.Check{
 					ID: "host-dns-stub-disabled", Category: "host", Status: evidence.StatusPass,
-					Message:   "disabled systemd-resolved DNSStubListener and pointed resolv.conf at uplink resolvers so hostNetwork CoreDNS can bind :53",
+					Message:   msg,
 					Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 				})
 			}
@@ -643,6 +646,25 @@ func componentDNSVersion(profile, version string) string {
 // literals are skipped: CoreDNS's own name resolution can't yet be relied on
 // to resolve the appliance's own hostname (that's the record being created),
 // and the LAN clients this record serves are assumed to be IPv4-only.
+func hostDNSPrepareConfig(opts Options) hostdns.PrepareConfig {
+	hostname := strings.TrimSpace(opts.NodeName)
+	if hostname == "" {
+		if h, err := os.Hostname(); err == nil {
+			hostname = strings.TrimSpace(h)
+		}
+	}
+	aliases := make([]string, 0, 1+len(opts.TLSSANs))
+	if host := strings.TrimSpace(opts.PublicHost); host != "" {
+		aliases = append(aliases, host)
+	}
+	aliases = append(aliases, opts.TLSSANs...)
+	return hostdns.PrepareConfig{
+		Hostname: hostname,
+		IPv4:     preferredLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...),
+		Aliases:  aliases,
+	}
+}
+
 func preferredLocalIPv4(candidates ...string) string {
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)

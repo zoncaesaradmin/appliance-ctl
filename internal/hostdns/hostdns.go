@@ -4,6 +4,12 @@
 // from binding *:53 — including CoreDNS. The installer owns this
 // reconfiguration for dns-capable profiles and restores it on rollback
 // or uninstall.
+//
+// Disabling the stub switches /etc/resolv.conf to uplink resolvers. Short
+// hostnames that previously resolved only via the stub (for example
+// Tailscale MagicDNS) would then fail preflight's internal-dns-resolvable
+// check, so Prepare also seeds a managed /etc/hosts entry for the node
+// name → LAN IPv4.
 package hostdns
 
 import (
@@ -24,7 +30,13 @@ const (
 	// is not yet listening.
 	UpstreamResolvPath = "/run/systemd/resolve/resolv.conf"
 	ResolvConfPath     = "/etc/resolv.conf"
+
+	hostsBeginMarker = "# BEGIN zon-appliance-dns"
+	hostsEndMarker   = "# END zon-appliance-dns"
 )
+
+// HostsPath is the hosts file Prepare manages. Tests may override it.
+var HostsPath = "/etc/hosts"
 
 const dropInContents = `# Managed by zonctl for appliance LAN DNS (hostNetwork CoreDNS on :53).
 # Do not edit by hand; uninstall/rollback removes this drop-in.
@@ -32,28 +44,29 @@ const dropInContents = `# Managed by zonctl for appliance LAN DNS (hostNetwork C
 DNSStubListener=no
 `
 
+// PrepareConfig identifies the node so Prepare can keep its hostname
+// resolvable after the stub listener is disabled.
+type PrepareConfig struct {
+	Hostname string
+	IPv4     string
+	// Aliases are extra names written on the same hosts line (FQDN, public
+	// host, TLS SANs). The short Hostname is always included.
+	Aliases []string
+}
+
 // PrepareResult describes what Prepare changed so callers can evidence
 // and roll back precisely.
 type PrepareResult struct {
 	Changed            bool
 	WroteDropIn        bool
 	RelinkedResolvConf bool
+	WroteHostsEntry    bool
 	PreviousResolvLink string
 }
 
-// NeedsStubDisable reports whether systemd-resolved's stub listener is
-// currently preventing a wildcard bind on TCP/53. When false, Prepare is
-// a no-op.
+// NeedsStubDisable reports whether a wildcard bind on TCP/53 currently
+// fails. When false, Prepare still ensures the drop-in/hosts contract.
 func NeedsStubDisable() bool {
-	if _, err := os.Stat("/usr/lib/systemd/systemd-resolved"); err != nil {
-		if _, err := os.Stat("/lib/systemd/systemd-resolved"); err != nil {
-			// No systemd-resolved binary — nothing for us to reconfigure.
-			return portConflictOnWildcard53()
-		}
-	}
-	if !serviceActive("systemd-resolved") {
-		return portConflictOnWildcard53()
-	}
 	return portConflictOnWildcard53()
 }
 
@@ -67,51 +80,79 @@ func portConflictOnWildcard53() bool {
 }
 
 // Prepare disables the systemd-resolved stub listener when it would block
-// CoreDNS from binding *:53, and points /etc/resolv.conf at the uplink
-// resolv.conf so the host keeps working DNS during install. It is
-// idempotent: a second call with the drop-in already present is a no-op.
-func Prepare() (PrepareResult, error) {
+// CoreDNS from binding *:53, points /etc/resolv.conf at the uplink
+// resolv.conf, and seeds a managed /etc/hosts entry so the node hostname
+// remains resolvable for preflight and early install steps. It is
+// idempotent.
+func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 	var result PrepareResult
-	if !NeedsStubDisable() {
-		// Already free (or previously prepared). Still ensure our drop-in
-		// exists if resolved is active so a reboot keeps the contract.
+	hostname := strings.TrimSpace(cfg.Hostname)
+	ipv4 := strings.TrimSpace(cfg.IPv4)
+	if hostname == "" {
+		return result, fmt.Errorf("hostdns: hostname is required so the node name stays resolvable after disabling the stub resolver")
+	}
+	if ip := net.ParseIP(ipv4); ip == nil || ip.To4() == nil {
+		return result, fmt.Errorf("hostdns: ipv4 %q is required (node LAN address for /etc/hosts)", cfg.IPv4)
+	}
+
+	needStubWork := NeedsStubDisable()
+	if !needStubWork {
 		if serviceActive("systemd-resolved") {
-			if _, err := os.Stat(DropInPath); err == nil {
-				return result, nil
+			if _, err := os.Stat(DropInPath); err != nil {
+				needStubWork = true
 			}
-		} else {
-			return result, nil
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(DropInPath), 0o755); err != nil {
-		return result, fmt.Errorf("hostdns: create resolved drop-in dir: %w", err)
-	}
-	if err := os.WriteFile(DropInPath, []byte(dropInContents), 0o644); err != nil {
-		return result, fmt.Errorf("hostdns: write resolved drop-in: %w", err)
-	}
-	result.WroteDropIn = true
-	result.Changed = true
+	if needStubWork {
+		if err := os.MkdirAll(filepath.Dir(DropInPath), 0o755); err != nil {
+			return result, fmt.Errorf("hostdns: create resolved drop-in dir: %w", err)
+		}
+		if err := os.WriteFile(DropInPath, []byte(dropInContents), 0o644); err != nil {
+			return result, fmt.Errorf("hostdns: write resolved drop-in: %w", err)
+		}
+		result.WroteDropIn = true
+		result.Changed = true
 
-	if err := restartResolved(); err != nil {
-		_ = os.Remove(DropInPath)
-		return result, err
+		if err := restartResolved(); err != nil {
+			_ = os.Remove(DropInPath)
+			return result, err
+		}
+
+		if err := ensureUpstreamResolvConf(&result); err != nil {
+			_ = Restore()
+			return result, err
+		}
+
+		if portConflictOnWildcard53() {
+			_ = Restore()
+			return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub; stop the conflicting DNS service before installing a dns-capable profile")
+		}
 	}
 
-	if err := ensureUpstreamResolvConf(&result); err != nil {
+	wroteHosts, err := ensureHostsEntry(hostname, ipv4, cfg.Aliases)
+	if err != nil {
 		_ = Restore()
 		return result, err
 	}
+	if wroteHosts {
+		result.WroteHostsEntry = true
+		result.Changed = true
+	}
 
-	if portConflictOnWildcard53() {
+	if addrs, lookupErr := net.LookupHost(hostname); lookupErr != nil || len(addrs) == 0 {
 		_ = Restore()
-		return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub; stop the conflicting DNS service before installing a dns-capable profile")
+		if lookupErr != nil {
+			return result, fmt.Errorf("hostdns: hostname %q still does not resolve after writing %s: %w", hostname, HostsPath, lookupErr)
+		}
+		return result, fmt.Errorf("hostdns: hostname %q still does not resolve after writing %s", hostname, HostsPath)
 	}
 	return result, nil
 }
 
-// Restore removes the appliance-owned resolved drop-in and restores the
-// previous /etc/resolv.conf stub symlink when Prepare changed it.
+// Restore removes the appliance-owned resolved drop-in, restores the stub
+// resolv.conf symlink when resolved is active, and clears the managed
+// /etc/hosts block.
 func Restore() error {
 	var errs []error
 	if err := os.Remove(DropInPath); err != nil && !os.IsNotExist(err) {
@@ -121,10 +162,6 @@ func Restore() error {
 		if err := restartResolved(); err != nil {
 			errs = append(errs, err)
 		}
-	}
-	// Prefer the stub resolv.conf when resolved is active again so Ubuntu
-	// returns to its default DNS mode after uninstall/rollback.
-	if serviceActive("systemd-resolved") {
 		stub := "/run/systemd/resolve/stub-resolv.conf"
 		if _, err := os.Stat(stub); err == nil {
 			_ = os.Remove(ResolvConfPath)
@@ -132,6 +169,9 @@ func Restore() error {
 				errs = append(errs, fmt.Errorf("hostdns: restore stub resolv.conf symlink: %w", err))
 			}
 		}
+	}
+	if err := removeHostsEntry(); err != nil {
+		errs = append(errs, err)
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("%v", errs)
@@ -165,6 +205,103 @@ func ensureUpstreamResolvConf(result *PrepareResult) error {
 	result.RelinkedResolvConf = true
 	result.Changed = true
 	return nil
+}
+
+func ensureHostsEntry(hostname, ipv4 string, aliases []string) (bool, error) {
+	names := uniqueHostNames(hostname, aliases)
+	line := ipv4 + " " + strings.Join(names, " ")
+	block := hostsBeginMarker + "\n" + line + "\n" + hostsEndMarker + "\n"
+
+	existing, err := os.ReadFile(HostsPath)
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("hostdns: read %s: %w", HostsPath, err)
+	}
+	body := string(existing)
+	if strings.Contains(body, block) {
+		return false, nil
+	}
+	updated, err := replaceOrAppendHostsBlock(body, block)
+	if err != nil {
+		return false, err
+	}
+	if updated == body {
+		return false, nil
+	}
+	if err := os.WriteFile(HostsPath, []byte(updated), 0o644); err != nil {
+		return false, fmt.Errorf("hostdns: write %s: %w", HostsPath, err)
+	}
+	return true, nil
+}
+
+func removeHostsEntry() error {
+	existing, err := os.ReadFile(HostsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("hostdns: read %s: %w", HostsPath, err)
+	}
+	updated, changed := stripHostsBlock(string(existing))
+	if !changed {
+		return nil
+	}
+	if err := os.WriteFile(HostsPath, []byte(updated), 0o644); err != nil {
+		return fmt.Errorf("hostdns: rewrite %s without appliance block: %w", HostsPath, err)
+	}
+	return nil
+}
+
+func replaceOrAppendHostsBlock(body, block string) (string, error) {
+	start := strings.Index(body, hostsBeginMarker)
+	if start < 0 {
+		if body != "" && !strings.HasSuffix(body, "\n") {
+			body += "\n"
+		}
+		return body + block, nil
+	}
+	end := strings.Index(body[start:], hostsEndMarker)
+	if end < 0 {
+		return "", fmt.Errorf("hostdns: %s has a malformed %s block", HostsPath, hostsBeginMarker)
+	}
+	end = start + end + len(hostsEndMarker)
+	for end < len(body) && (body[end] == '\n' || body[end] == '\r') {
+		end++
+	}
+	return body[:start] + block + body[end:], nil
+}
+
+func stripHostsBlock(body string) (string, bool) {
+	start := strings.Index(body, hostsBeginMarker)
+	if start < 0 {
+		return body, false
+	}
+	end := strings.Index(body[start:], hostsEndMarker)
+	if end < 0 {
+		return body, false
+	}
+	end = start + end + len(hostsEndMarker)
+	for end < len(body) && (body[end] == '\n' || body[end] == '\r') {
+		end++
+	}
+	return body[:start] + body[end:], true
+}
+
+func uniqueHostNames(hostname string, aliases []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, 1+len(aliases))
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || net.ParseIP(name) != nil || seen[name] {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	add(hostname)
+	for _, alias := range aliases {
+		add(alias)
+	}
+	return out
 }
 
 func restartResolved() error {
