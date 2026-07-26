@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -40,6 +41,17 @@ const (
 
 // HostsPath is the hosts file Prepare manages. Tests may override it.
 var HostsPath = "/etc/hosts"
+
+// listenTCP53 and sleep are overridden in tests.
+var (
+	listenTCP53 = func() (net.Listener, error) { return net.Listen("tcp", ":53") }
+	sleep       = time.Sleep
+)
+
+const (
+	port53ReadyTimeout = 3 * time.Second
+	port53ReadyPoll    = 100 * time.Millisecond
+)
 
 const dropInContents = `# Managed by zonctl for appliance LAN DNS (hostNetwork CoreDNS on :53).
 # Do not edit by hand; uninstall/rollback removes this drop-in.
@@ -80,6 +92,28 @@ func portConflictOnWildcard53() bool {
 	}
 	_ = ln.Close()
 	return false
+}
+
+// waitUntilWildcard53Free polls until a wildcard TCP :53 bind succeeds or
+// timeout elapses. systemd-resolved can take a short time after restart to
+// drop 127.0.0.53/54 even when DNSStubListener=no is already on disk.
+func waitUntilWildcard53Free(timeout, poll time.Duration) bool {
+	if timeout <= 0 {
+		return !portConflictOnWildcard53()
+	}
+	if poll <= 0 {
+		poll = port53ReadyPoll
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		if !portConflictOnWildcard53() {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		sleep(poll)
+	}
 }
 
 // Prepare disables the systemd-resolved stub listener when it would block
@@ -127,16 +161,15 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 			return result, err
 		}
 
-		if portConflictOnWildcard53() {
+		if !waitUntilWildcard53Free(port53ReadyTimeout, port53ReadyPoll) {
 			// Uninstall with KillMode=process can leave appliance-dns CoreDNS
 			// reparented to init while still bound to *:53. Reap that known
-			// orphan before failing closed on an unknown conflict.
-			if released, releaseErr := releaseOrphanCoreDNSListeners(); releaseErr != nil {
+			// orphan, then wait again for the bind to succeed.
+			if _, releaseErr := releaseOrphanCoreDNSListeners(); releaseErr != nil {
 				_ = Restore()
 				return result, fmt.Errorf("hostdns: release leftover appliance CoreDNS on port 53: %w", releaseErr)
-			} else if released && !portConflictOnWildcard53() {
-				// port freed; continue
-			} else if portConflictOnWildcard53() {
+			}
+			if !waitUntilWildcard53Free(port53ReadyTimeout, port53ReadyPoll) {
 				_ = Restore()
 				return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub; stop the conflicting DNS service before installing a dns-capable profile")
 			}
@@ -370,8 +403,4 @@ func restartResolved() error {
 func serviceActive(name string) bool {
 	cmd := exec.Command("systemctl", "is-active", "--quiet", name)
 	return cmd.Run() == nil
-}
-
-func listenTCP53() (net.Listener, error) {
-	return net.Listen("tcp", ":53")
 }

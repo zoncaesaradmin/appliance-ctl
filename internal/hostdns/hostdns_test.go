@@ -1,10 +1,13 @@
 package hostdns
 
 import (
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDropInContentsDisablesStub(t *testing.T) {
@@ -12,6 +15,60 @@ func TestDropInContentsDisablesStub(t *testing.T) {
 		t.Fatalf("drop-in missing required stanza:\n%s", dropInContents)
 	}
 }
+
+func TestWaitUntilWildcard53Free_PollsUntilBindSucceeds(t *testing.T) {
+	origListen := listenTCP53
+	origSleep := sleep
+	t.Cleanup(func() {
+		listenTCP53 = origListen
+		sleep = origSleep
+	})
+
+	attempts := 0
+	listenTCP53 = func() (net.Listener, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, errors.New("bind: address already in use")
+		}
+		return &stubListener{}, nil
+	}
+	var slept time.Duration
+	sleep = func(d time.Duration) { slept += d }
+
+	if !waitUntilWildcard53Free(time.Second, 50*time.Millisecond) {
+		t.Fatal("expected waitUntilWildcard53Free to succeed after transient conflicts")
+	}
+	if attempts != 3 {
+		t.Fatalf("listen attempts=%d, want 3", attempts)
+	}
+	if slept < 50*time.Millisecond {
+		t.Fatalf("expected at least one poll sleep, got %s", slept)
+	}
+}
+
+func TestWaitUntilWildcard53Free_TimesOut(t *testing.T) {
+	origListen := listenTCP53
+	origSleep := sleep
+	t.Cleanup(func() {
+		listenTCP53 = origListen
+		sleep = origSleep
+	})
+
+	listenTCP53 = func() (net.Listener, error) {
+		return nil, errors.New("bind: address already in use")
+	}
+	sleep = func(time.Duration) {}
+
+	if waitUntilWildcard53Free(30*time.Millisecond, 10*time.Millisecond) {
+		t.Fatal("expected timeout while port stays busy")
+	}
+}
+
+type stubListener struct{}
+
+func (stubListener) Accept() (net.Conn, error) { return nil, errors.New("unused") }
+func (stubListener) Close() error              { return nil }
+func (stubListener) Addr() net.Addr            { return &net.TCPAddr{Port: 53} }
 
 func TestEnsureUpstreamResolvConf_RelinksStubToUplink(t *testing.T) {
 	tmp := t.TempDir()
