@@ -497,9 +497,10 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, failErr
 	}
 	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
-		SourceBinaryPath: resolved.ZonctlBinaryPath,
-		RealDestPath:     opts.ZonctlRealDestPath,
-		LauncherDestPath: opts.ZonctlLauncherDestPath,
+		SourceBinaryPath:  resolved.ZonctlBinaryPath,
+		RealDestPath:      opts.ZonctlRealDestPath,
+		LauncherDestPath:  opts.ZonctlLauncherDestPath,
+		HelperSourcePaths: resolved.HelperBinaryPaths,
 	})
 	if err != nil {
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host zonctl: %w", err), func() []evidence.Check {

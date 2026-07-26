@@ -108,10 +108,34 @@ func TestInspectCluster_PropagatesKubectlFailure(t *testing.T) {
 
 func fakeIngressRoutes(names string, err error) func(context.Context, string, ...string) (string, error) {
 	return func(_ context.Context, name string, args ...string) (string, error) {
-		if name != "kubectl" || !containsArg(args, "ingressroute") {
+		if name != "kubectl" || !containsArg(args, "ingressroutes.traefik.io") {
 			return "", errors.New("unexpected invocation")
 		}
 		return names, err
+	}
+}
+
+func TestIngressRouteExists_UsesTraefikIOAPIGroup(t *testing.T) {
+	var got []string
+	run := func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "kubectl" {
+			return "", errors.New("unexpected binary")
+		}
+		got = append([]string(nil), args...)
+		return "control-plane", nil
+	}
+	present, err := k3s.IngressRouteExists(context.Background(), run, "/etc/rancher/k3s/k3s.yaml", "appliance-system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present {
+		t.Fatal("expected present")
+	}
+	if !containsArg(got, "ingressroutes.traefik.io") {
+		t.Fatalf("expected fully-qualified traefik.io resource, got %v", got)
+	}
+	if containsArg(got, "ingressroute") {
+		t.Fatalf("short name ingressroute resolves to legacy containo.us CRD; got %v", got)
 	}
 }
 

@@ -81,7 +81,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 		installedStatePath:  filepath.Join(stateDir, "installed-state.json"),
 		dataDir:             filepath.Join(stateDir, "..", "k3s-data"),
 		workspaceRootDir:    filepath.Join(stateDir, "..", "data", "zon", "workspaces"),
-		zonctlRealPath:      filepath.Join(stateDir, "..", "zonctl-lib", "zonctl-real"),
+		zonctlRealPath:      filepath.Join(stateDir, "..", "zonctl-lib", "bin", "zonctl-real"),
 		zonctlLauncherPath:  filepath.Join(stateDir, "..", "bin", "zonctl"),
 		installerLockPath:   filepath.Join(stateDir, "installer.lock"),
 		transactionJSONPath: filepath.Join(stateDir, "transaction.json"),
@@ -89,8 +89,9 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 		backupFilePath:      filepath.Join(stateDir, "backups", "backup-0001", "manifest.json"),
 	}
 	f.workspaceFilePath = filepath.Join(f.workspaceRootDir, "myws", "repo", "README.md")
+	helmPath := filepath.Join(filepath.Dir(f.zonctlRealPath), "helm")
 
-	for _, p := range []string{f.binaryPath, f.configPath, f.unitPath, f.installedStatePath, f.zonctlRealPath, f.zonctlLauncherPath, f.installerLockPath, f.transactionJSONPath, f.evidenceFilePath, f.backupFilePath} {
+	for _, p := range []string{f.binaryPath, f.configPath, f.unitPath, f.installedStatePath, f.zonctlRealPath, f.zonctlLauncherPath, helmPath, f.installerLockPath, f.transactionJSONPath, f.evidenceFilePath, f.backupFilePath} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			t.Fatal(err)
 		}
@@ -325,11 +326,12 @@ func TestFactoryReset_WipesWorkspaceRootWhenExplicitlyRequested(t *testing.T) {
 func TestFactoryReset_RemovesZonctlBinaries(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
+	helmPath := filepath.Join(filepath.Dir(f.zonctlRealPath), "helm")
 
 	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
 		t.Fatalf("expected factory-reset to succeed, got: %v", err)
 	}
-	for _, p := range []string{f.zonctlRealPath, f.zonctlLauncherPath} {
+	for _, p := range []string{f.zonctlRealPath, f.zonctlLauncherPath, helmPath} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("expected %s to be removed by factory-reset, stat err=%v", p, err)
 		}

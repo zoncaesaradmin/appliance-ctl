@@ -12,6 +12,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
 
 // Resolved is every artifact the install sequence needs, as verified
@@ -23,6 +24,9 @@ type Resolved struct {
 	ReleaseID        string
 	Compatibility    bundle.Compatibility
 	ZonctlBinaryPath string
+	// HelperBinaryPaths are durable host tools (currently helm) installed
+	// next to zonctl-real so status/verify work without the temp bundle PATH.
+	HelperBinaryPaths []string
 
 	K3sBinaryPath     string
 	ChartPath         string
@@ -112,6 +116,10 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
+	helperBinaryPaths, err := zonctlhost.ResolveHelperSourcePaths(filepath.Dir(zonctlBinaryPath))
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: %w", err)
+	}
 	configurationPath, err := configurationPath(b)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -152,6 +160,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ReleaseID:                          b.ReleaseID,
 		Compatibility:                      b.Compatibility,
 		ZonctlBinaryPath:                   zonctlBinaryPath,
+		HelperBinaryPaths:                  helperBinaryPaths,
 		K3sBinaryPath:                      k3sBinaryPath,
 		ChartPath:                          chartPath,
 		RegistryChartPath:                  registryChartPath,

@@ -62,8 +62,12 @@ func allNodesReady(output string) bool {
 // object exists in namespace. A false result with a nil error is exactly
 // the "chart says healthy but nothing routes traffic here" gap this
 // check exists to catch.
+//
+// Query ingressroutes.traefik.io explicitly. K3s Traefik also registers the
+// legacy short name ingressroute → traefik.containo.us, which is empty when
+// the chart creates traefik.io/v1alpha1 routes and would falsely fail status.
 func IngressRouteExists(ctx context.Context, run cli.Runner, kubeconfig, namespace string) (bool, error) {
-	out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "-n", namespace, "get", "ingressroute",
+	out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "-n", namespace, "get", "ingressroutes.traefik.io",
 		"-o", `jsonpath={.items[*].metadata.name}`)
 	if err != nil {
 		return false, fmt.Errorf("k3s: list ingressroutes: %w", err)

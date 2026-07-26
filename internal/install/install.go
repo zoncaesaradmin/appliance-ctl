@@ -555,9 +555,10 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: %w", err), cleanupErr)
 	}
 	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
-		SourceBinaryPath: resolved.ZonctlBinaryPath,
-		RealDestPath:     opts.ZonctlRealDestPath,
-		LauncherDestPath: opts.ZonctlLauncherDestPath,
+		SourceBinaryPath:  resolved.ZonctlBinaryPath,
+		RealDestPath:      opts.ZonctlRealDestPath,
+		LauncherDestPath:  opts.ZonctlLauncherDestPath,
+		HelperSourcePaths: resolved.HelperBinaryPaths,
 	})
 	if err != nil {
 		var cleanupErr error

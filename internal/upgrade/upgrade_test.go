@@ -38,6 +38,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		imageReference string
 	}{
 		{"bin/zonctl-real", "appliance", "fake zonctl binary " + spec.bundleVersion, ""},
+		{"bin/helm", "appliance", "fake helm binary " + spec.bundleVersion, ""},
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion, ""},
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion, ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart", ""},

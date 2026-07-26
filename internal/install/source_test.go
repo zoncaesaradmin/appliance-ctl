@@ -17,6 +17,7 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                         "fake zonctl binary",
+		"bin/helm":                                "fake helm binary",
 		"k3s/binary/k3s":                          "fake k3s binary",
 		"charts/appliance-chart-2.4.0.tgz":        "fake chart",
 		"configuration/configuration.schema.json": `{"type":"object"}`,
@@ -38,7 +39,7 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 		}
 		component := "configuration"
 		switch {
-		case rel == "bin/zonctl-real":
+		case rel == "bin/zonctl-real", rel == "bin/helm":
 			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"
@@ -94,6 +95,9 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	if filepath.Base(resolved.ZonctlBinaryPath) != "zonctl-real" {
 		t.Fatalf("expected zonctl-real to be selected, got %s", resolved.ZonctlBinaryPath)
 	}
+	if len(resolved.HelperBinaryPaths) != 1 || filepath.Base(resolved.HelperBinaryPaths[0]) != "helm" {
+		t.Fatalf("expected durable helm helper path, got %#v", resolved.HelperBinaryPaths)
+	}
 	if filepath.Base(resolved.ConfigurationPath) != "values.yaml" {
 		t.Fatalf("expected values.yaml to be selected, got %s", resolved.ConfigurationPath)
 	}
@@ -103,6 +107,7 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                            "fake zonctl binary",
+		"bin/helm":                                   "fake helm binary",
 		"k3s/binary/k3s":                             "fake k3s binary",
 		"charts/argo-workflows-chart-3.5.10.tgz":     "fake argo chart",
 		"charts/appliance-chart-2.4.0.tgz":           "fake appliance chart",
@@ -125,7 +130,7 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 		}
 		component := "configuration"
 		switch {
-		case rel == "bin/zonctl-real":
+		case rel == "bin/zonctl-real", rel == "bin/helm":
 			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"
@@ -192,6 +197,7 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                  "fake zonctl binary",
+		"bin/helm":                         "fake helm binary",
 		"k3s/binary/k3s":                   "fake k3s binary",
 		"charts/appliance-chart-2.4.0.tgz": "fake appliance chart",
 		"configuration/values.yaml":        "replicaCount: 1\n",
@@ -216,7 +222,7 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 			"path": rel, "digest": digest, "sizeBytes": len(content),
 		}
 		switch {
-		case rel == "bin/zonctl-real":
+		case rel == "bin/zonctl-real", rel == "bin/helm":
 			entry["component"] = "appliance"
 		case rel == "k3s/binary/k3s":
 			entry["component"] = "k3s-binary"
@@ -298,6 +304,7 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                        "fake zonctl binary",
+		"bin/helm":                               "fake helm binary",
 		"k3s/binary/k3s":                         "fake k3s binary",
 		"charts/argo-workflows-chart-3.5.10.tgz": "fake argo chart",
 		"charts/appliance-chart-2.4.0.tgz":       "fake appliance chart",
@@ -319,7 +326,7 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 		}
 		component := "configuration"
 		switch {
-		case rel == "bin/zonctl-real":
+		case rel == "bin/zonctl-real", rel == "bin/helm":
 			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"
@@ -378,6 +385,7 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                        "fake zonctl binary",
+		"bin/helm":                               "fake helm binary",
 		"k3s/binary/k3s":                         "fake k3s binary",
 		"charts/argo-workflows-chart-3.5.10.tgz": "fake argo chart",
 		"charts/appliance-chart-2.4.0.tgz":       "fake appliance chart",
@@ -399,7 +407,7 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 		}
 		component := "configuration"
 		switch {
-		case rel == "bin/zonctl-real":
+		case rel == "bin/zonctl-real", rel == "bin/helm":
 			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"

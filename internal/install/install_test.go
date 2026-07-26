@@ -86,6 +86,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 
 	entries := []fixtureEntry{
 		{"bin/zonctl-real", "appliance", "fake zonctl binary bytes", ""},
+		{"bin/helm", "appliance", "fake helm binary bytes", ""},
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary bytes", ""},
 		{"charts/appliance-chart-2.4.0.tgz", "chart", "fake chart bytes", ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart bytes", ""},
@@ -514,6 +515,9 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 	if _, err := os.Stat(opts.ZonctlLauncherDestPath); err != nil {
 		t.Errorf("expected host zonctl launcher to be installed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(opts.ZonctlRealDestPath), "helm")); err != nil {
+		t.Errorf("expected durable host helm helper to be installed: %v", err)
 	}
 
 	// Round-trip through the real schema-validated loader too.
