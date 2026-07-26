@@ -60,7 +60,7 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	}
 	text := string(data)
 	for _, want := range []string{
-		"applianceProfile: lan-dns",
+		"applianceProfile: landns",
 		"dnsReadyURL: " + productconfig.DefaultDNSReadyURL,
 		"dnsZoneName: " + productconfig.DefaultLANDNSZone,
 		"dnsAllowFakeZoneSync: false",
@@ -73,14 +73,14 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 		}
 	}
 	if strings.Contains(text, "zotBaseURL:") {
-		t.Fatalf("lan-dns must not inject zotBaseURL:\n%s", text)
+		t.Fatalf("landns must not inject zotBaseURL:\n%s", text)
 	}
 	for _, forbidden := range []string{
 		"dnsBootstrapHostname: appliance",
 		"dnsBootstrapIPv4: 192.0.2.10",
 	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("lan-dns must not seed DNS A records from public_host (%q present):\n%s", forbidden, text)
+			t.Fatalf("landns must not seed DNS A records from public_host (%q present):\n%s", forbidden, text)
 		}
 	}
 }
@@ -189,7 +189,7 @@ func TestResolveApplianceProfile_PreservesCurrentWhenRequestedEmpty(t *testing.T
 }
 
 func TestResolveApplianceProfile_AcceptsLANDNSProfiles(t *testing.T) {
-	for _, requested := range []string{"lan-dns", "storage-lan-dns"} {
+	for _, requested := range []string{"landns", "storage-landns", "builder-landns", "builder-storage-landns"} {
 		t.Run(requested, func(t *testing.T) {
 			profile, err := productconfig.ResolveApplianceProfile(requested, "")
 			if err != nil {
@@ -197,6 +197,10 @@ func TestResolveApplianceProfile_AcceptsLANDNSProfiles(t *testing.T) {
 			}
 			if profile != requested {
 				t.Fatalf("profile = %q, want %q", profile, requested)
+			}
+			wantDNS := true
+			if productconfig.HasCapability(profile, productconfig.CapabilityDNS) != wantDNS {
+				t.Fatalf("HasCapability(dns) = %v, want %v", !wantDNS, wantDNS)
 			}
 		})
 	}

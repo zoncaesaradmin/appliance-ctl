@@ -145,7 +145,7 @@ func run(args []string) int {
 	configPath := fs.String("config", "", "path to a bundle assembly config JSON file (required for assemble-bundle)")
 	bundleDir := fs.String("bundle-dir", "", "path to an extracted signed appliance bundle directory (required for install/upgrade)")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
-	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage, lan-dns, storage-lan-dns); install defaults to core and upgrade preserves the installed profile when omitted")
+	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage, landns, storage-landns, builder-landns, builder-storage-landns); install defaults to core and upgrade preserves the installed profile when omitted")
 	buildCatalogPath := fs.String("build-catalog", "", "path to developer workflow build catalog JSON/YAML to pass as product config into the control plane")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
 	publicHost := fs.String("public-host", "", "client-reachable canonical appliance host for public URLs and registry token realm (for example DNS name or IP)")

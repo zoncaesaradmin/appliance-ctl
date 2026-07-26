@@ -453,7 +453,7 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 		BundleDir: dir,
 		PublicKey: &verify.PublicKey{ID: "release-signing-key", Key: pub},
 	}
-	for _, profile := range []string{"storage", "storage-lan-dns"} {
+	for _, profile := range []string{"storage", "storage-landns"} {
 		resolved, _, err := source.Resolve(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("expected %s profile to ignore irrelevant Argo bundle artifacts, got: %v", profile, err)

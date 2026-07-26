@@ -39,8 +39,10 @@
         "core",
         "builder",
         "storage",
-        "lan-dns",
-        "storage-lan-dns"
+        "landns",
+        "storage-landns",
+        "builder-landns",
+        "builder-storage-landns"
       ],
       "description": "Product-facing appliance profile selected for this installation."
     },

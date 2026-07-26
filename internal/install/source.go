@@ -43,7 +43,7 @@ type Resolved struct {
 	BuilderImageReference string
 	ZotImageReference     string
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
-	// image reference used for the lan-dns/storage-lan-dns capability.
+	// image reference used for the landns/storage-landns capability.
 	DNSImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image

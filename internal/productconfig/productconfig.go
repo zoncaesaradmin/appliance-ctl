@@ -13,19 +13,23 @@ import (
 )
 
 const (
-	ProfileCore          = "core"
-	ProfileBuilder       = "builder"
-	ProfileStorage       = "storage"
-	ProfileLANDNS        = "lan-dns"
-	ProfileStorageLANDNS = "storage-lan-dns"
+	ProfileCore                 = "core"
+	ProfileBuilder              = "builder"
+	ProfileStorage              = "storage"
+	ProfileLANDNS               = "landns"
+	ProfileStorageLANDNS        = "storage-landns"
+	ProfileBuilderLANDNS        = "builder-landns"
+	ProfileBuilderStorageLANDNS = "builder-storage-landns"
 )
 
 var supportedProfiles = map[string]struct{}{
-	ProfileCore:          {},
-	ProfileBuilder:       {},
-	ProfileStorage:       {},
-	ProfileLANDNS:        {},
-	ProfileStorageLANDNS: {},
+	ProfileCore:                 {},
+	ProfileBuilder:              {},
+	ProfileStorage:              {},
+	ProfileLANDNS:               {},
+	ProfileStorageLANDNS:        {},
+	ProfileBuilderLANDNS:        {},
+	ProfileBuilderStorageLANDNS: {},
 }
 
 // Capability is the granular unit appliance behavior should actually be
@@ -48,11 +52,13 @@ const (
 )
 
 var profileCapabilities = map[string][]Capability{
-	ProfileCore:          {CapabilityBase, CapabilityWorkflows},
-	ProfileBuilder:       {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact},
-	ProfileStorage:       {CapabilityBase, CapabilityArtifact},
-	ProfileLANDNS:        {CapabilityBase, CapabilityDNS},
-	ProfileStorageLANDNS: {CapabilityBase, CapabilityArtifact, CapabilityDNS},
+	ProfileCore:                 {CapabilityBase, CapabilityWorkflows},
+	ProfileBuilder:              {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact},
+	ProfileStorage:              {CapabilityBase, CapabilityArtifact},
+	ProfileLANDNS:               {CapabilityBase, CapabilityDNS},
+	ProfileStorageLANDNS:        {CapabilityBase, CapabilityArtifact, CapabilityDNS},
+	ProfileBuilderLANDNS:        {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS},
+	ProfileBuilderStorageLANDNS: {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS},
 }
 
 const (
@@ -100,7 +106,7 @@ func ResolveApplianceProfile(requested, current string) (string, error) {
 		profile = ProfileCore
 	}
 	if _, ok := supportedProfiles[profile]; !ok {
-		return "", fmt.Errorf("unknown appliance profile %q (supported: %s, %s, %s, %s, %s)", profile, ProfileCore, ProfileBuilder, ProfileStorage, ProfileLANDNS, ProfileStorageLANDNS)
+		return "", fmt.Errorf("unknown appliance profile %q (supported: %s, %s, %s, %s, %s, %s, %s)", profile, ProfileCore, ProfileBuilder, ProfileStorage, ProfileLANDNS, ProfileStorageLANDNS, ProfileBuilderLANDNS, ProfileBuilderStorageLANDNS)
 	}
 	return profile, nil
 }
@@ -116,12 +122,12 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	if len(registry) > 0 {
 		zotImageReference = strings.TrimSpace(registry[0])
 	}
-	if effectiveProfile == ProfileBuilder {
+	if HasCapability(effectiveProfile, CapabilityBuild) {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
-			return "", func() {}, fmt.Errorf("product config: builder profile requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
+			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
 		}
 		if !validBuilderImageDigest(builderImageReference) {
-			return "", func() {}, fmt.Errorf("product config: builder profile requires a bundled digest-pinned automation-dev builder image reference; got %q", builderImageReference)
+			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned automation-dev builder image reference; got %q", builderImageReference)
 		}
 	}
 	if HasCapability(effectiveProfile, CapabilityArtifact) && len(registry) > 0 && !validZotImageDigest(zotImageReference) {

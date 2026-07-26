@@ -359,8 +359,10 @@
                     "core",
                     "builder",
                     "storage",
-                    "lan-dns",
-                    "storage-lan-dns"
+                    "landns",
+                    "storage-landns",
+                    "builder-landns",
+                    "builder-storage-landns"
                   ]
                 }
               }
@@ -620,8 +622,10 @@
                     "core",
                     "builder",
                     "storage",
-                    "lan-dns",
-                    "storage-lan-dns"
+                    "landns",
+                    "storage-landns",
+                    "builder-landns",
+                    "builder-storage-landns"
                   ]
                 }
               }

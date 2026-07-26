@@ -592,7 +592,7 @@ func TestUpgrade_ArtifactProfileUsesRequestedPublicHostForRegistry(t *testing.T)
 }
 
 func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) {
-	for _, profile := range []string{"storage", "storage-lan-dns"} {
+	for _, profile := range []string{"storage", "storage-landns"} {
 		t.Run(profile, func(t *testing.T) {
 			env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
 			bundleDir, pub := buildBundle(t, bundleSpec{
@@ -633,7 +633,7 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 				hostdirs.UILogDir:           {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.RegistryLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 			}
-			if profile == "storage-lan-dns" {
+			if profile == "storage-landns" {
 				wantOwnedPaths[hostdirs.DNSLogDir] = [2]int{hostdirs.DNSDirOwnerUID, hostdirs.ApplianceSharedFSGID}
 			}
 			if len(ownedPaths) != len(wantOwnedPaths) {
@@ -678,7 +678,7 @@ func TestUpgrade_RefusesArtifactCapabilityRemoval(t *testing.T) {
 }
 
 func TestUpgrade_RefusesDNSCapabilityRemoval(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "lan-dns")
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "landns")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
