@@ -62,6 +62,8 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	for _, want := range []string{
 		"applianceProfile: lan-dns",
 		"dnsReadyURL: " + productconfig.DefaultDNSReadyURL,
+		"dnsZoneName: " + productconfig.DefaultLANDNSZone,
+		"dnsAllowFakeZoneSync: false",
 		"kubernetes.io/metadata.name: dns",
 		"app.kubernetes.io/name: appliance-dns",
 		"dnsReadyPort: 8181",
@@ -73,10 +75,18 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	if strings.Contains(text, "zotBaseURL:") {
 		t.Fatalf("lan-dns must not inject zotBaseURL:\n%s", text)
 	}
+	for _, forbidden := range []string{
+		"dnsBootstrapHostname: appliance",
+		"dnsBootstrapIPv4: 192.0.2.10",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("lan-dns must not seed DNS A records from public_host (%q present):\n%s", forbidden, text)
+		}
+	}
 }
 
 func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareDNSValuesFile(t.TempDir(), corednsImage, "appliance.internal.example.com", "192.0.2.10", "1.1.1.1")
+	path, cleanup, err := productconfig.PrepareDNSValuesFile(t.TempDir(), corednsImage, "192.0.2.10", "1.1.1.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,9 +99,9 @@ func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
 	for _, want := range []string{
 		"digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		"hostNetwork: true",
-		"hostname: appliance",
+		"hostname: \"\"",
 		"ipv4: 192.0.2.10",
-		"name: appliance.local",
+		"name: appliance.internal",
 		"hostPath: /data/zon/logs/dns",
 		"- 1.1.1.1",
 		"create: false",
@@ -100,6 +110,9 @@ func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered dns values missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "hostname: appliance") {
+		t.Fatalf("dns values must not seed a product hostname:\n%s", text)
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
@@ -641,8 +642,8 @@ func TestInstall_ArtifactProfileUsesRequestedPublicHostForRegistry(t *testing.T)
 	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://192.168.1.101") {
 		t.Fatalf("prepared values file missing canonical origin override:\n%s", fcli.lastHelmValues)
 	}
-	if strings.Contains(registryValues, "appliance.local") {
-		t.Fatalf("registry values should not fall back to appliance.local:\n%s", registryValues)
+	if strings.Contains(registryValues, "host: "+productconfig.DefaultLANDNSZone) {
+		t.Fatalf("registry values should not fall back to %s:\n%s", productconfig.DefaultLANDNSZone, registryValues)
 	}
 }
 

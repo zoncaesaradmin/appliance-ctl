@@ -171,7 +171,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	dnsValuesPath := ""
 	cleanupDNSValues := func() {}
 	if targetDNS {
-		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, publicHost, preferredUpgradeLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...))
+		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, preferredUpgradeLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...))
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
@@ -591,7 +591,7 @@ func upgradeComponentDNSVersion(profile, version string) string {
 
 // preferredUpgradeLocalIPv4 mirrors internal/install's preferredLocalIPv4:
 // the first candidate that parses as a literal IPv4 address seeds LAN
-// DNS's localZone A record on upgrade too, so re-running with the same
+// DNS NS glue IPv4 on upgrade too, so re-running with the same
 // host options keeps producing the same record.
 func preferredUpgradeLocalIPv4(candidates ...string) string {
 	for _, candidate := range candidates {

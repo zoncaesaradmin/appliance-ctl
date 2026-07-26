@@ -2,7 +2,6 @@ package productconfig
 
 import (
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"path"
@@ -66,6 +65,10 @@ const (
 	// release.
 	// CoreDNS ready plugin listens on :8181 (/ready); health is :8080 (/health).
 	DefaultDNSReadyURL = "http://appliance-dns.dns.svc.cluster.local:8181/ready"
+	// DefaultLANDNSZone is the CoreDNS local-zone suffix for LAN A records.
+	// Must not be ".local" — systemd-resolved (and dig) treat .local as
+	// Multicast DNS and will never send those queries to unicast DNS.
+	DefaultLANDNSZone = "appliance.internal"
 )
 
 // HasCapability reports whether the given (already-resolved) profile
@@ -154,8 +157,22 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	}
 	if HasCapability(effectiveProfile, CapabilityDNS) {
 		config["dnsReadyURL"] = DefaultDNSReadyURL
+		config["dnsZoneName"] = DefaultLANDNSZone
+		config["dnsConfigMapNamespace"] = "dns"
+		config["dnsConfigMapName"] = "appliance-dns-config"
+		// Do not seed product A records from public_host. LAN names are
+		// created only through the DNS records API/UI (or peer publish).
+		config["dnsBootstrapHostname"] = ""
+		config["dnsBootstrapIPv4"] = ""
+		config["dnsAllowFakeZoneSync"] = false
 	} else {
 		delete(config, "dnsReadyURL")
+		delete(config, "dnsZoneName")
+		delete(config, "dnsConfigMapNamespace")
+		delete(config, "dnsConfigMapName")
+		delete(config, "dnsBootstrapHostname")
+		delete(config, "dnsBootstrapIPv4")
+		delete(config, "dnsAllowFakeZoneSync")
 	}
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
@@ -245,7 +262,7 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 	if !validZotImageDigest(zotImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid zot image reference %q", zotImageReference)
 	}
-	host := "appliance.local"
+	host := DefaultLANDNSZone
 	if len(publicHost) > 0 && strings.TrimSpace(publicHost[0]) != "" {
 		host = strings.TrimSpace(publicHost[0])
 	}
@@ -313,15 +330,13 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 }
 
 // PrepareDNSValuesFile renders the small installer-owned values layer for
-// the separate appliance-dns (CoreDNS) release, mirroring
-// PrepareRegistryValuesFile's shape for zot: the chart archive remains
-// immutable, and only the verified digest pin, upstream resolvers, the
-// appliance's own LAN-visible local zone record, and persistence-free
-// logging are supplied at install time. hostname/ipv4 populate a single
-// localZone A record so LAN clients without any other DNS can resolve the
-// appliance by name; upstreams are the resolvers CoreDNS forwards
-// everything else to.
-func PrepareDNSValuesFile(baseDir, corednsImageReference, hostname, ipv4 string, upstreams ...string) (string, func(), error) {
+// the separate appliance-dns (CoreDNS) release. The chart archive stays
+// immutable; install supplies the digest pin, upstream resolvers, zone
+// name, and NS glue IPv4 only. Product host A records are not seeded here
+// — they are created later through the control-plane DNS records API/UI
+// (or peer publish). nsIPv4 is only glue for ns.<zone>; upstreams are the
+// resolvers CoreDNS forwards everything else to.
+func PrepareDNSValuesFile(baseDir, corednsImageReference, nsIPv4 string, upstreams ...string) (string, func(), error) {
 	if !validDNSImageDigest(corednsImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid coredns image reference %q", corednsImageReference)
 	}
@@ -335,17 +350,9 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, hostname, ipv4 string,
 	if len(resolvers) == 0 {
 		resolvers = []string{"1.1.1.1", "8.8.8.8"}
 	}
-	hostLabel := strings.TrimSpace(hostname)
-	if hostLabel == "" || net.ParseIP(hostLabel) != nil {
-		hostLabel = "appliance"
-	} else if i := strings.IndexByte(hostLabel, '.'); i > 0 {
-		// localZone.hostname is a single left-hand label under the zone;
-		// strip any FQDN/public-host suffix the installer may have passed.
-		hostLabel = hostLabel[:i]
-	}
-	ipv4 = strings.TrimSpace(ipv4)
-	if ipv4 == "" {
-		return "", func() {}, fmt.Errorf("product config: dns local zone ipv4 must not be empty")
+	nsIPv4 = strings.TrimSpace(nsIPv4)
+	if nsIPv4 == "" {
+		return "", func() {}, fmt.Errorf("product config: dns local zone ns ipv4 must not be empty")
 	}
 	values := map[string]any{
 		// create=false: zonctl EnsureNamespace already creates the dns
@@ -364,9 +371,9 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, hostname, ipv4 string,
 		// instead of a ClusterIP Service.
 		"hostNetwork": true,
 		"localZone": map[string]any{
-			"name":     "appliance.local",
-			"hostname": hostLabel,
-			"ipv4":     ipv4,
+			"name":     DefaultLANDNSZone,
+			"hostname": "",
+			"ipv4":     nsIPv4,
 		},
 		"upstreamResolvers": resolvers,
 		"logs": map[string]any{

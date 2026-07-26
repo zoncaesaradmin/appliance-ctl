@@ -201,7 +201,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	dnsValuesPath := ""
 	cleanupDNSValues := func() {}
 	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
-		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, publicHost, preferredLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...))
+		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, preferredLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...))
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
@@ -642,10 +642,8 @@ func componentDNSVersion(profile, version string) string {
 }
 
 // preferredLocalIPv4 returns the first candidate that parses as a literal
-// IPv4 address, for seeding LAN DNS's localZone A record. Hostnames and IPv6
-// literals are skipped: CoreDNS's own name resolution can't yet be relied on
-// to resolve the appliance's own hostname (that's the record being created),
-// and the LAN clients this record serves are assumed to be IPv4-only.
+// IPv4 address, used for host DNS prepare and CoreDNS NS glue. Hostnames and
+// IPv6 literals are skipped.
 func hostDNSPrepareConfig(opts Options) hostdns.PrepareConfig {
 	hostname := strings.TrimSpace(opts.NodeName)
 	if hostname == "" {
