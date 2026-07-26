@@ -37,7 +37,7 @@ const (
 	argoReleaseName             = "argo-workflows"
 	argoNamespace               = "workflows"
 	registryReleaseName         = "appliance-registry"
-	registryNamespace           = "registry"
+	registryNamespace           = "artifacts"
 	dnsReleaseName              = "appliance-dns"
 	dnsNamespace                = "dns"
 )

@@ -58,12 +58,12 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, 
 		sig.ChartHealth = diagnostics.ChartHealth{Checked: true, Healthy: chartHealthy, Message: chartMsg}
 	}
 	if productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact) {
-		if healthy, msg, registryErr := helm.CheckReleaseHealth(ctx, run, kubeconfig, "appliance-registry", "registry"); registryErr != nil {
+		if healthy, msg, registryErr := helm.CheckReleaseHealth(ctx, run, kubeconfig, "appliance-registry", "artifacts"); registryErr != nil {
 			sig.RegistryHealth = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: registryErr.Error()}
 		} else {
 			sig.RegistryHealth = diagnostics.ChartHealth{Checked: true, Healthy: healthy, Message: msg}
 		}
-		if healthy, msg, pvcErr := helm.CheckPVCBound(ctx, run, kubeconfig, "registry", "appliance-registry-data"); pvcErr != nil {
+		if healthy, msg, pvcErr := helm.CheckPVCBound(ctx, run, kubeconfig, "artifacts", "appliance-registry-data"); pvcErr != nil {
 			sig.RegistryStorage = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: pvcErr.Error()}
 		} else {
 			sig.RegistryStorage = diagnostics.ChartHealth{Checked: true, Healthy: healthy, Message: msg}

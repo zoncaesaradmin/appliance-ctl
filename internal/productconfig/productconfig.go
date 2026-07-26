@@ -62,7 +62,7 @@ var profileCapabilities = map[string][]Capability{
 }
 
 const (
-	DefaultZotBaseURL              = "http://appliance-registry.registry.svc.cluster.local:5000"
+	DefaultZotBaseURL              = "http://appliance-registry.artifacts.svc.cluster.local:5000"
 	DefaultRegistryPublicKeySecret = "appliance-registry-verification-key"
 	// DefaultDNSReadyURL is the CoreDNS health-plugin readiness endpoint
 	// the control plane polls to gate any dns-capability-dependent
@@ -271,10 +271,10 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		networkPolicy = map[string]any{}
 	}
 	if artifactEnabled {
-		// Zot ships in the dedicated registry namespace; CP egress must target
+		// Zot ships in the dedicated artifacts namespace; CP egress must target
 		// that namespace, not the control-plane namespace.
 		networkPolicy["registryNamespaceLabel"] = map[string]any{
-			"kubernetes.io/metadata.name": "registry",
+			"kubernetes.io/metadata.name": "artifacts",
 		}
 		networkPolicy["registryPodLabels"] = map[string]any{
 			"app.kubernetes.io/name": "appliance-registry",
@@ -341,7 +341,7 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference, fileserverImageRefere
 		return "", func() {}, fmt.Errorf("product config: registry token realm requires appliance FQDN")
 	}
 	values := map[string]any{
-		"namespace": map[string]any{"create": false, "name": "registry"},
+		"namespace": map[string]any{"create": false, "name": "artifacts"},
 		"image": map[string]any{
 			"repository": "registry.local/zot",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(zotImageReference), "registry.local/zot@"),

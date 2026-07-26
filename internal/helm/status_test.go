@@ -74,7 +74,7 @@ func TestCheckPVCBound(t *testing.T) {
 		}
 		return "Bound", nil
 	}
-	healthy, msg, err := helm.CheckPVCBound(context.Background(), run, "/kubeconfig", "registry", "appliance-registry-data")
+	healthy, msg, err := helm.CheckPVCBound(context.Background(), run, "/kubeconfig", "artifacts", "appliance-registry-data")
 	if err != nil {
 		t.Fatal(err)
 	}

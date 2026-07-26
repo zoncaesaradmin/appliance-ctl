@@ -67,7 +67,7 @@ type Options struct {
 
 const (
 	registryReleaseName = "appliance-registry"
-	registryNamespace   = "registry"
+	registryNamespace   = "artifacts"
 	argoReleaseName     = "argo-workflows"
 	argoNamespace       = "workflows"
 	dnsReleaseName      = "appliance-dns"

@@ -75,7 +75,7 @@ const (
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
 	// FileserverDir is the host-visible static HTTP file tree served at
-	// Traefik /files by the registry-namespace fileserver.
+	// Traefik /files by the artifacts-namespace fileserver.
 	FileserverDir = "/data/zon/files"
 )
 

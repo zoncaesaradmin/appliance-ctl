@@ -39,7 +39,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 		"dnsZoneName: appliance.internal",
 		"nodeIPv4: 192.0.2.10",
 		"zotBaseURL:",
-		"kubernetes.io/metadata.name: registry",
+		"kubernetes.io/metadata.name: artifacts",
 		"app.kubernetes.io/name: appliance-registry",
 	} {
 		if !strings.Contains(text, want) {
