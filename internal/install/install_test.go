@@ -98,6 +98,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/automation-dev.tar", "oci-images", "fake automation-dev builder image tar", "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/zot.tar", "oci-images", "fake zot image tar", "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		{"oci-images/fileserver.tar", "oci-images", "fake fileserver image tar", "registry.local/fileserver@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 		{"oci-images/appliance-coredns.tar", "oci-images", "fake appliance coredns image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 	}
 	if includeArgo {
@@ -398,6 +399,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
 	case "zot.tar":
 		return []string{"registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	case "fileserver.tar":
+		return []string{"registry.local/fileserver@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
 	case "argo-controller.tar":
 		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
 	case "argo-executor.tar":
@@ -703,6 +706,7 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		hostdirs.ControlPlaneLogDir:   {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.RegistryLogDir:       {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.FileserverDir:        {hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -793,6 +797,7 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		hostdirs.ControlPlaneLogDir: {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:           {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.RegistryLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.FileserverDir:      {hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only storage service log ownership %v, got %v", wantOwnedPaths, ownedPaths)

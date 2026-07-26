@@ -327,11 +327,14 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 
 // PrepareRegistryValuesFile renders the small installer-owned values layer
 // for the separate zot release. The chart archive remains immutable; only
-// the verified digest pin, public-key Secret name, and persistence policy
+// the verified digest pins, public-key Secret name, and persistence policy
 // are supplied at install time.
-func PrepareRegistryValuesFile(baseDir, zotImageReference, fqdn string) (string, func(), error) {
+func PrepareRegistryValuesFile(baseDir, zotImageReference, fileserverImageReference, fqdn string) (string, func(), error) {
 	if !validZotImageDigest(zotImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid zot image reference %q", zotImageReference)
+	}
+	if !validFileserverImageDigest(fileserverImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid fileserver image reference %q", fileserverImageReference)
 	}
 	host := strings.TrimSpace(fqdn)
 	if host == "" {
@@ -343,6 +346,15 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference, fqdn string) (string,
 			"repository": "registry.local/zot",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(zotImageReference), "registry.local/zot@"),
 			"pullPolicy": "IfNotPresent",
+		},
+		"fileserver": map[string]any{
+			"enabled": true,
+			"image": map[string]any{
+				"repository": "registry.local/fileserver",
+				"digest":     strings.TrimPrefix(strings.TrimSpace(fileserverImageReference), "registry.local/fileserver@"),
+				"pullPolicy": "IfNotPresent",
+			},
+			"hostPath": "/data/zon/files",
 		},
 		"auth": map[string]any{
 			"realm":               "https://" + host + "/api/v1/registry/token",
@@ -783,6 +795,15 @@ func validBuilderImageDigest(image string) bool {
 func validZotImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/zot@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
+}
+
+func validFileserverImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/fileserver@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

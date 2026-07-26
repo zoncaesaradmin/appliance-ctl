@@ -42,6 +42,9 @@ type Resolved struct {
 	// used by Argo build pods (automation-dev).
 	BuilderImageReference string
 	ZotImageReference     string
+	// FileserverImageReference is the bundled nginx image for the generic
+	// static HTTP fileserver at Traefik /files (artifact profiles).
+	FileserverImageReference string
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
 	// image reference used for the landns/storage-landns capability.
 	DNSImageReference string
@@ -133,7 +136,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range b.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isZotImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isZotImageReference(e.ImageReference) || isFileserverImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -141,8 +144,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	workspaceProvisionerImageReference := workspaceProvisionerImageReference(b)
 	builderImageReference := builderImageReference(b)
 	zotImageReference := ""
+	fileserverImageReference := ""
 	if strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
 		zotImageReference, err = requiredZotImageReference(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+		fileserverImageReference, err = requiredFileserverImageReference(b)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
@@ -171,6 +179,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
 		BuilderImageReference:              builderImageReference,
 		ZotImageReference:                  zotImageReference,
+		FileserverImageReference:           fileserverImageReference,
 		DNSImageReference:                  dnsImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
@@ -179,6 +188,10 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 
 func isZotImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/zot@sha256:")
+}
+
+func isFileserverImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/fileserver@sha256:")
 }
 
 func isDNSImageReference(ref string) bool {
@@ -204,6 +217,23 @@ func requiredZotImageReference(b *bundle.Bundle) (string, error) {
 	}
 	if found == "" {
 		return "", fmt.Errorf("bundle has no canonical registry.local/zot@sha256 image entry")
+	}
+	return found, nil
+}
+
+func requiredFileserverImageReference(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isFileserverImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple fileserver image entries")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no canonical registry.local/fileserver@sha256 image entry")
 	}
 	return found, nil
 }

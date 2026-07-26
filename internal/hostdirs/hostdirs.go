@@ -51,6 +51,9 @@ const (
 	// DNSDirOwnerUID is the fixed numeric identity for the offline
 	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser).
 	DNSDirOwnerUID = 10004
+	// FileserverDirOwnerUID is the fixed numeric identity for the
+	// fileserver nginx pod (appliance-registry chart fileserver).
+	FileserverDirOwnerUID = 10005
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -71,6 +74,9 @@ const (
 	// DNSLogDir is the host-visible LAN DNS (CoreDNS) log directory under
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
+	// FileserverDir is the host-visible static HTTP file tree served at
+	// Traefik /files by the registry-namespace fileserver.
+	FileserverDir = "/data/zon/files"
 )
 
 // OwnedDir describes one appliance-managed host directory whose ownership and
@@ -105,13 +111,22 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 		},
 	}
 	if includeArtifact {
-		dirs = append(dirs, OwnedDir{
-			CheckID: "registry-log-directory-owned",
-			Path:    RegistryLogDir,
-			UID:     RegistryDirOwnerUID,
-			GID:     ApplianceSharedFSGID,
-			Mode:    ServiceLogDirMode,
-		})
+		dirs = append(dirs,
+			OwnedDir{
+				CheckID: "registry-log-directory-owned",
+				Path:    RegistryLogDir,
+				UID:     RegistryDirOwnerUID,
+				GID:     ApplianceSharedFSGID,
+				Mode:    ServiceLogDirMode,
+			},
+			OwnedDir{
+				CheckID: "fileserver-directory-owned",
+				Path:    FileserverDir,
+				UID:     FileserverDirOwnerUID,
+				GID:     ApplianceSharedFSGID,
+				Mode:    ServiceLogDirMode,
+			},
+		)
 	}
 	if includeWorkflows {
 		dirs = append(dirs, OwnedDir{
