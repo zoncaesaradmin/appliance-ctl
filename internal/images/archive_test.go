@@ -140,7 +140,10 @@ func TestPreloadAll_TagsDigestPinnedNameFromBundledAnnotation(t *testing.T) {
 	imageRef := "registry.local/workspace-provisioner@" + digest
 	path, fileDigest := writeOCIArchive(t, dir, "workspace-provisioner.tar", "registry.local/workspace-provisioner:bundled", digest)
 
-	fake := &fakeCtr{nextImportAdds: [][]string{{"registry.local/workspace-provisioner:bundled"}}}
+	fake := &fakeCtr{
+		nextImportAdds:    [][]string{{"registry.local/workspace-provisioner:bundled"}},
+		nextImportDigests: []string{digest},
+	}
 	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
 	result, err := imp.PreloadAll(context.Background(), []images.Image{
 		{Name: imageRef, ArchivePath: path, ExpectedDigest: fileDigest, Category: images.CategoryApplication, RequireReference: true},

@@ -20,14 +20,15 @@ import (
 // records every import/rm invocation for ordering and rollback
 // assertions.
 type fakeCtr struct {
-	alreadyImported   []string
-	importedDigests   map[string]string
-	failImport        map[string]bool // keyed by archive path
-	failRemove        map[string]bool // keyed by image name
-	nextImportAdds    [][]string
-	nextImportDigests []string
-	sawImportDigests  bool
-	calls             []string
+	alreadyImported       []string
+	importedDigests       map[string]string
+	failImport            map[string]bool // keyed by archive path
+	failRemove            map[string]bool // keyed by image name
+	nextImportAdds        [][]string
+	nextImportDigests     []string
+	nextImportDigestByRef []map[string]string // optional per-ref digests for each import batch
+	sawImportDigests      bool
+	calls                 []string
 }
 
 func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, error) {
@@ -85,8 +86,19 @@ func (f *fakeCtr) Run(_ context.Context, name string, args ...string) (string, e
 				digest = f.nextImportDigests[0]
 				f.nextImportDigests = f.nextImportDigests[1:]
 			}
+			var perRef map[string]string
+			if len(f.nextImportDigestByRef) > 0 {
+				perRef = f.nextImportDigestByRef[0]
+				f.nextImportDigestByRef = f.nextImportDigestByRef[1:]
+			}
 			for _, ref := range f.nextImportAdds[0] {
-				f.addImported(ref, digest)
+				refDigest := digest
+				if perRef != nil {
+					if d, ok := perRef[ref]; ok {
+						refDigest = d
+					}
+				}
+				f.addImported(ref, refDigest)
 			}
 			f.nextImportAdds = f.nextImportAdds[1:]
 		}
@@ -322,6 +334,59 @@ func TestPreloadAll_Idempotency(t *testing.T) {
 	}
 	if got := statusOfCheck(t, result.Checks, "image-preload-application-v1"); got != evidence.StatusPass {
 		t.Errorf("expected pass, got %s", got)
+	}
+}
+
+func TestPreloadAll_IgnoresUnrelatedNewRefsWhenTaggingDigestPin(t *testing.T) {
+	// Regression: concurrent containerd activity (e.g. K3s helm-controller)
+	// can make unrelated images appear in newRefs during a coredns import.
+	// Alphabetical order put docker.io/rancher/klipper-helm before
+	// import-DATE@sha256:<coredns>, and ensureImageReference used to tag
+	// from the first successful source without checking content digests.
+	dir := t.TempDir()
+	contentDigest := "sha256:59ac1d5ecb6f40224d5f1df16771f5c12418ee69d4a2e7fc76319d236c0fdd4f"
+	klipperDigest := "sha256:c2fd922a9a361ac5ec7ef225a46aaaad1e79ec3acc3cf176f60cd09a11683dd5"
+	imageRef := "registry.local/coredns@" + contentDigest
+	bundled := "registry.local/coredns:bundled"
+	klipper := "docker.io/rancher/klipper-helm:v0.8.4-build20240523"
+	path, fileDigest := writeOCIArchive(t, dir, "coredns.tar", bundled, contentDigest)
+
+	fake := &fakeCtr{
+		nextImportAdds: [][]string{{
+			klipper, // sorts first alphabetically; must NOT be used as tag source
+			bundled,
+			contentDigest,
+		}},
+		nextImportDigests: []string{contentDigest},
+		nextImportDigestByRef: []map[string]string{{
+			klipper:       klipperDigest,
+			bundled:       contentDigest,
+			contentDigest: contentDigest,
+		}},
+	}
+	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
+
+	result, err := imp.PreloadAll(context.Background(), []images.Image{
+		{
+			Name:             imageRef,
+			ArchivePath:      path,
+			ExpectedDigest:   fileDigest,
+			Category:         images.CategoryDependency,
+			RequireReference: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOfCheck(t, result.Checks, "image-preload-"+evidence.SanitizeIDSegment(imageRef)); got != evidence.StatusPass {
+		t.Fatalf("expected pass status, got %s (%v)", got, result.Checks)
+	}
+	joined := strings.Join(fake.calls, ",")
+	if strings.Contains(joined, "tag:"+klipper+">"+imageRef) {
+		t.Fatalf("tagged digest pin from unrelated klipper-helm image: %v", fake.calls)
+	}
+	if fake.importedDigests[imageRef] != contentDigest {
+		t.Fatalf("digest pin content = %q, want %s (calls=%v)", fake.importedDigests[imageRef], contentDigest, fake.calls)
 	}
 }
 

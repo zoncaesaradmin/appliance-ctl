@@ -182,10 +182,11 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 		}
 
 		if already[img.Name] {
-			if img.RequireReference && contentDigest != "" && importedDigests[img.Name] != "" && importedDigests[img.Name] != contentDigest {
+			existingDigest := importedDigests[img.Name]
+			if img.RequireReference && contentDigest != "" && existingDigest != contentDigest {
 				if _, err := imp.Run(ctx, "ctr", "-n", imp.Namespace, "image", "rm", img.Name); err != nil {
 					check.Status = evidence.StatusFail
-					check.Message = fmt.Sprintf("remove stale existing reference %s (%s != %s): %v", img.Name, importedDigests[img.Name], contentDigest, err)
+					check.Message = fmt.Sprintf("remove stale existing reference %s (%s != %s): %v", img.Name, existingDigest, contentDigest, err)
 					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
 					result.Checks = append(result.Checks, check)
 					continue
@@ -230,7 +231,7 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 
 		if img.RequireReference && !afterImport[img.Name] {
 			if contentDigest != "" {
-				if err := imp.ensureImageReference(ctx, img.Name, contentDigest, afterImport, newRefs); err != nil {
+				if err := imp.ensureImageReference(ctx, img.Name, contentDigest, afterImport, newRefs, importedDigests); err != nil {
 					check.Status = evidence.StatusFail
 					check.Message = err.Error()
 					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
@@ -252,6 +253,13 @@ func (imp *Importer) PreloadAll(ctx context.Context, images []Image) (PreloadRes
 					check.Status = evidence.StatusFail
 					check.Message = fmt.Sprintf("verify tagged digest %s: %v", img.Name, err)
 					failures = append(failures, fmt.Errorf("%s: %w", img.Name, err))
+					result.Checks = append(result.Checks, check)
+					continue
+				}
+				if got := importedDigests[img.Name]; got != contentDigest {
+					check.Status = evidence.StatusFail
+					check.Message = fmt.Sprintf("tagged reference %s has content digest %q, want archive digest %s (refusing mismatched ctr tag)", img.Name, got, contentDigest)
+					failures = append(failures, fmt.Errorf("%s: tagged digest mismatch", img.Name))
 					result.Checks = append(result.Checks, check)
 					continue
 				}
@@ -282,12 +290,18 @@ func (imp *Importer) ensureImageReference(
 	desiredName, contentDigest string,
 	present map[string]bool,
 	preferredSources []string,
+	digests map[string]string,
 ) error {
 	desiredName = strings.TrimSpace(desiredName)
 	if desiredName == "" {
 		return fmt.Errorf("images: desired image reference is empty")
 	}
 	if present[desiredName] {
+		if digests != nil {
+			if got := strings.TrimSpace(digests[desiredName]); got != "" && got != contentDigest {
+				return fmt.Errorf("images: existing reference %s has content digest %s, want %s", desiredName, got, contentDigest)
+			}
+		}
 		return nil
 	}
 	if contentDigest == "" {
@@ -295,7 +309,7 @@ func (imp *Importer) ensureImageReference(
 	}
 
 	var lastErr error
-	for _, src := range TagCandidatesForReference(contentDigest, present, preferredSources) {
+	for _, src := range TagCandidatesForReference(contentDigest, present, preferredSources, digests) {
 		if src == desiredName {
 			continue
 		}

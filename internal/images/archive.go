@@ -175,28 +175,67 @@ func digestFromImageRef(ref string) (string, bool) {
 // safe to use for a desired reference. Preferred sources should come from the
 // just-imported refs for the current archive so stale local aliases are not
 // silently re-used across upgrades.
-func TagCandidatesForReference(contentDigest string, present map[string]bool, preferredSources []string) []string {
+//
+// digests maps image references to their containerd content digests. A preferred
+// (just-imported) ref is omitted only when its known digest differs from
+// contentDigest: concurrent imports (for example K3s helm-controller
+// materializing klipper-helm) can otherwise appear in preferredSources and win
+// alphabetical tag order, creating a digest-pinned name that points at the
+// wrong image. Non-preferred present refs require a digest match.
+func TagCandidatesForReference(contentDigest string, present map[string]bool, preferredSources []string, digests map[string]string) []string {
+	contentDigest = strings.TrimSpace(contentDigest)
 	var out []string
 	seen := map[string]bool{}
-	add := func(ref string) {
+	add := func(ref string, requireKnownDigest bool) {
 		ref = strings.TrimSpace(ref)
 		if ref == "" || seen[ref] {
+			return
+		}
+		if !sourceAcceptableForContentDigest(ref, contentDigest, digests, requireKnownDigest) {
 			return
 		}
 		seen[ref] = true
 		out = append(out, ref)
 	}
 
+	// Prefer digest-qualified refs from this import before bare aliases.
 	for _, ref := range preferredSources {
-		add(ref)
+		if ref == contentDigest || strings.HasSuffix(ref, "@"+contentDigest) {
+			add(ref, false)
+		}
 	}
-	add(contentDigest)
+	add(contentDigest, false)
+	for _, ref := range preferredSources {
+		add(ref, false)
+	}
 	if present != nil {
 		for ref := range present {
-			if ref == contentDigest || strings.HasSuffix(ref, "@"+contentDigest) || strings.Contains(ref, contentDigest) {
-				add(ref)
+			if ref == contentDigest || strings.HasSuffix(ref, "@"+contentDigest) {
+				add(ref, true)
 			}
+		}
+		for ref := range present {
+			add(ref, true)
 		}
 	}
 	return out
+}
+
+func sourceAcceptableForContentDigest(src, contentDigest string, digests map[string]string, requireKnownDigest bool) bool {
+	src = strings.TrimSpace(src)
+	contentDigest = strings.TrimSpace(contentDigest)
+	if src == "" || contentDigest == "" {
+		return false
+	}
+	if src == contentDigest || strings.HasSuffix(src, "@"+contentDigest) {
+		return true
+	}
+	if digests != nil {
+		if got := strings.TrimSpace(digests[src]); got != "" {
+			return got == contentDigest
+		}
+	}
+	// Preferred/just-imported aliases may not yet have a digest column in ctr
+	// output; allow them. Broader present-store aliases must prove their digest.
+	return !requireKnownDigest
 }
