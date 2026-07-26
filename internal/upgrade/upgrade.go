@@ -47,7 +47,8 @@ type Options struct {
 	// directory was created before this fix shipped self-heals.
 	WorkspaceRootDir       string
 	NodeName               string
-	PublicHost             string
+	ApplianceName          string
+	DNSZone                string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -153,8 +154,23 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if hadDNSBefore && !targetDNS {
 		return nil, checks, fmt.Errorf("upgrade: changing from dns-capable profile %q to non-dns profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
 	}
-	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.PublicHost, opts.TLSSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, publicHost, resolved.ZotImageReference)
+	applianceName := strings.TrimSpace(opts.ApplianceName)
+	if applianceName == "" {
+		applianceName = strings.TrimSpace(installed.ApplianceName)
+	}
+	dnsZone := strings.TrimSpace(opts.DNSZone)
+	if dnsZone == "" {
+		dnsZone = strings.TrimSpace(installed.DNSZone)
+	}
+	identity, err := productconfig.ResolveApplianceIdentity(applianceName, dnsZone)
+	if err != nil {
+		return nil, checks, fmt.Errorf("upgrade: %w", err)
+	}
+	// Always include the derived FQDN even when the CLI computed TLSSANs before
+	// installed-state identity was known (omitted --appliance-name/--dns-zone).
+	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
+	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -162,7 +178,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if targetArtifact {
-		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, publicHost)
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, identity.FQDN)
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
@@ -171,7 +187,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	dnsValuesPath := ""
 	cleanupDNSValues := func() {}
 	if targetDNS {
-		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, preferredUpgradeLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...))
+		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, identity.Zone, nodeIPv4)
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
@@ -288,7 +304,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}{
 			{"stop", func() error { return o.K3s.Stop(opts.K3sUnitName) }},
 			{"write config", func() error {
-				return o.K3s.WriteConfig(opts.K3sConfigPath, k3s.Config{NodeName: opts.NodeName, DataDir: opts.K3sDataDir, TLSSANs: opts.TLSSANs})
+				return o.K3s.WriteConfig(opts.K3sConfigPath, k3s.Config{NodeName: opts.NodeName, DataDir: opts.K3sDataDir, TLSSANs: tlsSANs})
 			}},
 			{"write unit", func() error {
 				return o.K3s.WriteUnit(opts.K3sUnitPath, k3s.UnitConfig{BinaryPath: opts.K3sBinaryDestPath, ConfigPath: opts.K3sConfigPath})
@@ -408,8 +424,8 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			}
 			prep, prepErr := o.PrepareHostDNS(hostdns.PrepareConfig{
 				Hostname: hostname,
-				IPv4:     preferredUpgradeLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...),
-				Aliases:  append([]string{opts.PublicHost}, opts.TLSSANs...),
+				IPv4:     nodeIPv4,
+				Aliases:  append([]string(nil), tlsSANs...),
 			})
 			if prepErr != nil {
 				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare host for LAN DNS on port 53: %w", prepErr), rollback)
@@ -520,6 +536,8 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		InstalledVersion:    targetVersion,
 		InstalledReleaseID:  resolved.ReleaseID,
 		ApplianceProfile:    effectiveProfile,
+		ApplianceName:       identity.Name,
+		DNSZone:             identity.Zone,
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
@@ -594,6 +612,30 @@ func upgradeComponentDNSVersion(profile, version string) string {
 // the first candidate that parses as a literal IPv4 address seeds LAN
 // DNS NS glue IPv4 on upgrade too, so re-running with the same
 // host options keeps producing the same record.
+// withApplianceFQDN puts the derived appliance FQDN first in the TLS SAN list
+// and deduplicates subsequent entries.
+func withApplianceFQDN(fqdn string, sans ...string) []string {
+	fqdn = strings.TrimSpace(fqdn)
+	out := make([]string, 0, len(sans)+1)
+	seen := map[string]struct{}{}
+	appendUnique := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	appendUnique(fqdn)
+	for _, san := range sans {
+		appendUnique(san)
+	}
+	return out
+}
+
 func preferredUpgradeLocalIPv4(candidates ...string) string {
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)

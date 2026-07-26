@@ -414,15 +414,33 @@ func TestEffectiveTLSSANs_DefaultsToNodeName(t *testing.T) {
 	}
 }
 
-func TestEffectiveTLSSANs_PrefersExplicitPublicHostAndKeepsExtras(t *testing.T) {
-	got := effectiveTLSSANs("zonsyssrv1", "appliance.example.internal", "192.168.1.101", "zonsyssrv1")
-	want := []string{"appliance.example.internal", "zonsyssrv1", "192.168.1.101"}
+func TestEffectiveTLSSANs_PrefersFQDNAndKeepsExtras(t *testing.T) {
+	got := effectiveTLSSANs("zonsyssrv1", "registry1.appliance.internal", "192.168.1.101", "zonsyssrv1")
+	want := []string{"registry1.appliance.internal", "zonsyssrv1", "192.168.1.101"}
 	if len(got) != len(want) {
 		t.Fatalf("effectiveTLSSANs length = %#v, want %#v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("effectiveTLSSANs = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestInstallTLSSANs_UsesApplianceIdentity(t *testing.T) {
+	got := installTLSSANs(cliOptions{
+		applianceName: "registry1",
+		dnsZone:       "appliance.internal",
+		nodeName:      "zonsyssrv1",
+		tlsSANs:       []string{"192.168.1.101"},
+	})
+	want := []string{"registry1.appliance.internal", "zonsyssrv1", "192.168.1.101"}
+	if len(got) != len(want) {
+		t.Fatalf("installTLSSANs = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("installTLSSANs = %#v, want %#v", got, want)
 		}
 	}
 }

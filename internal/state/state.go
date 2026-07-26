@@ -54,6 +54,8 @@ type InstalledState struct {
 	InstalledVersion    string       `json:"installedVersion"`
 	InstalledReleaseID  string       `json:"installedReleaseId"`
 	ApplianceProfile    string       `json:"applianceProfile,omitempty"`
+	ApplianceName       string       `json:"applianceName,omitempty"`
+	DNSZone             string       `json:"dnsZone,omitempty"`
 	Components          Components   `json:"components"`
 	K3sOwnership        K3sOwnership `json:"k3sOwnership"`
 	LastOperation       Operation    `json:"lastOperation"`

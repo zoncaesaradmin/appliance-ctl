@@ -75,7 +75,8 @@ type Options struct {
 	// internal/hostdirs.
 	WorkspaceRootDir       string
 	NodeName               string
-	PublicHost             string
+	ApplianceName          string
+	DNSZone                string
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -183,8 +184,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if targetVersion == "" {
 		return nil, checks, fmt.Errorf("install: resolved bundle version is empty")
 	}
-	publicHost := productconfig.PreferredRegistryPublicHost(opts.NodeName, opts.PublicHost, opts.TLSSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, publicHost, resolved.ZotImageReference)
+	identity, err := productconfig.ResolveApplianceIdentity(opts.ApplianceName, opts.DNSZone)
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
+	nodeIPv4 := preferredLocalIPv4(opts.TLSSANs...)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -192,7 +197,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
-		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, publicHost)
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, identity.FQDN)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
@@ -201,7 +206,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	dnsValuesPath := ""
 	cleanupDNSValues := func() {}
 	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
-		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, preferredLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...))
+		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, identity.Zone, nodeIPv4)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
@@ -577,6 +582,8 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		InstalledVersion:    targetVersion,
 		InstalledReleaseID:  resolved.ReleaseID,
 		ApplianceProfile:    effectiveProfile,
+		ApplianceName:       identity.Name,
+		DNSZone:             identity.Zone,
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
@@ -653,13 +660,13 @@ func hostDNSPrepareConfig(opts Options) hostdns.PrepareConfig {
 		}
 	}
 	aliases := make([]string, 0, 1+len(opts.TLSSANs))
-	if host := strings.TrimSpace(opts.PublicHost); host != "" {
-		aliases = append(aliases, host)
+	if identity, err := productconfig.ResolveApplianceIdentity(opts.ApplianceName, opts.DNSZone); err == nil {
+		aliases = append(aliases, identity.FQDN)
 	}
 	aliases = append(aliases, opts.TLSSANs...)
 	return hostdns.PrepareConfig{
 		Hostname: hostname,
-		IPv4:     preferredLocalIPv4(append([]string{opts.PublicHost}, opts.TLSSANs...)...),
+		IPv4:     preferredLocalIPv4(opts.TLSSANs...),
 		Aliases:  aliases,
 	}
 }

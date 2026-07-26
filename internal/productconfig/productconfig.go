@@ -111,8 +111,70 @@ func ResolveApplianceProfile(requested, current string) (string, error) {
 	return profile, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, publicHost string, registry ...string) (string, func(), error) {
+// ApplianceIdentity is the product LAN name for one appliance instance.
+// FQDN is always {Name}.{Zone}; there is no separate public_host override.
+type ApplianceIdentity struct {
+	Name string
+	Zone string
+	FQDN string
+}
+
+// NormalizeApplianceName validates a single DNS label used as the appliance
+// instance name (not the OS hostname).
+func NormalizeApplianceName(name string) (string, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" || name == "ns" || !dnsLabelRE.MatchString(name) {
+		return "", fmt.Errorf("product config: appliance name %q must be a single DNS label (a-z0-9 and hyphens)", name)
+	}
+	return name, nil
+}
+
+// NormalizeDNSZone validates the LAN DNS zone. Empty defaults to
+// DefaultLANDNSZone. The .local TLD is rejected (mDNS-only on Ubuntu).
+func NormalizeDNSZone(zone string) (string, error) {
+	zone = strings.ToLower(strings.TrimSpace(zone))
+	zone = strings.TrimSuffix(zone, ".")
+	if zone == "" {
+		zone = DefaultLANDNSZone
+	}
+	if zone == "local" || strings.HasSuffix(zone, ".local") {
+		return "", fmt.Errorf("product config: dns zone %q must not use .local (reserved for mDNS)", zone)
+	}
+	labels := strings.Split(zone, ".")
+	if len(labels) < 2 {
+		return "", fmt.Errorf("product config: dns zone %q must contain at least two labels", zone)
+	}
+	for _, label := range labels {
+		if !dnsLabelRE.MatchString(label) {
+			return "", fmt.Errorf("product config: dns zone %q has invalid label %q", zone, label)
+		}
+	}
+	return zone, nil
+}
+
+// ResolveApplianceIdentity validates name+zone and returns the derived FQDN.
+func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
+	normalizedName, err := NormalizeApplianceName(name)
+	if err != nil {
+		return ApplianceIdentity{}, err
+	}
+	normalizedZone, err := NormalizeDNSZone(zone)
+	if err != nil {
+		return ApplianceIdentity{}, err
+	}
+	return ApplianceIdentity{
+		Name: normalizedName,
+		Zone: normalizedZone,
+		FQDN: normalizedName + "." + normalizedZone,
+	}, nil
+}
+
+func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfile(profile, "")
+	if err != nil {
+		return "", func() {}, err
+	}
+	identity, err := ResolveApplianceIdentity(applianceName, dnsZone)
 	if err != nil {
 		return "", func() {}, err
 	}
@@ -152,8 +214,13 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
-	if host := strings.TrimSpace(publicHost); host != "" {
-		config["canonicalOrigin"] = "https://" + host
+	config["applianceName"] = identity.Name
+	config["dnsZoneName"] = identity.Zone
+	config["canonicalOrigin"] = "https://" + identity.FQDN
+	if ip := strings.TrimSpace(nodeIPv4); ip != "" {
+		config["nodeIPv4"] = ip
+	} else {
+		delete(config, "nodeIPv4")
 	}
 	artifactEnabled := HasCapability(effectiveProfile, CapabilityArtifact)
 	if artifactEnabled {
@@ -163,17 +230,15 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	}
 	if HasCapability(effectiveProfile, CapabilityDNS) {
 		config["dnsReadyURL"] = DefaultDNSReadyURL
-		config["dnsZoneName"] = DefaultLANDNSZone
 		config["dnsConfigMapNamespace"] = "dns"
 		config["dnsConfigMapName"] = "appliance-dns-config"
-		// Do not seed product A records from public_host. LAN names are
-		// created only through the DNS records API/UI (or peer publish).
+		// Do not seed product A records at install. Operators add the
+		// appliance FQDN on the landns appliance via API/UI (or peer publish).
 		config["dnsBootstrapHostname"] = ""
 		config["dnsBootstrapIPv4"] = ""
 		config["dnsAllowFakeZoneSync"] = false
 	} else {
 		delete(config, "dnsReadyURL")
-		delete(config, "dnsZoneName")
 		delete(config, "dnsConfigMapNamespace")
 		delete(config, "dnsConfigMapName")
 		delete(config, "dnsBootstrapHostname")
@@ -264,13 +329,13 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 // for the separate zot release. The chart archive remains immutable; only
 // the verified digest pin, public-key Secret name, and persistence policy
 // are supplied at install time.
-func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...string) (string, func(), error) {
+func PrepareRegistryValuesFile(baseDir, zotImageReference, fqdn string) (string, func(), error) {
 	if !validZotImageDigest(zotImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid zot image reference %q", zotImageReference)
 	}
-	host := DefaultLANDNSZone
-	if len(publicHost) > 0 && strings.TrimSpace(publicHost[0]) != "" {
-		host = strings.TrimSpace(publicHost[0])
+	host := strings.TrimSpace(fqdn)
+	if host == "" {
+		return "", func() {}, fmt.Errorf("product config: registry token realm requires appliance FQDN")
 	}
 	values := map[string]any{
 		"namespace": map[string]any{"create": false, "name": "registry"},
@@ -287,8 +352,8 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 		},
 		// Keep the public /v2 route host-agnostic by default so it remains
 		// reachable through the same appliance IP/URL operators already use
-		// for the UI and API, even when the token realm still prefers a
-		// hostname-derived canonical origin.
+		// for the UI and API, even when the token realm prefers the
+		// appliance FQDN as canonical origin.
 		"ingress": map[string]any{},
 		"persistence": map[string]any{
 			"storageClassName": "local-path", "accessMode": "ReadWriteOnce", "size": "100Gi",
@@ -342,9 +407,13 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference string, publicHost ...
 // — they are created later through the control-plane DNS records API/UI
 // (or peer publish). nsIPv4 is only glue for ns.<zone>; upstreams are the
 // resolvers CoreDNS forwards everything else to.
-func PrepareDNSValuesFile(baseDir, corednsImageReference, nsIPv4 string, upstreams ...string) (string, func(), error) {
+func PrepareDNSValuesFile(baseDir, corednsImageReference, dnsZone, nsIPv4 string, upstreams ...string) (string, func(), error) {
 	if !validDNSImageDigest(corednsImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid coredns image reference %q", corednsImageReference)
+	}
+	zone, err := NormalizeDNSZone(dnsZone)
+	if err != nil {
+		return "", func() {}, err
 	}
 	resolvers := make([]string, 0, len(upstreams))
 	for _, resolver := range upstreams {
@@ -377,7 +446,7 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, nsIPv4 string, upstrea
 		// instead of a ClusterIP Service.
 		"hostNetwork": true,
 		"localZone": map[string]any{
-			"name":     DefaultLANDNSZone,
+			"name":     zone,
 			"hostname": "",
 			"ipv4":     nsIPv4,
 		},
@@ -406,19 +475,6 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, nsIPv4 string, upstrea
 		return "", func() {}, fmt.Errorf("product config: close dns values file: %w", err)
 	}
 	return tmp.Name(), cleanup, nil
-}
-
-func PreferredRegistryPublicHost(nodeName, publicHost string, tlsSANs ...string) string {
-	if host := strings.TrimSpace(publicHost); host != "" {
-		return host
-	}
-	for _, candidate := range tlsSANs {
-		candidate = strings.TrimSpace(candidate)
-		if candidate != "" {
-			return candidate
-		}
-	}
-	return strings.TrimSpace(nodeName)
 }
 
 func loadBuildCatalog(path string) (map[string]any, error) {

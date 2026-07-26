@@ -108,8 +108,9 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 }
 
 type fakeK3s struct {
-	failStep string
-	calls    []string
+	failStep    string
+	calls       []string
+	lastTLSSANs []string
 }
 
 func valuesPathFromHelmCall(call string) string {
@@ -129,6 +130,7 @@ func (f *fakeK3s) ops() k3s.Ops {
 		},
 		WriteConfig: func(path string, cfg k3s.Config) error {
 			f.calls = append(f.calls, "write-config")
+			f.lastTLSSANs = append([]string(nil), cfg.TLSSANs...)
 			if f.failStep == "write-config" {
 				return fmt.Errorf("simulated write-config failure")
 			}
@@ -206,6 +208,8 @@ func setupEnvironment(t *testing.T, installedVersion, k3sVersion, chartVersion, 
 		InstalledVersion:    installedVersion,
 		InstalledReleaseID:  "prior-release",
 		ApplianceProfile:    applianceProfile,
+		ApplianceName:       "testapp",
+		DNSZone:             "appliance.internal",
 		Components:          state.Components{K3sVersion: k3sVersion, ChartVersion: chartVersion},
 		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: installedVersion},
 		LastOperation: state.Operation{
@@ -231,6 +235,8 @@ func (env environment) options(targetVersion string) upgrade.Options {
 		K3sDataDir:             env.dataDir,
 		KubeconfigPath:         env.kubeconfigPath,
 		NodeName:               "appliance-node",
+		ApplianceName:          "testapp",
+		DNSZone:                "appliance.internal",
 		ZonctlRealDestPath:     filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath: filepath.Join(env.stateDir, "usr-local-bin", "zonctl"),
 		ChartReleaseName:       "appliance",
@@ -558,7 +564,43 @@ func TestUpgrade_HTTPSSourcesDoNotCreateSourceCredentialSecrets(t *testing.T) {
 	}
 }
 
-func TestUpgrade_ArtifactProfileUsesRequestedPublicHostForRegistry(t *testing.T) {
+func TestUpgrade_PreservedIdentityIncludedInTLSSANs(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	opts := env.options("2.4.0")
+	// Simulate CLI upgrade with omitted identity flags: SANs computed without FQDN.
+	opts.ApplianceName = ""
+	opts.DNSZone = ""
+	opts.TLSSANs = []string{"zonsyssrv1", "192.168.1.101"}
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
+		t.Fatalf("expected upgrade to succeed, got: %v", err)
+	}
+	wantFQDN := "testapp.appliance.internal"
+	found := false
+	for _, san := range fake.lastTLSSANs {
+		if san == wantFQDN {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("k3s TLS SANs missing preserved FQDN %q: %#v", wantFQDN, fake.lastTLSSANs)
+	}
+	if len(fake.lastTLSSANs) == 0 || fake.lastTLSSANs[0] != wantFQDN {
+		t.Fatalf("k3s TLS SANs should lead with preserved FQDN: %#v", fake.lastTLSSANs)
+	}
+}
+
+func TestUpgrade_ArtifactProfileUsesApplianceIdentityForRegistry(t *testing.T) {
 	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
@@ -572,7 +614,9 @@ func TestUpgrade_ArtifactProfileUsesRequestedPublicHostForRegistry(t *testing.T)
 	opts := env.options("2.4.0")
 	opts.ApplianceProfile = "storage"
 	opts.NodeName = "zonsyssrv1"
-	opts.PublicHost = "192.168.1.101"
+	opts.ApplianceName = "registry1"
+	opts.DNSZone = "appliance.internal"
+	opts.TLSSANs = []string{"192.168.1.101"}
 	opts.TLSSANs = []string{"zonsyssrv1", "192.168.1.101"}
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
@@ -580,13 +624,13 @@ func TestUpgrade_ArtifactProfileUsesRequestedPublicHostForRegistry(t *testing.T)
 	}
 
 	registryValues := fcli.helmValues["appliance-registry"]
-	if !strings.Contains(registryValues, "realm: https://192.168.1.101/api/v1/registry/token") {
+	if !strings.Contains(registryValues, "realm: https://registry1.appliance.internal/api/v1/registry/token") {
 		t.Fatalf("registry values missing realm override:\n%s", registryValues)
 	}
 	if strings.Contains(registryValues, "host: 192.168.1.101") {
 		t.Fatalf("registry ingress host should remain empty by default so /v2 matches appliance IP access too:\n%s", registryValues)
 	}
-	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://192.168.1.101") {
+	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://registry1.appliance.internal") {
 		t.Fatalf("prepared values file missing canonical origin override:\n%s", fcli.lastHelmValues)
 	}
 }

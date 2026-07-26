@@ -52,6 +52,22 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		return finish(result, "failed", 1, withFailureDiagnostics("upgrade: "+err.Error(), resolveChecks, reportPath), nil)
 	}
 
+	// Preserve installed identity when flags are omitted so TLS SANs include
+	// the derived FQDN before upgrade runs (same source as Helm values/realm).
+	applianceName := strings.TrimSpace(opts.applianceName)
+	dnsZone := strings.TrimSpace(opts.dnsZone)
+	if installed != nil {
+		if applianceName == "" {
+			applianceName = strings.TrimSpace(installed.ApplianceName)
+		}
+		if dnsZone == "" {
+			dnsZone = strings.TrimSpace(installed.DNSZone)
+		}
+	}
+	tlsOpts := opts
+	tlsOpts.applianceName = applianceName
+	tlsOpts.dnsZone = dnsZone
+
 	upgradeOpts := upgrade.Options{
 		TargetApplianceVersion: version,
 		InstalledStatePath:     installedStatePath(opts.stateDir),
@@ -65,8 +81,9 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		BuildCatalogPath:       opts.buildCatalogPath,
 		WorkspaceRootDir:       defaultWorkspaceRootDir,
 		NodeName:               opts.nodeName,
-		PublicHost:             opts.publicHost,
-		TLSSANs:                effectiveTLSSANs(opts.nodeName, opts.publicHost, opts.tlsSANs...),
+		ApplianceName:          applianceName,
+		DNSZone:                dnsZone,
+		TLSSANs:                installTLSSANs(tlsOpts),
 		PreserveFailedState:    opts.preserveFailedState,
 		ZonctlRealDestPath:     defaultZonctlRealPath,
 		ZonctlLauncherDestPath: defaultZonctlLauncherPath,

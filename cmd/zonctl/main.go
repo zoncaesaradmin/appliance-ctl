@@ -54,7 +54,8 @@ type cliOptions struct {
 	applianceProfile    string
 	buildCatalogPath    string
 	nodeName            string
-	publicHost          string
+	applianceName       string
+	dnsZone             string
 	tlsSANs             []string
 	preserveFailedState bool
 	backupID            string
@@ -148,9 +149,10 @@ func run(args []string) int {
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage, landns, storage-landns, builder-landns, builder-storage-landns); install defaults to core and upgrade preserves the installed profile when omitted")
 	buildCatalogPath := fs.String("build-catalog", "", "path to developer workflow build catalog JSON/YAML to pass as product config into the control plane")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
-	publicHost := fs.String("public-host", "", "client-reachable canonical appliance host for public URLs and registry token realm (for example DNS name or IP)")
+	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN becomes <name>.<dns-zone> for TLS and canonical origin (required for install; upgrade preserves installed value when omitted)")
+	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")
 	var tlsSANs stringListFlag
-	fs.Var(&tlsSANs, "tls-san", "additional TLS subjectAltName to include on the appliance certificate; repeatable")
+	fs.Var(&tlsSANs, "tls-san", "additional TLS subjectAltName to include on the appliance certificate; repeatable (for example a raw IP)")
 	preserveFailedState := fs.Bool("preserve-failed-state", false, "debug mode: do not roll back a failed install or upgrade; preserve the partial target state for investigation")
 	backupID := fs.String("backup-id", "", "backup identifier to restore from (required for restore; optionally the verified recovery point for factory-reset)")
 	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall/factory-reset)")
@@ -181,7 +183,8 @@ func run(args []string) int {
 		applianceProfile:    *applianceProfile,
 		buildCatalogPath:    *buildCatalogPath,
 		nodeName:            *nodeName,
-		publicHost:          *publicHost,
+		applianceName:       *applianceName,
+		dnsZone:             *dnsZone,
 		tlsSANs:             append([]string(nil), tlsSANs...),
 		preserveFailedState: *preserveFailedState,
 		backupID:            *backupID,
@@ -197,7 +200,15 @@ func run(args []string) int {
 	return emit(result, opts.output)
 }
 
-func effectiveTLSSANs(nodeName, publicHost string, extra ...string) []string {
+func installTLSSANs(opts cliOptions) []string {
+	fqdn := ""
+	if identity, err := productconfig.ResolveApplianceIdentity(opts.applianceName, opts.dnsZone); err == nil {
+		fqdn = identity.FQDN
+	}
+	return effectiveTLSSANs(opts.nodeName, fqdn, opts.tlsSANs...)
+}
+
+func effectiveTLSSANs(nodeName, fqdn string, extra ...string) []string {
 	var out []string
 	seen := map[string]struct{}{}
 	appendUnique := func(value string) {
@@ -212,7 +223,7 @@ func effectiveTLSSANs(nodeName, publicHost string, extra ...string) []string {
 		out = append(out, value)
 	}
 
-	appendUnique(productconfig.PreferredRegistryPublicHost(nodeName, publicHost, extra...))
+	appendUnique(fqdn)
 	appendUnique(nodeName)
 	for _, san := range extra {
 		appendUnique(san)
