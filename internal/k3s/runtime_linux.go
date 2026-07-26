@@ -73,3 +73,56 @@ func isK3sContainerdShimCmdline(cmdline []byte) bool {
 	}
 	return strings.Contains(joined, k3sContainerdAddress)
 }
+
+// killLeftoverKubePodProcesses SIGKILLs processes still attached to a
+// kubepods cgroup after K3s/shims are gone. KillMode=process + shim kill
+// can leave hostNetwork container PIDs reparented to init while they keep
+// listening on privileged ports (appliance-dns on :53 is the known case).
+func killLeftoverKubePodProcesses() error {
+	pids, err := listKubePodPIDs()
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, pid := range pids {
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+			errs = append(errs, fmt.Errorf("k3s: kill leftover kubepods pid %d: %w", pid, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func listKubePodPIDs() ([]int, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("k3s: read /proc for leftover kubepods: %w", err)
+	}
+	self := os.Getpid()
+	var pids []int
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 1 || pid == self {
+			continue
+		}
+		cgroup, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cgroup"))
+		if err != nil {
+			continue
+		}
+		if !isKubePodCgroup(cgroup) {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids, nil
+}
+
+func isKubePodCgroup(cgroup []byte) bool {
+	// cgroup v1 and v2 paths both contain "kubepods" for kubelet/k3s pods.
+	return bytes.Contains(cgroup, []byte("kubepods"))
+}

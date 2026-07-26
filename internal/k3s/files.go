@@ -119,19 +119,25 @@ func RemoveKubectlSymlink(k3sBinaryPath, kubectlPath string) error {
 // uses KillMode=process (same as upstream K3s) so containerd-shim
 // children survive `systemctl stop` by design — that enables
 // non-disruptive binary upgrades, but after uninstall / failed-install
-// rollback those orphans keep owning CNI endpoints and kube-proxy
-// routes. A later start then inherits a split-brain runtime: new pods
-// cannot reach ClusterIP (no route to host), local-path provisioning
-// stalls, and helm --wait times out. This helper therefore:
+// rollback those orphans keep owning CNI endpoints, kube-proxy routes,
+// and hostNetwork ports (for example appliance-dns CoreDNS on :53). A
+// later start then inherits a split-brain runtime: new pods cannot reach
+// ClusterIP, local-path provisioning stalls, helm --wait times out, and
+// dns-capable reinstall fails hostdns port-53 prep. This helper therefore:
 //  1. SIGKILLs leftover containerd-shim processes for the K3s socket
-//  2. clears node-local CNI/IPAM lease files
-//  3. deletes the named bridge/overlay interfaces when still present
+//  2. SIGKILLs leftover processes still in kubepods cgroups (shim kill
+//     alone can reparent container PIDs to init while they keep sockets)
+//  3. clears node-local CNI/IPAM lease files
+//  4. deletes the named bridge/overlay interfaces when still present
 //
-// Missing paths, already-absent interfaces, and no matching shims are
+// Missing paths, already-absent interfaces, and no matching processes are
 // success so repeated uninstall/install cycles stay idempotent.
 func CleanupNodeNetwork(cniNetworkDir string, interfaceNames []string) error {
 	var errs []error
 	if err := killLeftoverContainerdShims(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := killLeftoverKubePodProcesses(); err != nil {
 		errs = append(errs, err)
 	}
 	if dir := strings.TrimSpace(cniNetworkDir); dir != "" {

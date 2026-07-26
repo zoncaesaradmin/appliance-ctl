@@ -128,8 +128,18 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 		}
 
 		if portConflictOnWildcard53() {
-			_ = Restore()
-			return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub; stop the conflicting DNS service before installing a dns-capable profile")
+			// Uninstall with KillMode=process can leave appliance-dns CoreDNS
+			// reparented to init while still bound to *:53. Reap that known
+			// orphan before failing closed on an unknown conflict.
+			if released, releaseErr := releaseOrphanCoreDNSListeners(); releaseErr != nil {
+				_ = Restore()
+				return result, fmt.Errorf("hostdns: release leftover appliance CoreDNS on port 53: %w", releaseErr)
+			} else if released && !portConflictOnWildcard53() {
+				// port freed; continue
+			} else if portConflictOnWildcard53() {
+				_ = Restore()
+				return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub; stop the conflicting DNS service before installing a dns-capable profile")
+			}
 		}
 	}
 

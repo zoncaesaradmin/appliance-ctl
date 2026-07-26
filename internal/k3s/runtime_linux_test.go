@@ -34,3 +34,34 @@ func TestIsK3sContainerdShimCmdline(t *testing.T) {
 		})
 	}
 }
+
+func TestIsKubePodCgroup(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{
+			name: "cgroup v2 kubepods",
+			raw:  "0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod282cfd9c_5ec9_434e_b4b8_3cd379bda4c4.slice/cri-containerd-abc.scope\n",
+			want: true,
+		},
+		{
+			name: "user session",
+			raw:  "0::/user.slice/user-1000.slice/session-1.scope\n",
+			want: false,
+		},
+		{
+			name: "cgroup v1 kubepods",
+			raw:  "12:devices:/kubepods/burstable/podabc/containerxyz\n",
+			want: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isKubePodCgroup([]byte(tc.raw)); got != tc.want {
+				t.Fatalf("isKubePodCgroup(%q)=%v, want %v", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
