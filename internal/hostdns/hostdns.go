@@ -95,8 +95,9 @@ DNSStubListener=no
 
 const sysctlDropInContents = `# Managed by zonctl for appliance LAN DNS (hostNetwork CoreDNS on :53).
 # Do not edit by hand; uninstall/rollback removes this drop-in.
-# UID 10004 must bind privileged port 53; NET_BIND_SERVICE is not always
-# effective after the image entrypoint execs /coredns.
+# UID 10004 must bind privileged port 53. Pod NET_BIND_SERVICE does not
+# survive the image entrypoint's final exec into /coredns, so the node
+# lowers the unprivileged port floor instead.
 net.ipv4.ip_unprivileged_port_start=0
 `
 
