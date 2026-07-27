@@ -680,6 +680,7 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
 	ownedPaths := map[string][2]int{}
+	ownedFiles := map[string][2]int{}
 	var workspaceChowns [][2]int
 	orch := &install.Orchestrator{
 		K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts,
@@ -692,6 +693,13 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 				workspaceChowns = append(workspaceChowns, [2]int{u, g})
 				return nil
 			})
+		},
+		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
+			ownedFiles[path] = [2]int{uid, gid}
+			if perm != hostdirs.ServiceLogFileMode {
+				t.Fatalf("log file mode = %o, want %o", perm, hostdirs.ServiceLogFileMode)
+			}
+			return nil
 		},
 	}
 
@@ -716,6 +724,17 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 	for path, want := range wantOwnedPaths {
 		if got, ok := ownedPaths[path]; !ok || got != want {
 			t.Fatalf("expected service log ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
+		}
+	}
+	wantOwnedFiles := map[string][2]int{
+		hostdirs.ArtifactServerApplicationLog: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+	}
+	if len(ownedFiles) != len(wantOwnedFiles) {
+		t.Fatalf("expected service log file ownership for %v, got %v", wantOwnedFiles, ownedFiles)
+	}
+	for path, want := range wantOwnedFiles {
+		if got, ok := ownedFiles[path]; !ok || got != want {
+			t.Fatalf("expected service log file ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
 		}
 	}
 	info, err := os.Stat(workspaceDir)

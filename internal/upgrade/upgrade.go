@@ -82,8 +82,10 @@ type Orchestrator struct {
 	// EnsureOwnedDir prepares a host directory backing a static hostPath
 	// PersistentVolume with the correct owner; see internal/hostdirs.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
-	PrepareHostDNS func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
-	RestoreHostDNS func() error
+	// EnsureOwnedFile reseeds operator-facing log files to a host-readable mode.
+	EnsureOwnedFile func(path string, uid, gid int, perm os.FileMode) error
+	PrepareHostDNS  func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
+	RestoreHostDNS  func() error
 }
 
 // NewOrchestrator wires an Orchestrator to the real adapters.
@@ -92,6 +94,9 @@ func NewOrchestrator() *Orchestrator {
 		K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec,
 		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, os.Chown)
+		},
+		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
+			return hostdirs.EnsureOwnedFile(path, uid, gid, perm, os.Chown)
 		},
 		PrepareHostDNS: hostdns.Prepare,
 		RestoreHostDNS: hostdns.Restore,
@@ -374,6 +379,21 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, evidence.Check{
 			ID: dir.CheckID, Category: "host", Status: evidence.StatusPass,
 			Message:   fmt.Sprintf("%s owned by %d:%d", dir.Path, dir.UID, dir.GID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetWorkflows, targetDNS) {
+		if o.EnsureOwnedFile == nil {
+			continue
+		}
+		if err := o.EnsureOwnedFile(file.Path, file.UID, file.GID, file.Mode); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare service log file %s: %w", file.Path, err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		checks = append(checks, evidence.Check{
+			ID: file.CheckID, Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d mode %04o", file.Path, file.UID, file.GID, file.Mode.Perm()),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}

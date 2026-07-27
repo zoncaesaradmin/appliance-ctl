@@ -104,3 +104,68 @@ func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
 		t.Fatalf("fileserver mode bits = %v, want setgid|0775", found.Mode)
 	}
 }
+
+func TestServiceLogFiles_ArtifactApplicationLogReadable(t *testing.T) {
+	if files := hostdirs.ServiceLogFiles(false, true, true); len(files) != 0 {
+		t.Fatalf("expected no service log files without artifact capability, got %#v", files)
+	}
+	files := hostdirs.ServiceLogFiles(true, false, false)
+	if len(files) != 1 {
+		t.Fatalf("expected one artifact log file, got %#v", files)
+	}
+	f := files[0]
+	if f.Path != hostdirs.ArtifactServerApplicationLog {
+		t.Fatalf("path = %s, want %s", f.Path, hostdirs.ArtifactServerApplicationLog)
+	}
+	if f.UID != hostdirs.RegistryDirOwnerUID || f.GID != hostdirs.ApplianceSharedFSGID {
+		t.Fatalf("ownership = %d:%d, want %d:%d", f.UID, f.GID, hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID)
+	}
+	if f.Mode != hostdirs.ServiceLogFileMode || f.Mode.Perm() != 0o644 {
+		t.Fatalf("mode = %o, want 0644", f.Mode)
+	}
+}
+
+func TestEnsureOwnedFile_CreatesAndFixesMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "application.log")
+	var calls []chownCall
+	fakeChown := func(p string, uid, gid int) error {
+		calls = append(calls, chownCall{p, uid, gid})
+		return nil
+	}
+
+	if err := hostdirs.EnsureOwnedFile(path, 10003, 20000, 0o644, fakeChown); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("mode = %o, want 0644", info.Mode().Perm())
+	}
+
+	if err := os.WriteFile(path, []byte("keep-me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := hostdirs.EnsureOwnedFile(path, 10003, 20000, 0o644, fakeChown); err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("mode after reseed = %o, want 0644", info.Mode().Perm())
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "keep-me\n" {
+		t.Fatalf("EnsureOwnedFile must not truncate existing log content, got %q", body)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected two chown calls, got %v", calls)
+	}
+}

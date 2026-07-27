@@ -120,6 +120,10 @@ type Orchestrator struct {
 	// for why this can't just be left to Kubernetes' own fsGroup
 	// handling.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
+	// EnsureOwnedFile reseeds operator-facing log files (for example zot
+	// application.log) to a host-readable mode after upstream may have
+	// created them as 0600.
+	EnsureOwnedFile func(path string, uid, gid int, perm os.FileMode) error
 	// PrepareHostDNS frees hostNetwork :53 (disables systemd-resolved stub)
 	// and seeds /etc/hosts for the node name so preflight still passes after
 	// the stub (and MagicDNS) is gone. Tests leave this nil as a no-op.
@@ -135,6 +139,9 @@ func NewOrchestrator() *Orchestrator {
 		K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec, ClusterRun: cli.Exec, ClusterRunInput: cli.ExecInput, DetectHost: host.Detect,
 		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, os.Chown)
+		},
+		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
+			return hostdirs.EnsureOwnedFile(path, uid, gid, perm, os.Chown)
 		},
 		PrepareHostDNS: hostdns.Prepare,
 		RestoreHostDNS: hostdns.Restore,
@@ -434,6 +441,23 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		checks = append(checks, evidence.Check{
 			ID: dir.CheckID, Category: "host", Status: evidence.StatusPass,
 			Message:   fmt.Sprintf("%s owned by %d:%d", dir.Path, dir.UID, dir.GID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	for _, file := range hostdirs.ServiceLogFiles(
+		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact),
+		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows),
+		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS),
+	) {
+		if o.EnsureOwnedFile == nil {
+			continue
+		}
+		if err := o.EnsureOwnedFile(file.Path, file.UID, file.GID, file.Mode); err != nil {
+			return nil, checks, fmt.Errorf("install: prepare service log file %s: %w", file.Path, err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: file.CheckID, Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d mode %04o", file.Path, file.UID, file.GID, file.Mode.Perm()),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}

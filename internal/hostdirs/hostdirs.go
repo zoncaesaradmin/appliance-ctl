@@ -59,6 +59,11 @@ const (
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
 	ServiceLogDirMode = os.FileMode(0o755) | os.ModeSetgid
+	// ServiceLogFileMode is the operator-facing mode for files under service
+	// log directories (owner write, world read). Upstream tools such as zot may
+	// create application.log as 0600; zonctl reseeds 0644 so host users can
+	// `tail` without sudo.
+	ServiceLogFileMode = os.FileMode(0o644)
 	// SharedWritableDirMode is setgid + group-writable + host-readable (2775)
 	// for operator-visible host paths that the control-plane (runAsUser 10001,
 	// fsGroup 20000) and fileserver (runAsUser 10005, fsGroup 20000) both use:
@@ -76,6 +81,10 @@ const (
 	// ArtifactServerLogDir is the host-visible OCI registry (zot /
 	// artifactserver) log directory under the shared appliance log tree.
 	ArtifactServerLogDir = "/data/zon/logs/artifactserver"
+	// ArtifactServerApplicationLog is the zot application log file under
+	// ArtifactServerLogDir. Upstream zot creates this as 0600; zonctl reseeds
+	// it to ServiceLogFileMode so host operators can read it.
+	ArtifactServerApplicationLog = ArtifactServerLogDir + "/application.log"
 	// FileserverLogDir is the host-visible nginx fileserver log directory.
 	FileserverLogDir = "/data/zon/logs/fileserver"
 	// ArgoControllerLogDir is the host-visible workflow-controller log
@@ -167,6 +176,22 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 	return dirs
 }
 
+// ServiceLogFiles returns host-visible log files that zonctl must seed (or
+// re-chmod) in addition to ServiceLogDirs. Today this is only zot's
+// application.log, which upstream creates as 0600.
+func ServiceLogFiles(includeArtifact, _, _ bool) []OwnedDir {
+	if !includeArtifact {
+		return nil
+	}
+	return []OwnedDir{{
+		CheckID: "artifactserver-application-log-readable",
+		Path:    ArtifactServerApplicationLog,
+		UID:     RegistryDirOwnerUID,
+		GID:     ApplianceSharedFSGID,
+		Mode:    ServiceLogFileMode,
+	}}
+}
+
 // WorkspaceDirMode is deliberately world-readable and world-writable
 // (not just group-writable via ApplianceSharedFSGID). An operator needs
 // to be able to inspect — and, at their own risk, edit — cloned
@@ -204,6 +229,26 @@ type ChownFunc func(path string, uid, gid int) error
 func EnsureOwnedDir(path string, uid, gid int, perm os.FileMode, chown ChownFunc) error {
 	if err := os.MkdirAll(path, perm); err != nil {
 		return fmt.Errorf("hostdirs: create %s: %w", path, err)
+	}
+	if err := os.Chmod(path, perm); err != nil {
+		return fmt.Errorf("hostdirs: chmod %s: %w", path, err)
+	}
+	if err := chown(path, uid, gid); err != nil {
+		return fmt.Errorf("hostdirs: chown %s to %d:%d: %w", path, uid, gid, err)
+	}
+	return nil
+}
+
+// EnsureOwnedFile creates an empty file at path if missing, then forces
+// ownership and mode. Used for operator-facing log files that an upstream
+// process may create with a too-restrictive mode (for example zot 0600).
+func EnsureOwnedFile(path string, uid, gid int, perm os.FileMode, chown ChownFunc) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, perm)
+	if err != nil {
+		return fmt.Errorf("hostdirs: create %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("hostdirs: close %s: %w", path, err)
 	}
 	if err := os.Chmod(path, perm); err != nil {
 		return fmt.Errorf("hostdirs: chmod %s: %w", path, err)
