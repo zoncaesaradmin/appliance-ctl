@@ -674,10 +674,11 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 				t.Fatalf("expected workflows release removal when switching to %s profile, got calls: %v", profile, fcli.calls)
 			}
 			wantOwnedPaths := map[string][2]int{
-				hostdirs.ControlPlaneLogDir: {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-				hostdirs.UILogDir:           {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-				hostdirs.RegistryLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-				hostdirs.FileserverDir:      {hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.FileserverLogDir:     {hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.FileserverDir:        {hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 			}
 			if profile == "storage-landns" {
 				wantOwnedPaths[hostdirs.DNSLogDir] = [2]int{hostdirs.DNSDirOwnerUID, hostdirs.ApplianceSharedFSGID}
@@ -807,7 +808,7 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 	}
 
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.ControlPlaneLogDir:   {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
@@ -819,8 +820,8 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
 		}
 	}
-	if _, ok := ownedPaths[hostdirs.RegistryLogDir]; ok {
-		t.Fatalf("core upgrade must not prepare %s: %v", hostdirs.RegistryLogDir, ownedPaths)
+	if _, ok := ownedPaths[hostdirs.ArtifactServerLogDir]; ok {
+		t.Fatalf("core upgrade must not prepare %s: %v", hostdirs.ArtifactServerLogDir, ownedPaths)
 	}
 }
 

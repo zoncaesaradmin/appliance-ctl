@@ -49,7 +49,8 @@ const (
 	// workflow-controller pod.
 	ArgoControllerDirOwnerUID = 65532
 	// DNSDirOwnerUID is the fixed numeric identity for the offline
-	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser).
+	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser). The wrapper
+	// image tees CoreDNS stdout/stderr into /data/zon/logs/dns.
 	DNSDirOwnerUID = 10004
 	// FileserverDirOwnerUID is the fixed numeric identity for the
 	// fileserver nginx pod (appliance-registry chart fileserver).
@@ -58,21 +59,25 @@ const (
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
 	ServiceLogDirMode = os.FileMode(0o755) | os.ModeSetgid
-	// SharedWritableDirMode is setgid + group-writable (2770) for host paths
-	// that both the control-plane (runAsUser 10001, fsGroup 20000) and the
-	// fileserver (runAsUser 10005, fsGroup 20000) must use: CP writes via the
-	// files API; nginx serves the same tree read-only over /files.
-	SharedWritableDirMode = os.FileMode(0o770) | os.ModeSetgid
+	// SharedWritableDirMode is setgid + group-writable + host-readable (2775)
+	// for operator-visible host paths that the control-plane (runAsUser 10001,
+	// fsGroup 20000) and fileserver (runAsUser 10005, fsGroup 20000) both use:
+	// CP writes via the files API; nginx serves the tree; host users can
+	// inspect with ls/cat like service log dirs. Private shared storage that
+	// must stay host-opaque should keep 2770 instead.
+	SharedWritableDirMode = os.FileMode(0o775) | os.ModeSetgid
 
-	// ControlPlaneLogDir is the host-visible control-plane log directory under
-	// the shared appliance log tree.
-	ControlPlaneLogDir = "/data/zon/logs/control-plane"
+	// APIServerLogDir is the host-visible api-server (control-plane) log
+	// directory under the shared appliance log tree.
+	APIServerLogDir = "/data/zon/logs/api-server"
 	// UILogDir is the host-visible UI log directory under the shared appliance
 	// log tree.
 	UILogDir = "/data/zon/logs/ui"
-	// RegistryLogDir is the host-visible zot log directory under the shared
-	// appliance log tree.
-	RegistryLogDir = "/data/zon/logs/zot"
+	// ArtifactServerLogDir is the host-visible OCI registry (zot /
+	// artifactserver) log directory under the shared appliance log tree.
+	ArtifactServerLogDir = "/data/zon/logs/artifactserver"
+	// FileserverLogDir is the host-visible nginx fileserver log directory.
+	FileserverLogDir = "/data/zon/logs/fileserver"
 	// ArgoControllerLogDir is the host-visible workflow-controller log
 	// directory under the shared appliance log tree.
 	ArgoControllerLogDir = "/data/zon/logs/argo-controller"
@@ -97,13 +102,13 @@ type OwnedDir struct {
 
 // ServiceLogDirs returns the host-visible log directories the selected
 // capability set requires. Control-plane and UI logs always exist; registry,
-// workflow-controller, and DNS logs are added only when those capabilities
-// are enabled.
+// fileserver, workflow-controller, and DNS logs are added only when those
+// capabilities are enabled.
 func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedDir {
 	dirs := []OwnedDir{
 		{
-			CheckID: "control-plane-log-directory-owned",
-			Path:    ControlPlaneLogDir,
+			CheckID: "api-server-log-directory-owned",
+			Path:    APIServerLogDir,
 			UID:     ControlPlaneDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
@@ -119,9 +124,16 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 	if includeArtifact {
 		dirs = append(dirs,
 			OwnedDir{
-				CheckID: "registry-log-directory-owned",
-				Path:    RegistryLogDir,
+				CheckID: "artifactserver-log-directory-owned",
+				Path:    ArtifactServerLogDir,
 				UID:     RegistryDirOwnerUID,
+				GID:     ApplianceSharedFSGID,
+				Mode:    ServiceLogDirMode,
+			},
+			OwnedDir{
+				CheckID: "fileserver-log-directory-owned",
+				Path:    FileserverLogDir,
+				UID:     FileserverDirOwnerUID,
 				GID:     ApplianceSharedFSGID,
 				Mode:    ServiceLogDirMode,
 			},

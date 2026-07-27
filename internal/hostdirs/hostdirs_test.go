@@ -98,9 +98,9 @@ func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
 		t.Fatalf("fileserver ownership = %d:%d, want %d:%d", found.UID, found.GID, hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID)
 	}
 	if found.Mode != hostdirs.SharedWritableDirMode {
-		t.Fatalf("fileserver mode = %o, want %o (2770 setgid)", found.Mode, hostdirs.SharedWritableDirMode)
+		t.Fatalf("fileserver mode = %o, want %o (2775 setgid)", found.Mode, hostdirs.SharedWritableDirMode)
 	}
-	if found.Mode&os.ModeSetgid == 0 || found.Mode.Perm() != 0o770 {
-		t.Fatalf("fileserver mode bits = %v, want setgid|0770", found.Mode)
+	if found.Mode&os.ModeSetgid == 0 || found.Mode.Perm() != 0o775 {
+		t.Fatalf("fileserver mode bits = %v, want setgid|0775", found.Mode)
 	}
 }

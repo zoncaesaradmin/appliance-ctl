@@ -142,11 +142,11 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) ||
 		!strings.Contains(text, "kubernetes.io/metadata.name: control") ||
 		!strings.Contains(text, "app.kubernetes.io/name: api-server") ||
-		!strings.Contains(text, "hostPath: /data/zon/logs/zot") {
+		!strings.Contains(text, "hostPath: /data/zon/logs/artifactserver") ||
+		!strings.Contains(text, "hostPath: /data/zon/logs/fileserver") {
 		t.Fatalf("unexpected registry values:\n%s", text)
 	}
 }
-
 func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
 	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage, fileserverImage, "registry1.appliance.internal")
 	if err != nil {

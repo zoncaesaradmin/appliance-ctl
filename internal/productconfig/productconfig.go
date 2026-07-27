@@ -355,6 +355,9 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference, fileserverImageRefere
 				"pullPolicy": "IfNotPresent",
 			},
 			"hostPath": "/data/zon/files",
+			"logs": map[string]any{
+				"hostPath": "/data/zon/logs/fileserver",
+			},
 		},
 		"auth": map[string]any{
 			"realm":               "https://" + host + "/api/v1/registry/token",
@@ -386,7 +389,7 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference, fileserverImageRefere
 			},
 		},
 		"logs": map[string]any{
-			"hostPath": "/data/zon/logs/zot",
+			"hostPath": "/data/zon/logs/artifactserver",
 			"prepare":  map[string]any{"enabled": false},
 		},
 	}
