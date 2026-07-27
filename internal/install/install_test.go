@@ -460,7 +460,7 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		ZonctlRealDestPath:     filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath: filepath.Join(stateDir, "usr-local-bin", "zonctl"),
 		ChartReleaseName:       "appliance",
-		ChartNamespace:         "appliance-system",
+		ChartNamespace:         "control",
 		TransactionID:          "txn-test-0000000000000000000000",
 	}
 }
@@ -905,7 +905,7 @@ func TestInstall_AutoAdoptsSafeExistingCluster(t *testing.T) {
 	}
 	fcli := &fakeCLI{
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
-		kubectlPods:  "kube-system\nappliance-system\n",
+		kubectlPods:  "kube-system\ncontrol\n",
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
@@ -1006,7 +1006,7 @@ func TestInstall_AutoAdoptsSafeExistingClusterWhenK3SPortsAreAlreadyBound(t *tes
 	}
 	fcli := &fakeCLI{
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
-		kubectlPods:  "kube-system\ntraefik\nappliance-system\n",
+		kubectlPods:  "kube-system\ntraefik\ncontrol\n",
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFactsWithK3SPortsInUse, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 

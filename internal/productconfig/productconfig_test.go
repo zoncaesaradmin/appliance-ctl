@@ -72,7 +72,7 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 		"dnsZoneName: " + productconfig.DefaultLANDNSZone,
 		"dnsAllowFakeZoneSync: false",
 		"kubernetes.io/metadata.name: dns",
-		"app.kubernetes.io/name: appliance-dns",
+		"app.kubernetes.io/name: dns-server",
 		"dnsReadyPort: 8181",
 	} {
 		if !strings.Contains(text, want) {
@@ -140,8 +140,8 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 		!strings.Contains(text, "hostPath: /data/zon/files") ||
 		!strings.Contains(text, "accessMode: ReadWriteOnce") ||
 		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) ||
-		!strings.Contains(text, "kubernetes.io/metadata.name: appliance-system") ||
-		!strings.Contains(text, "app.kubernetes.io/name: control-plane") ||
+		!strings.Contains(text, "kubernetes.io/metadata.name: control") ||
+		!strings.Contains(text, "app.kubernetes.io/name: api-server") ||
 		!strings.Contains(text, "hostPath: /data/zon/logs/zot") {
 		t.Fatalf("unexpected registry values:\n%s", text)
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 )
 
-const deploymentName = "control-plane"
+const deploymentName = "api-server"
 
 // Options describes the in-cluster first-admin bootstrap call zonctl runs
 // after the chart rollout is ready.

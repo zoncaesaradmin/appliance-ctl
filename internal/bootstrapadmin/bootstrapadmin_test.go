@@ -24,7 +24,7 @@ func TestInit_ReturnedCheckSatisfiesEvidenceSchema(t *testing.T) {
 	check, err := bootstrapadmin.Init(context.Background(), bootstrapadmin.Options{
 		Run:           run,
 		Kubeconfig:    "/etc/rancher/k3s/k3s.yaml",
-		Namespace:     "appliance-system",
+		Namespace:     "control",
 		ReleaseName:   "appliance",
 		AdminUsername: "admin",
 		AdminPassword: []byte("a-fully-valid-password"),
@@ -48,7 +48,7 @@ func TestInit_ExecsRenderedControlPlaneDeploymentName(t *testing.T) {
 	_, err := bootstrapadmin.Init(context.Background(), bootstrapadmin.Options{
 		Run:           run,
 		Kubeconfig:    "/etc/rancher/k3s/k3s.yaml",
-		Namespace:     "appliance-system",
+		Namespace:     "control",
 		ReleaseName:   "appliance",
 		AdminUsername: "admin",
 		AdminPassword: []byte("a-fully-valid-password"),
@@ -58,7 +58,7 @@ func TestInit_ExecsRenderedControlPlaneDeploymentName(t *testing.T) {
 	}
 
 	joined := strings.Join(gotArgs, " ")
-	if !strings.Contains(joined, "exec -i deploy/control-plane --") {
-		t.Fatalf("bootstrap exec target = %q, want deploy/control-plane", joined)
+	if !strings.Contains(joined, "exec -i deploy/api-server --") {
+		t.Fatalf("bootstrap exec target = %q, want deploy/api-server", joined)
 	}
 }

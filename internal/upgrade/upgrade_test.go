@@ -241,7 +241,7 @@ func (env environment) options(targetVersion string) upgrade.Options {
 		ZonctlRealDestPath:     filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath: filepath.Join(env.stateDir, "usr-local-bin", "zonctl"),
 		ChartReleaseName:       "appliance",
-		ChartNamespace:         "appliance-system",
+		ChartNamespace:         "control",
 		BackupRoot:             env.backupRoot,
 		TransactionID:          "txn-upgrade-test",
 	}
@@ -492,7 +492,7 @@ func TestUpgrade_RecreatesNamespaceAfterPriorTermination(t *testing.T) {
 
 	var sawNamespaceCreate bool
 	for _, call := range fcli.calls {
-		if strings.Contains(call, "create namespace appliance") {
+		if strings.Contains(call, "create namespace control") {
 			sawNamespaceCreate = true
 			break
 		}

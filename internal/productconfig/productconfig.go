@@ -70,7 +70,7 @@ const (
 	// zotBaseURL gates artifact-capability behavior on the registry
 	// release.
 	// CoreDNS ready plugin listens on :8181 (/ready); health is :8080 (/health).
-	DefaultDNSReadyURL = "http://appliance-dns.dns.svc.cluster.local:8181/ready"
+	DefaultDNSReadyURL = "http://dns-server.dns.svc.cluster.local:8181/ready"
 	// DefaultLANDNSZone is the CoreDNS local-zone suffix for LAN A records.
 	// Must not be ".local" — systemd-resolved (and dig) treat .local as
 	// Multicast DNS and will never send those queries to unicast DNS.
@@ -231,7 +231,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	if HasCapability(effectiveProfile, CapabilityDNS) {
 		config["dnsReadyURL"] = DefaultDNSReadyURL
 		config["dnsConfigMapNamespace"] = "dns"
-		config["dnsConfigMapName"] = "appliance-dns-config"
+		config["dnsConfigMapName"] = "dns-server-config"
 		// Do not seed product A records at install. Operators add the
 		// appliance FQDN on the landns appliance via API/UI (or peer publish).
 		config["dnsBootstrapHostname"] = ""
@@ -288,7 +288,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 			"kubernetes.io/metadata.name": "dns",
 		}
 		networkPolicy["dnsPodLabels"] = map[string]any{
-			"app.kubernetes.io/name": "appliance-dns",
+			"app.kubernetes.io/name": "dns-server",
 		}
 		networkPolicy["dnsReadyPort"] = 8181
 	} else {
@@ -373,13 +373,12 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference, fileserverImageRefere
 		"networkPolicy": map[string]any{
 			"enabled": true,
 			"controlPlaneNamespaceLabel": map[string]any{
-				"kubernetes.io/metadata.name": "appliance-system",
+				"kubernetes.io/metadata.name": "control",
 			},
 			"controlPlanePodLabels": map[string]any{
-				// appliance-control-plane's chart helper trims the
-				// "appliance-" prefix, so the rendered control-plane pod
-				// label is "control-plane", not the chart name.
-				"app.kubernetes.io/name": "control-plane",
+				// Matches appliance-control-plane chart selectorLabels
+				// (api-server Deployment), not the chart/image name.
+				"app.kubernetes.io/name": "api-server",
 			},
 			// K3s ships Traefik in kube-system; empty selectors leave /v2 unreachable.
 			"traefikNamespaceLabel": map[string]any{
