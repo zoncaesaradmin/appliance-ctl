@@ -29,9 +29,11 @@ const (
 	// DropInPath is the systemd-resolved drop-in the appliance owns.
 	DropInPath = "/etc/systemd/resolved.conf.d/99-zon-appliance-dns.conf"
 	// SysctlDropInPath lowers the unprivileged port floor so non-root
-	// CoreDNS (UID 10004) can bind :53. NET_BIND_SERVICE alone is not
-	// reliable across an entrypoint exec without ambient capabilities
-	// (listen tcp :53: bind: permission denied).
+	// CoreDNS (UID 10004) can bind :53. Kubernetes forbids setting
+	// net.ipv4.ip_unprivileged_port_start as a pod sysctl when hostNetwork
+	// is true, so zonctl must apply it on the host. NET_BIND_SERVICE alone
+	// is also not reliable across an entrypoint exec without ambient
+	// capabilities (listen tcp :53: bind: permission denied).
 	SysctlDropInPath = "/etc/sysctl.d/99-zon-appliance-dns.conf"
 	// UpstreamResolvPath is systemd-resolved's non-stub resolv.conf that
 	// lists the real uplink nameservers. After disabling the stub listener
