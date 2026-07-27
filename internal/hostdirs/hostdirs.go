@@ -58,6 +58,11 @@ const (
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
 	ServiceLogDirMode = os.FileMode(0o755) | os.ModeSetgid
+	// SharedWritableDirMode is setgid + group-writable (2770) for host paths
+	// that both the control-plane (runAsUser 10001, fsGroup 20000) and the
+	// fileserver (runAsUser 10005, fsGroup 20000) must use: CP writes via the
+	// files API; nginx serves the same tree read-only over /files.
+	SharedWritableDirMode = os.FileMode(0o770) | os.ModeSetgid
 
 	// ControlPlaneLogDir is the host-visible control-plane log directory under
 	// the shared appliance log tree.
@@ -75,7 +80,8 @@ const (
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
 	// FileserverDir is the host-visible static HTTP file tree served at
-	// Traefik /files by the artifacts-namespace fileserver.
+	// Traefik /files and written by the control-plane files API. Owned by the
+	// fileserver UID with the shared fsGroup so both pods can access it.
 	FileserverDir = "/data/zon/files"
 )
 
@@ -124,7 +130,7 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 				Path:    FileserverDir,
 				UID:     FileserverDirOwnerUID,
 				GID:     ApplianceSharedFSGID,
-				Mode:    ServiceLogDirMode,
+				Mode:    SharedWritableDirMode,
 			},
 		)
 	}

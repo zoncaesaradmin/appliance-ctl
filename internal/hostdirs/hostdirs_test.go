@@ -81,3 +81,26 @@ func TestEnsureOwnedDir_PropagatesChownFailure(t *testing.T) {
 		t.Fatal("expected chown failure to propagate")
 	}
 }
+
+func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
+	dirs := hostdirs.ServiceLogDirs(true, false, false)
+	var found *hostdirs.OwnedDir
+	for i := range dirs {
+		if dirs[i].Path == hostdirs.FileserverDir {
+			found = &dirs[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected fileserver directory in ServiceLogDirs when artifact is enabled")
+	}
+	if found.UID != hostdirs.FileserverDirOwnerUID || found.GID != hostdirs.ApplianceSharedFSGID {
+		t.Fatalf("fileserver ownership = %d:%d, want %d:%d", found.UID, found.GID, hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID)
+	}
+	if found.Mode != hostdirs.SharedWritableDirMode {
+		t.Fatalf("fileserver mode = %o, want %o (2770 setgid)", found.Mode, hostdirs.SharedWritableDirMode)
+	}
+	if found.Mode&os.ModeSetgid == 0 || found.Mode.Perm() != 0o770 {
+		t.Fatalf("fileserver mode bits = %v, want setgid|0770", found.Mode)
+	}
+}
