@@ -28,6 +28,11 @@ import (
 const (
 	// DropInPath is the systemd-resolved drop-in the appliance owns.
 	DropInPath = "/etc/systemd/resolved.conf.d/99-zon-appliance-dns.conf"
+	// SysctlDropInPath lowers the unprivileged port floor so non-root
+	// CoreDNS (UID 10004) can bind :53. NET_BIND_SERVICE alone is not
+	// reliable across an entrypoint exec without ambient capabilities
+	// (listen tcp :53: bind: permission denied).
+	SysctlDropInPath = "/etc/sysctl.d/99-zon-appliance-dns.conf"
 	// UpstreamResolvPath is systemd-resolved's non-stub resolv.conf that
 	// lists the real uplink nameservers. After disabling the stub listener
 	// we point /etc/resolv.conf here so the host keeps DNS while CoreDNS
@@ -37,10 +42,37 @@ const (
 
 	hostsBeginMarker = "# BEGIN zon-appliance-dns"
 	hostsEndMarker   = "# END zon-appliance-dns"
+
+	// DefaultUnprivilegedPortStart is the common Linux default restored
+	// when the appliance DNS sysctl drop-in is removed.
+	DefaultUnprivilegedPortStart = "1024"
 )
 
 // HostsPath is the hosts file Prepare manages. Tests may override it.
 var HostsPath = "/etc/hosts"
+
+// SysctlPath is the sysctl drop-in Prepare manages. Tests may override it.
+var SysctlPath = SysctlDropInPath
+
+// applySysctl and readSysctl are overridden in tests.
+var (
+	applySysctl = func(key, value string) error {
+		cmd := exec.Command("sysctl", "-w", key+"="+value)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("hostdns: sysctl -w %s=%s: %w (%s)", key, value, err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	readSysctl = func(key string) (string, error) {
+		cmd := exec.Command("sysctl", "-n", key)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("hostdns: sysctl -n %s: %w (%s)", key, err, strings.TrimSpace(string(out)))
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+)
 
 // listenTCP53 and sleep are overridden in tests.
 var (
@@ -59,6 +91,13 @@ const dropInContents = `# Managed by zonctl for appliance LAN DNS (hostNetwork C
 DNSStubListener=no
 `
 
+const sysctlDropInContents = `# Managed by zonctl for appliance LAN DNS (hostNetwork CoreDNS on :53).
+# Do not edit by hand; uninstall/rollback removes this drop-in.
+# UID 10004 must bind privileged port 53; NET_BIND_SERVICE is not always
+# effective after the image entrypoint execs /coredns.
+net.ipv4.ip_unprivileged_port_start=0
+`
+
 // PrepareConfig identifies the node so Prepare can keep its hostname
 // resolvable after the stub listener is disabled.
 type PrepareConfig struct {
@@ -74,6 +113,7 @@ type PrepareConfig struct {
 type PrepareResult struct {
 	Changed            bool
 	WroteDropIn        bool
+	WroteSysctlDropIn  bool
 	RelinkedResolvConf bool
 	WroteHostsEntry    bool
 	PreviousResolvLink string
@@ -118,9 +158,9 @@ func waitUntilWildcard53Free(timeout, poll time.Duration) bool {
 
 // Prepare disables the systemd-resolved stub listener when it would block
 // CoreDNS from binding *:53, points /etc/resolv.conf at the uplink
-// resolv.conf, and seeds a managed /etc/hosts entry so the node hostname
-// remains resolvable for preflight and early install steps. It is
-// idempotent.
+// resolv.conf, lowers the unprivileged port floor so UID 10004 can bind
+// :53, and seeds a managed /etc/hosts entry so the node hostname remains
+// resolvable for preflight and early install steps. It is idempotent.
 func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 	var result PrepareResult
 	hostname := strings.TrimSpace(cfg.Hostname)
@@ -130,6 +170,10 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 	}
 	if ip := net.ParseIP(ipv4); ip == nil || ip.To4() == nil {
 		return result, fmt.Errorf("hostdns: ipv4 %q is required (node LAN address for /etc/hosts)", cfg.IPv4)
+	}
+
+	if err := ensureUnprivilegedPortStart(&result); err != nil {
+		return result, err
 	}
 
 	needStubWork := NeedsStubDisable()
@@ -196,14 +240,22 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 	return result, nil
 }
 
-// Restore removes the appliance-owned resolved drop-in and restores the
-// stub resolv.conf symlink when resolved is active. The managed /etc/hosts
-// node-name block is left in place so uninstall does not reintroduce
-// MagicDNS-only hostname resolution for the next preflight.
+// Restore removes the appliance-owned resolved and sysctl drop-ins and
+// restores the stub resolv.conf symlink when resolved is active. The
+// managed /etc/hosts node-name block is left in place so uninstall does
+// not reintroduce MagicDNS-only hostname resolution for the next
+// preflight.
 func Restore() error {
 	var errs []error
 	if err := os.Remove(DropInPath); err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("hostdns: remove resolved drop-in: %w", err))
+	}
+	if err := os.Remove(SysctlPath); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("hostdns: remove sysctl drop-in: %w", err))
+	} else if err == nil {
+		if applyErr := applySysctl("net.ipv4.ip_unprivileged_port_start", DefaultUnprivilegedPortStart); applyErr != nil {
+			errs = append(errs, applyErr)
+		}
 	}
 	if serviceActive("systemd-resolved") {
 		if err := restartResolved(); err != nil {
@@ -291,6 +343,34 @@ func ensureUpstreamResolvConf(result *PrepareResult) error {
 	}
 	result.RelinkedResolvConf = true
 	result.Changed = true
+	return nil
+}
+
+func ensureUnprivilegedPortStart(result *PrepareResult) error {
+	const key = "net.ipv4.ip_unprivileged_port_start"
+	if err := os.MkdirAll(filepath.Dir(SysctlPath), 0o755); err != nil {
+		return fmt.Errorf("hostdns: create sysctl drop-in dir: %w", err)
+	}
+	existing, readErr := os.ReadFile(SysctlPath)
+	needWrite := readErr != nil || string(existing) != sysctlDropInContents
+	if needWrite {
+		if err := os.WriteFile(SysctlPath, []byte(sysctlDropInContents), 0o644); err != nil {
+			return fmt.Errorf("hostdns: write sysctl drop-in: %w", err)
+		}
+		result.WroteSysctlDropIn = true
+		result.Changed = true
+	}
+	current, err := readSysctl(key)
+	if err != nil {
+		// Still apply the desired value; some test/dev hosts lack sysctl.
+		current = ""
+	}
+	if current != "0" {
+		if err := applySysctl(key, "0"); err != nil {
+			return err
+		}
+		result.Changed = true
+	}
 	return nil
 }
 

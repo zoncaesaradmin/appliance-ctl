@@ -16,6 +16,64 @@ func TestDropInContentsDisablesStub(t *testing.T) {
 	}
 }
 
+func TestSysctlDropInAllowsPrivilegedBind(t *testing.T) {
+	if !strings.Contains(sysctlDropInContents, "net.ipv4.ip_unprivileged_port_start=0") {
+		t.Fatalf("sysctl drop-in missing unprivileged port floor:\n%s", sysctlDropInContents)
+	}
+}
+
+func TestEnsureUnprivilegedPortStart_WritesAndApplies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "99-zon-appliance-dns.conf")
+	prevPath := SysctlPath
+	SysctlPath = path
+	t.Cleanup(func() { SysctlPath = prevPath })
+
+	var applied []string
+	prevApply, prevRead := applySysctl, readSysctl
+	applySysctl = func(key, value string) error {
+		applied = append(applied, key+"="+value)
+		return nil
+	}
+	readSysctl = func(string) (string, error) { return "1024", nil }
+	t.Cleanup(func() {
+		applySysctl = prevApply
+		readSysctl = prevRead
+	})
+
+	var result PrepareResult
+	if err := ensureUnprivilegedPortStart(&result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.WroteSysctlDropIn || !result.Changed {
+		t.Fatalf("result = %+v, want WroteSysctlDropIn and Changed", result)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != sysctlDropInContents {
+		t.Fatalf("drop-in content mismatch:\n%s", data)
+	}
+	if len(applied) != 1 || applied[0] != "net.ipv4.ip_unprivileged_port_start=0" {
+		t.Fatalf("applied=%v", applied)
+	}
+
+	// Idempotent when already at 0 and file matches.
+	applied = nil
+	result = PrepareResult{}
+	readSysctl = func(string) (string, error) { return "0", nil }
+	if err := ensureUnprivilegedPortStart(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.WroteSysctlDropIn || result.Changed {
+		t.Fatalf("idempotent result = %+v", result)
+	}
+	if len(applied) != 0 {
+		t.Fatalf("unexpected sysctl writes: %v", applied)
+	}
+}
+
 func TestWaitUntilWildcard53Free_PollsUntilBindSucceeds(t *testing.T) {
 	origListen := listenTCP53
 	origSleep := sleep
