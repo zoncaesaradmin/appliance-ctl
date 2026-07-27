@@ -92,16 +92,21 @@ func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
 		}
 	}
 	if found == nil {
-		t.Fatal("expected fileserver directory in ServiceLogDirs when artifact is enabled")
+		t.Fatal("expected files API directory in ServiceLogDirs when artifact is enabled")
 	}
-	if found.UID != hostdirs.FileserverDirOwnerUID || found.GID != hostdirs.ApplianceSharedFSGID {
-		t.Fatalf("fileserver ownership = %d:%d, want %d:%d", found.UID, found.GID, hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID)
+	if found.UID != hostdirs.ControlPlaneDirOwnerUID || found.GID != hostdirs.ApplianceSharedFSGID {
+		t.Fatalf("files API dir ownership = %d:%d, want %d:%d", found.UID, found.GID, hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID)
 	}
 	if found.Mode != hostdirs.SharedWritableDirMode {
-		t.Fatalf("fileserver mode = %o, want %o (2775 setgid)", found.Mode, hostdirs.SharedWritableDirMode)
+		t.Fatalf("files API dir mode = %o, want %o (2775 setgid)", found.Mode, hostdirs.SharedWritableDirMode)
 	}
 	if found.Mode&os.ModeSetgid == 0 || found.Mode.Perm() != 0o775 {
-		t.Fatalf("fileserver mode bits = %v, want setgid|0775", found.Mode)
+		t.Fatalf("files API dir mode bits = %v, want setgid|0775", found.Mode)
+	}
+	for _, d := range dirs {
+		if d.Path == "/data/zon/logs/fileserver" {
+			t.Fatalf("unexpected nginx fileserver log directory in ServiceLogDirs: %#v", d)
+		}
 	}
 }
 

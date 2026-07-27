@@ -52,9 +52,6 @@ const (
 	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser). The wrapper
 	// image tees CoreDNS stdout/stderr into /data/zon/logs/dns.
 	DNSDirOwnerUID = 10004
-	// FileserverDirOwnerUID is the fixed numeric identity for the
-	// fileserver nginx pod (appliance-registry chart fileserver).
-	FileserverDirOwnerUID = 10005
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -65,11 +62,10 @@ const (
 	// `tail` without sudo.
 	ServiceLogFileMode = os.FileMode(0o644)
 	// SharedWritableDirMode is setgid + group-writable + host-readable (2775)
-	// for operator-visible host paths that the control-plane (runAsUser 10001,
-	// fsGroup 20000) and fileserver (runAsUser 10005, fsGroup 20000) both use:
-	// CP writes via the files API; nginx serves the tree; host users can
-	// inspect with ls/cat like service log dirs. Private shared storage that
-	// must stay host-opaque should keep 2770 instead.
+	// for operator-visible host paths that the control-plane writes via the
+	// authenticated files API (runAsUser 10001, fsGroup 20000). Host users
+	// can inspect with ls/cat like service log dirs. Private shared storage
+	// that must stay host-opaque should keep 2770 instead.
 	SharedWritableDirMode = os.FileMode(0o775) | os.ModeSetgid
 
 	// APIServerLogDir is the host-visible api-server (control-plane) log
@@ -85,17 +81,16 @@ const (
 	// ArtifactServerLogDir. Upstream zot creates this as 0600; zonctl reseeds
 	// it to ServiceLogFileMode so host operators can read it.
 	ArtifactServerApplicationLog = ArtifactServerLogDir + "/application.log"
-	// FileserverLogDir is the host-visible nginx fileserver log directory.
-	FileserverLogDir = "/data/zon/logs/fileserver"
 	// ArgoControllerLogDir is the host-visible workflow-controller log
 	// directory under the shared appliance log tree.
 	ArgoControllerLogDir = "/data/zon/logs/argo-controller"
 	// DNSLogDir is the host-visible LAN DNS (CoreDNS) log directory under
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
-	// FileserverDir is the host-visible static HTTP file tree served at
-	// Traefik /files and written by the control-plane files API. Owned by the
-	// fileserver UID with the shared fsGroup so both pods can access it.
+	// FileserverDir is the host-visible backing store for the authenticated
+	// control-plane files API (/api/v1/files). Owned by the control-plane UID
+	// with the shared fsGroup so the API pod can write and host users can
+	// inspect. There is no Traefik /files nginx surface.
 	FileserverDir = "/data/zon/files"
 )
 
@@ -111,8 +106,8 @@ type OwnedDir struct {
 
 // ServiceLogDirs returns the host-visible log directories the selected
 // capability set requires. Control-plane and UI logs always exist; registry,
-// fileserver, workflow-controller, and DNS logs are added only when those
-// capabilities are enabled.
+// files API backing store, workflow-controller, and DNS logs are added only
+// when those capabilities are enabled.
 func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedDir {
 	dirs := []OwnedDir{
 		{
@@ -140,16 +135,9 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 				Mode:    ServiceLogDirMode,
 			},
 			OwnedDir{
-				CheckID: "fileserver-log-directory-owned",
-				Path:    FileserverLogDir,
-				UID:     FileserverDirOwnerUID,
-				GID:     ApplianceSharedFSGID,
-				Mode:    ServiceLogDirMode,
-			},
-			OwnedDir{
 				CheckID: "fileserver-directory-owned",
 				Path:    FileserverDir,
-				UID:     FileserverDirOwnerUID,
+				UID:     ControlPlaneDirOwnerUID,
 				GID:     ApplianceSharedFSGID,
 				Mode:    SharedWritableDirMode,
 			},

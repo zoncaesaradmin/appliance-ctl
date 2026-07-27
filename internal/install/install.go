@@ -204,7 +204,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
-		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, resolved.FileserverImageReference, identity.FQDN)
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, identity.FQDN)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
@@ -641,7 +641,7 @@ func profileOCIImages(all []images.Image, profile string) []images.Image {
 	out := make([]images.Image, 0, len(all))
 	for _, image := range all {
 		if image.Category == images.CategoryDependency {
-			if (strings.HasPrefix(image.Name, "registry.local/zot@") || strings.HasPrefix(image.Name, "registry.local/fileserver@")) &&
+			if strings.HasPrefix(image.Name, "registry.local/zot@") &&
 				!productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
 				continue
 			}

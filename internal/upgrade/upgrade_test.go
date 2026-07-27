@@ -49,7 +49,6 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/automation-dev.tar", "oci-images", "fake automation-dev builder image " + spec.bundleVersion, "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/zot.tar", "oci-images", "fake zot image " + spec.bundleVersion, "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-		{"oci-images/fileserver.tar", "oci-images", "fake fileserver image " + spec.bundleVersion, "registry.local/fileserver@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 		{"oci-images/appliance-coredns.tar", "oci-images", "fake appliance coredns image " + spec.bundleVersion, "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 	}
 
@@ -360,8 +359,8 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 			importCalls++
 		}
 	}
-	if importCalls != 6 {
-		t.Fatalf("expected 6 image import calls during same-version refresh (zot + fileserver + control-plane + UI + workspace provisioner + automation-dev), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 5 {
+		t.Fatalf("expected 5 image import calls during same-version refresh (zot + control-plane + UI + workspace provisioner + automation-dev), got %d: %v", importCalls, fcli.calls)
 	}
 }
 
@@ -677,8 +676,7 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 				hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-				hostdirs.FileserverLogDir:     {hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-				hostdirs.FileserverDir:        {hostdirs.FileserverDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.FileserverDir:        {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 			}
 			if profile == "storage-landns" {
 				wantOwnedPaths[hostdirs.DNSLogDir] = [2]int{hostdirs.DNSDirOwnerUID, hostdirs.ApplianceSharedFSGID}
@@ -1008,8 +1006,6 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
 	case "zot.tar":
 		return []string{"registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
-	case "fileserver.tar":
-		return []string{"registry.local/fileserver@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
 	case "appliance-coredns.tar":
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 	default:

@@ -13,7 +13,6 @@ const (
 	workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	builderImage              = "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
 	zotImage                  = "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	fileserverImage           = "registry.local/fileserver@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
 
@@ -124,7 +123,7 @@ func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
 }
 
 func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage, fileserverImage, "registry1.appliance.internal")
+	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage, "registry1.appliance.internal")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,20 +134,22 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 	}
 	text := string(data)
 	if !strings.Contains(text, "digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") ||
-		!strings.Contains(text, "digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd") ||
-		!strings.Contains(text, "repository: registry.local/fileserver") ||
-		!strings.Contains(text, "hostPath: /data/zon/files") ||
+		!strings.Contains(text, "repository: registry.local/zot") ||
 		!strings.Contains(text, "accessMode: ReadWriteOnce") ||
 		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) ||
 		!strings.Contains(text, "kubernetes.io/metadata.name: control") ||
 		!strings.Contains(text, "app.kubernetes.io/name: api-server") ||
-		!strings.Contains(text, "hostPath: /data/zon/logs/artifactserver") ||
-		!strings.Contains(text, "hostPath: /data/zon/logs/fileserver") {
+		!strings.Contains(text, "hostPath: /data/zon/logs/artifactserver") {
 		t.Fatalf("unexpected registry values:\n%s", text)
+	}
+	for _, forbidden := range []string{"fileserver", "registry.local/fileserver", "/data/zon/logs/fileserver", "/data/zon/files"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("registry values unexpectedly contain removed fileserver surface %q:\n%s", forbidden, text)
+		}
 	}
 }
 func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage, fileserverImage, "registry1.appliance.internal")
+	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage, "registry1.appliance.internal")
 	if err != nil {
 		t.Fatal(err)
 	}
