@@ -136,6 +136,14 @@ func (f *fakeK3s) ops() k3s.Ops {
 			}
 			return os.WriteFile(path, []byte(cfg.Render()), 0o640)
 		},
+		WriteRegistries: func(path string, cfg k3s.RegistriesConfig) error {
+			f.calls = append(f.calls, "write-registries")
+			body, err := cfg.Render()
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(path, body, 0o600)
+		},
 		WriteUnit: func(path string, unit k3s.UnitConfig) error {
 			f.calls = append(f.calls, "write-unit")
 			return os.WriteFile(path, []byte(unit.Render()), 0o640)
@@ -154,6 +162,10 @@ func (f *fakeK3s) ops() k3s.Ops {
 		},
 		Stop: func(string) error {
 			f.calls = append(f.calls, "stop")
+			return nil
+		},
+		Restart: func(string) error {
+			f.calls = append(f.calls, "restart")
 			return nil
 		},
 	}

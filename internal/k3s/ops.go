@@ -5,13 +5,14 @@ package k3s
 // internal/cli.Runner) so tests can supply fakes instead of a real
 // systemd host.
 type Ops struct {
-	DetectService  func(unitName string) (ServiceSignal, error)
-	WriteConfig    func(path string, cfg Config) error
-	WriteUnit      func(path string, unit UnitConfig) error
-	InstallBinary  func(src, dest string) error
-	EnableAndStart func(unitName string) error
-	Stop           func(unitName string) error
-	Restart        func(unitName string) error
+	DetectService   func(unitName string) (ServiceSignal, error)
+	WriteConfig     func(path string, cfg Config) error
+	WriteRegistries func(path string, cfg RegistriesConfig) error
+	WriteUnit       func(path string, unit UnitConfig) error
+	InstallBinary   func(src, dest string) error
+	EnableAndStart  func(unitName string) error
+	Stop            func(unitName string) error
+	Restart         func(unitName string) error
 	// CleanupNodeNetwork kills leftover containerd-shim processes and
 	// kubepods cgroup orphans (KillMode=process survivors), clears
 	// CNI/IPAM lease state, and best-effort deletes the K3s-created
@@ -41,6 +42,7 @@ func DefaultOps() Ops {
 	return Ops{
 		DetectService:        DetectService,
 		WriteConfig:          WriteConfig,
+		WriteRegistries:      WriteRegistries,
 		WriteUnit:            WriteUnit,
 		InstallBinary:        InstallBinary,
 		EnableAndStart:       EnableAndStart,

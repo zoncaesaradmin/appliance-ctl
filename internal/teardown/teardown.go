@@ -26,7 +26,7 @@ var RestoreHostDNS = hostdns.Restore
 // config files this appliance installed. It never touches the data
 // directory: that decision belongs to the caller (Uninstall preserves
 // it; FactoryReset wipes it).
-func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string) ([]evidence.Check, error) {
+func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string) ([]evidence.Check, error) {
 	var checks []evidence.Check
 
 	stopStart := time.Now()
@@ -77,7 +77,10 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath, kubectlS
 		return checks, fmt.Errorf("teardown: remove kubectl symlink: %w", err)
 	}
 
-	for _, path := range []string{unitPath, binaryPath, configPath} {
+	for _, path := range []string{unitPath, binaryPath, configPath, registriesPath} {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			checks = append(checks, evidence.Check{
 				ID: "teardown-remove-" + evidence.SanitizeIDSegment(filepath.Base(path)), Category: "k3s", Status: evidence.StatusFail,
@@ -88,7 +91,7 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath, kubectlS
 	}
 	checks = append(checks, evidence.Check{
 		ID: "teardown-remove-k3s-files", Category: "k3s", Status: evidence.StatusPass,
-		Message: "k3s unit, binary, and config removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		Message: "k3s unit, binary, config, and registries removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
 
 	// Without this, systemd's cached unit-file list (what DetectService's
@@ -112,8 +115,8 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, unitPath, kubectlS
 // Uninstall removes K3s (service, binary, config) and the
 // installed-state record, but leaves dataDir untouched: "uninstall
 // preserves appliance data by default."
-func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, binaryPath, configPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string) ([]evidence.Check, error) {
-	checks, err := removeK3s(ops, unitName, binaryPath, configPath, unitPath, kubectlSymlinkPath, cniNetworkDir, cniInterfaceNames)
+func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string) ([]evidence.Check, error) {
+	checks, err := removeK3s(ops, unitName, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir, cniInterfaceNames)
 	if err != nil {
 		return checks, err
 	}
@@ -139,7 +142,7 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 // unless recentBackupVerified or dataLossOverride is true:
 // "factory-reset requires a recent verified backup or a separately
 // confirmed data-loss override," never both silently assumed.
-func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
+func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
 	if !recentBackupVerified && !dataLossOverride {
 		return nil, fmt.Errorf("teardown: factory-reset requires a recent verified backup or an explicit data-loss override")
 	}
@@ -150,7 +153,7 @@ func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPa
 		}
 	}
 
-	checks, err := removeK3s(ops, unitName, binaryPath, configPath, unitPath, kubectlSymlinkPath, cniNetworkDir, cniInterfaceNames)
+	checks, err := removeK3s(ops, unitName, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir, cniInterfaceNames)
 	if err != nil {
 		return checks, err
 	}

@@ -56,6 +56,11 @@ type Options struct {
 	ChartReleaseName string
 	ChartNamespace   string
 
+	// K3sRegistriesPath / ImagePullRegistry mirror install.Options: optional
+	// private registry for containerd pulls (see k3s.RegistriesConfig).
+	K3sRegistriesPath string
+	ImagePullRegistry k3s.RegistriesConfig
+
 	BackupRoot    string
 	TransactionID string
 
@@ -291,7 +296,13 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	k3sVersionChanged := resolved.Compatibility.K3sVersion != installed.Components.K3sVersion
 	binaryCheck := evidence.Check{ID: "upgrade-k3s-binary", Category: "k3s", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true}
 	if k3sVersionChanged {
-		for _, path := range []string{opts.K3sBinaryDestPath, opts.K3sConfigPath, opts.K3sUnitPath} {
+		snapPaths := []string{opts.K3sBinaryDestPath, opts.K3sConfigPath, opts.K3sUnitPath}
+		if p := strings.TrimSpace(opts.K3sRegistriesPath); p != "" {
+			if _, err := os.Stat(p); err == nil {
+				snapPaths = append(snapPaths, p)
+			}
+		}
+		for _, path := range snapPaths {
 			if err := snapshotFile(path); err != nil {
 				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: preserve current k3s files: %w", err), func() []evidence.Check {
 					_ = importer.Rollback(ctx, preloadResult.NewlyImported)
@@ -311,6 +322,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			{"write config", func() error {
 				return o.K3s.WriteConfig(opts.K3sConfigPath, k3s.Config{NodeName: opts.NodeName, DataDir: opts.K3sDataDir, TLSSANs: tlsSANs})
 			}},
+			{"write registries", func() error { return writeImagePullRegistries(o.K3s, opts) }},
 			{"write unit", func() error {
 				return o.K3s.WriteUnit(opts.K3sUnitPath, k3s.UnitConfig{BinaryPath: opts.K3sBinaryDestPath, ConfigPath: opts.K3sConfigPath})
 			}},
@@ -332,6 +344,29 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	} else {
 		binaryCheck.Status = evidence.StatusPass
 		binaryCheck.Message = "k3s version unchanged; binary not replaced"
+		if err := writeImagePullRegistries(o.K3s, opts); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
+			if err := o.K3s.Restart(opts.K3sUnitName); err != nil {
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: restart k3s after registries.yaml: %w", err), func() []evidence.Check {
+					_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+					return rollback()
+				})
+				checks = append(checks, rollbackChecks...)
+				return nil, checks, failErr
+			}
+			checks = append(checks, evidence.Check{
+				ID: "k3s-registries-restart", Category: "k3s", Status: evidence.StatusPass,
+				Message: "k3s restarted to load image-pull registries.yaml", Timestamp: time.Now().UTC(),
+				Idempotent: true, SecretsRedacted: true,
+			})
+		}
 	}
 	checks = append(checks, binaryCheck)
 
@@ -706,6 +741,27 @@ func firstUpgradeString(values []string) string {
 		return ""
 	}
 	return values[0]
+}
+
+func writeImagePullRegistries(ops k3s.Ops, opts Options) error {
+	if strings.TrimSpace(opts.ImagePullRegistry.Registry) == "" {
+		return nil
+	}
+	path := strings.TrimSpace(opts.K3sRegistriesPath)
+	if path == "" {
+		return fmt.Errorf("upgrade: image pull registry configured but K3sRegistriesPath is empty")
+	}
+	cfg := opts.ImagePullRegistry
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("upgrade: image pull registry: %w", err)
+	}
+	if ops.WriteRegistries == nil {
+		return fmt.Errorf("upgrade: WriteRegistries is not configured")
+	}
+	if err := ops.WriteRegistries(path, cfg); err != nil {
+		return fmt.Errorf("upgrade: write k3s registries.yaml: %w", err)
+	}
+	return nil
 }
 
 // snapshotFile copies path to path+".previous", overwriting any prior

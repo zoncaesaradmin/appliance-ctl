@@ -83,6 +83,16 @@ type Options struct {
 	ChartReleaseName       string
 	ChartNamespace         string
 
+	// K3sRegistriesPath is where optional image-pull registries.yaml is
+	// written (default /etc/rancher/k3s/registries.yaml). Empty disables
+	// writing even when ImagePullRegistry is set.
+	K3sRegistriesPath string
+	// ImagePullRegistry, when Registry is non-empty, configures K3s
+	// containerd to pull from that private registry (auth + TLS). Offline
+	// bundle preload remains the primary image source; this only enables
+	// additional pulls (for example lab control-plane image updates).
+	ImagePullRegistry k3s.RegistriesConfig
+
 	// TransactionID is the lifecycle journal transaction this install
 	// belongs to, recorded into the persisted installed-state.
 	TransactionID string
@@ -348,6 +358,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}); err != nil {
 			return nil, checks, fmt.Errorf("install: write k3s config: %w", err)
 		}
+		if err := writeImagePullRegistries(o, opts, &checks); err != nil {
+			return nil, checks, err
+		}
 		if err := o.K3s.WriteUnit(opts.K3sUnitPath, k3s.UnitConfig{
 			BinaryPath: opts.K3sBinaryDestPath,
 			ConfigPath: opts.K3sConfigPath,
@@ -381,7 +394,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			if err := o.K3s.RemoveKubectlSymlink(opts.K3sBinaryDestPath, opts.KubectlSymlinkPath); err != nil {
 				errs = append(errs, err)
 			}
-			for _, path := range []string{opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath} {
+			removePaths := []string{opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath}
+			if p := strings.TrimSpace(opts.K3sRegistriesPath); p != "" {
+				removePaths = append(removePaths, p)
+			}
+			for _, path := range removePaths {
 				if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 					errs = append(errs, err)
 				}
@@ -390,6 +407,19 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 				errs = append(errs, err)
 			}
 			return errors.Join(errs...)
+		})
+	} else if err := writeImagePullRegistries(o, opts, &checks); err != nil {
+		return nil, checks, err
+	} else if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
+		// registries.yaml is read at K3s start; restart so an adopted
+		// cluster picks up a newly written pull-registry config.
+		if err := o.K3s.Restart(opts.K3sUnitName); err != nil {
+			return nil, checks, fmt.Errorf("install: restart k3s after registries.yaml: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "k3s-registries-restart", Category: "k3s", Status: evidence.StatusPass,
+			Message: "k3s restarted to load image-pull registries.yaml", Timestamp: time.Now().UTC(),
+			Idempotent: true, SecretsRedacted: true,
 		})
 	}
 
@@ -740,6 +770,34 @@ func firstString(values []string) string {
 		return ""
 	}
 	return values[0]
+}
+
+// writeImagePullRegistries writes optional K3s registries.yaml when
+// ImagePullRegistry.Registry is set. No-op when unset (air-gap preload-only).
+func writeImagePullRegistries(o *Orchestrator, opts Options, checks *[]evidence.Check) error {
+	if strings.TrimSpace(opts.ImagePullRegistry.Registry) == "" {
+		return nil
+	}
+	path := strings.TrimSpace(opts.K3sRegistriesPath)
+	if path == "" {
+		return fmt.Errorf("install: image pull registry configured but K3sRegistriesPath is empty")
+	}
+	cfg := opts.ImagePullRegistry
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("install: image pull registry: %w", err)
+	}
+	if o.K3s.WriteRegistries == nil {
+		return fmt.Errorf("install: WriteRegistries is not configured")
+	}
+	if err := o.K3s.WriteRegistries(path, cfg); err != nil {
+		return fmt.Errorf("install: write k3s registries.yaml: %w", err)
+	}
+	*checks = append(*checks, evidence.Check{
+		ID: "k3s-image-pull-registries", Category: "k3s", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("wrote image-pull registries.yaml for %s", cfg.Registry),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+	return nil
 }
 
 func k3sArtifactsAbsent(paths ...string) bool {

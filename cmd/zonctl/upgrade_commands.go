@@ -72,6 +72,7 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		TargetApplianceVersion: version,
 		InstalledStatePath:     installedStatePath(opts.stateDir),
 		K3sConfigPath:          defaultK3sConfigPath,
+		K3sRegistriesPath:      defaultK3sRegistriesPath,
 		K3sUnitPath:            defaultK3sUnitPath,
 		K3sBinaryDestPath:      defaultK3sBinaryDestPath,
 		K3sUnitName:            defaultK3sUnitName,
@@ -92,6 +93,11 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		BackupRoot:             backupRootDir(opts.stateDir),
 		TransactionID:          txn.ID,
 	}
+	imagePullRegistry, regErr := resolveImagePullRegistry(opts, nil)
+	if regErr != nil {
+		return finish(result, "failed", 1, "upgrade: "+regErr.Error(), nil)
+	}
+	upgradeOpts.ImagePullRegistry = imagePullRegistry
 
 	orch := upgrade.NewOrchestrator()
 	updated, checks, err := orch.Upgrade(ctx, source, upgradeOpts)

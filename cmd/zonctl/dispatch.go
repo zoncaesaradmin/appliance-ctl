@@ -281,6 +281,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ApplianceVersion:       version,
 		InstalledStatePath:     filepath.Join(opts.stateDir, "installed-state.json"),
 		K3sConfigPath:          defaultK3sConfigPath,
+		K3sRegistriesPath:      defaultK3sRegistriesPath,
 		K3sDataDir:             defaultK3sDataDir,
 		K3sUnitPath:            defaultK3sUnitPath,
 		K3sBinaryDestPath:      defaultK3sBinaryDestPath,
@@ -305,6 +306,12 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ForceAdopt:             opts.forceAdopt,
 		PreserveFailedState:    opts.preserveFailedState,
 	}
+	imagePullRegistry, err := resolveImagePullRegistry(opts, nil)
+	if err != nil {
+		logger.Error("invalid image pull registry options", "error", err)
+		return finish(result, "failed", 1, "install: "+err.Error(), nil)
+	}
+	installOpts.ImagePullRegistry = imagePullRegistry
 
 	orch := install.NewOrchestrator()
 	installed, checks, err := orch.Install(ctx, source, installOpts)

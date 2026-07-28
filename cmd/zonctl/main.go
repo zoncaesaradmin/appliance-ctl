@@ -24,6 +24,7 @@ const defaultStateDir = "/var/lib/zon/state"
 // host actually needs them.
 const (
 	defaultK3sConfigPath      = "/etc/rancher/k3s/config.yaml"
+	defaultK3sRegistriesPath  = "/etc/rancher/k3s/registries.yaml"
 	defaultK3sDataDir         = "/var/lib/rancher/k3s"
 	defaultK3sCNINetworkDir   = "/var/lib/cni/networks/cbr0"
 	defaultK3sUnitPath        = "/etc/systemd/system/k3s.service"
@@ -64,6 +65,11 @@ type cliOptions struct {
 	forceDataLoss       bool
 	wipeWorkspaces      bool
 	forceAdopt          bool
+	// Optional image-pull registry (K3s registries.yaml). Host empty = omit.
+	imagePullRegistry             string
+	imagePullRegistryUsernameEnv  string
+	imagePullRegistryTokenEnv     string
+	imagePullRegistryTLSVerifyEnv string
 }
 
 type commandSpec struct {
@@ -160,6 +166,10 @@ func run(args []string) int {
 	forceDataLoss := fs.Bool("force-data-loss", false, "override the requirement for a verified recent backup before factory-reset (still requires --acknowledge-data-loss)")
 	wipeWorkspaces := fs.Bool("wipe-workspaces", false, "factory-reset only: also remove builder workspaces under /data/zon/workspaces")
 	forceAdopt := fs.Bool("force-adopt", false, "take ownership of an existing K3s cluster even if it isn't obviously safe to adopt (unhealthy and/or carrying foreign workloads)")
+	imagePullRegistry := fs.String("image-pull-registry", "", "optional private registry host for K3s containerd pulls (writes /etc/rancher/k3s/registries.yaml); empty keeps preload-only")
+	imagePullRegistryUsernameEnv := fs.String("image-pull-registry-username-env", "", "env var name holding the image-pull registry username (required when --image-pull-registry is set; e.g. DEV_REGISTRY_USER)")
+	imagePullRegistryTokenEnv := fs.String("image-pull-registry-token-env", "", "env var name holding the image-pull registry password/token (required when --image-pull-registry is set; e.g. DEV_REGISTRY_TOKEN)")
+	imagePullRegistryTLSVerifyEnv := fs.String("image-pull-registry-tls-verify-env", "", "env var name holding true|false for registry TLS verify (optional; default true; e.g. DEV_REGISTRY_TLS_VERIFY)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -174,25 +184,29 @@ func run(args []string) int {
 	}
 
 	opts := cliOptions{
-		dryRun:              *dryRun,
-		output:              *output,
-		stateDir:            *stateDir,
-		configPath:          *configPath,
-		bundleDir:           *bundleDir,
-		publicKey:           *publicKey,
-		applianceProfile:    *applianceProfile,
-		buildCatalogPath:    *buildCatalogPath,
-		nodeName:            *nodeName,
-		applianceName:       *applianceName,
-		dnsZone:             *dnsZone,
-		tlsSANs:             append([]string(nil), tlsSANs...),
-		preserveFailedState: *preserveFailedState,
-		backupID:            *backupID,
-		confirm:             *confirm,
-		acknowledgeDataLoss: *acknowledgeDataLoss,
-		forceDataLoss:       *forceDataLoss,
-		wipeWorkspaces:      *wipeWorkspaces,
-		forceAdopt:          *forceAdopt,
+		dryRun:                        *dryRun,
+		output:                        *output,
+		stateDir:                      *stateDir,
+		configPath:                    *configPath,
+		bundleDir:                     *bundleDir,
+		publicKey:                     *publicKey,
+		applianceProfile:              *applianceProfile,
+		buildCatalogPath:              *buildCatalogPath,
+		nodeName:                      *nodeName,
+		applianceName:                 *applianceName,
+		dnsZone:                       *dnsZone,
+		tlsSANs:                       append([]string(nil), tlsSANs...),
+		preserveFailedState:           *preserveFailedState,
+		backupID:                      *backupID,
+		confirm:                       *confirm,
+		acknowledgeDataLoss:           *acknowledgeDataLoss,
+		forceDataLoss:                 *forceDataLoss,
+		wipeWorkspaces:                *wipeWorkspaces,
+		forceAdopt:                    *forceAdopt,
+		imagePullRegistry:             *imagePullRegistry,
+		imagePullRegistryUsernameEnv:  *imagePullRegistryUsernameEnv,
+		imagePullRegistryTokenEnv:     *imagePullRegistryTokenEnv,
+		imagePullRegistryTLSVerifyEnv: *imagePullRegistryTLSVerifyEnv,
 	}
 
 	logger := newLogger(redact.New(), opts.output)

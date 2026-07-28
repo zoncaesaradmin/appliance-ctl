@@ -196,6 +196,20 @@ func (f *fakeK3s) ops() k3s.Ops {
 			}
 			return os.WriteFile(path, []byte(cfg.Render()), 0o640)
 		},
+		WriteRegistries: func(path string, cfg k3s.RegistriesConfig) error {
+			f.calls = append(f.calls, "write-registries")
+			if f.failStep == "write-registries" {
+				return errors.New("simulated write-registries failure")
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				return err
+			}
+			body, err := cfg.Render()
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(path, body, 0o600)
+		},
 		WriteUnit: func(path string, unit k3s.UnitConfig) error {
 			f.calls = append(f.calls, "write-unit")
 			if f.failStep == "write-unit" {
@@ -230,6 +244,13 @@ func (f *fakeK3s) ops() k3s.Ops {
 		Stop: func(unit string) error {
 			f.stopCalls++
 			f.calls = append(f.calls, "stop")
+			return nil
+		},
+		Restart: func(unit string) error {
+			f.calls = append(f.calls, "restart")
+			if f.failStep == "restart" {
+				return errors.New("simulated restart failure")
+			}
 			return nil
 		},
 		CleanupNodeNetwork: func(cniNetworkDir string, interfaceNames []string) error {

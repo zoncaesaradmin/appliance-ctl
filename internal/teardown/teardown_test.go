@@ -52,6 +52,7 @@ type installedFiles struct {
 	stateDir           string
 	binaryPath         string
 	configPath         string
+	registriesPath     string
 	unitPath           string
 	kubectlSymlinkPath string
 	installedStatePath string
@@ -76,6 +77,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 		stateDir:            stateDir,
 		binaryPath:          filepath.Join(stateDir, "..", "bin", "k3s"),
 		configPath:          filepath.Join(stateDir, "..", "k3s", "config.yaml"),
+		registriesPath:      filepath.Join(stateDir, "..", "k3s", "registries.yaml"),
 		unitPath:            filepath.Join(stateDir, "..", "systemd", "k3s.service"),
 		kubectlSymlinkPath:  filepath.Join(stateDir, "..", "bin", "kubectl"),
 		installedStatePath:  filepath.Join(stateDir, "installed-state.json"),
@@ -91,7 +93,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 	f.workspaceFilePath = filepath.Join(f.workspaceRootDir, "myws", "repo", "README.md")
 	helmPath := filepath.Join(filepath.Dir(f.zonctlRealPath), "helm")
 
-	for _, p := range []string{f.binaryPath, f.configPath, f.unitPath, f.installedStatePath, f.zonctlRealPath, f.zonctlLauncherPath, helmPath, f.installerLockPath, f.transactionJSONPath, f.evidenceFilePath, f.backupFilePath} {
+	for _, p := range []string{f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.installedStatePath, f.zonctlRealPath, f.zonctlLauncherPath, helmPath, f.installerLockPath, f.transactionJSONPath, f.evidenceFilePath, f.backupFilePath} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			t.Fatal(err)
 		}
@@ -119,7 +121,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 
 func runFactoryResetForTest(t *testing.T, f installedFiles, fake *fakeK3s, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) error {
 	t.Helper()
-	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
+	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
 	return err
 }
 
@@ -133,7 +135,7 @@ func TestUninstall_RestoresHostDNS(t *testing.T) {
 	}
 	t.Cleanup(func() { teardown.RestoreHostDNS = func() error { return nil } })
 
-	checks, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"})
+	checks, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"})
 	if err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -158,7 +160,7 @@ func TestUninstall_PreservesDataDirectory(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	checks, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"})
+	checks, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"})
 	if err != nil {
 		t.Fatalf("expected uninstall to succeed, got: %v", err)
 	}
@@ -196,7 +198,7 @@ func TestUninstall_KeepsZonctlBinaries(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err != nil {
+	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err != nil {
 		t.Fatalf("expected uninstall to succeed, got: %v", err)
 	}
 	for _, p := range []string{f.zonctlRealPath, f.zonctlLauncherPath} {
@@ -214,7 +216,7 @@ func TestUninstall_RemovesKubectlSymlink(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err != nil {
+	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err != nil {
 		t.Fatalf("expected uninstall to succeed, got: %v", err)
 	}
 	if _, err := os.Lstat(f.kubectlSymlinkPath); !os.IsNotExist(err) {
@@ -226,7 +228,7 @@ func TestUninstall_StopFailurePropagatesAndPreservesFiles(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{stopErr: os.ErrPermission}
 
-	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err == nil {
+	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err == nil {
 		t.Fatal("expected a stop failure to fail the uninstall")
 	}
 	if _, err := os.Stat(f.binaryPath); err != nil {
@@ -238,7 +240,7 @@ func TestUninstall_RemovesStateWhenK3sServiceAlreadyMissing(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{serviceMissing: true}
 
-	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err != nil {
+	if _, err := teardown.Uninstall(context.Background(), fake.ops(), "k3s.service", f.installedStatePath, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}); err != nil {
 		t.Fatalf("expected uninstall to clean stale state when k3s is already missing, got: %v", err)
 	}
 	if fake.stopCalls != 0 {
