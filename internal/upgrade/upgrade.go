@@ -351,6 +351,25 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, failErr
 	}
 
+	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
+		ControlNamespace:  opts.ChartNamespace,
+		ArtifactNamespace: registryNamespace,
+		IncludeArtifacts:  targetArtifact,
+		FQDN:              identity.FQDN,
+		NodeIPv4:          nodeIPv4,
+		ExtraSANs:         tlsSANs,
+	})
+	checks = append(checks, tlsPrepared.Checks...)
+	if tlsErr != nil {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", tlsErr), func() []evidence.Check {
+			_ = tlsPrepared.Cleanup()
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
+	}
+
 	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, preparedValuesPath)
 	checks = append(checks, readinessChecks...)
 	if err != nil {

@@ -430,6 +430,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, prepared.Cleanup)
 
+	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
+		ControlNamespace:  opts.ChartNamespace,
+		ArtifactNamespace: registryNamespace,
+		IncludeArtifacts:  productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact),
+		FQDN:              identity.FQDN,
+		NodeIPv4:          nodeIPv4,
+		ExtraSANs:         opts.TLSSANs,
+	})
+	checks = append(checks, tlsPrepared.Checks...)
+	if tlsErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", tlsErr), runRollbacks())
+	}
+	rollbacks = append(rollbacks, tlsPrepared.Cleanup)
+
 	for _, dir := range hostdirs.ServiceLogDirs(
 		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact),
 		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows),

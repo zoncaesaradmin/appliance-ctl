@@ -319,6 +319,10 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		return string(payload), nil
 	}
 	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") &&
+		(strings.Contains(call, "appliance-ca") || strings.Contains(call, "appliance-tls")) {
+		return "", errors.New("simulated missing secret")
+	}
+	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") &&
 		strings.Contains(call, "appliance-registry-verification-key") {
 		return "", errors.New("simulated missing secret")
 	}
