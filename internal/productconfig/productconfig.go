@@ -189,7 +189,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
 		}
 		if !validBuilderImageDigest(builderImageReference) {
-			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned automation-dev builder image reference; got %q", builderImageReference)
+			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned dev-build builder image reference; got %q", builderImageReference)
 		}
 	}
 	if HasCapability(effectiveProfile, CapabilityArtifact) && len(registry) > 0 && !validZotImageDigest(zotImageReference) {
@@ -683,7 +683,7 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 		builderImageDigest, _ := target["builderImageDigest"].(string)
 		builderImageDigest = strings.TrimSpace(builderImageDigest)
 		if builderImageDigest != "" && !validCatalogBuilderImage(builderImageDigest) {
-			return fmt.Errorf("%s.builderImageDigest %q is invalid; use %q or a digest-pinned image reference", prefix, builderImageDigest, "automation-dev")
+			return fmt.Errorf("%s.builderImageDigest %q is invalid; use %q or a digest-pinned image reference", prefix, builderImageDigest, "dev-build")
 		}
 	}
 
@@ -800,7 +800,7 @@ func validDNSImageDigest(image string) bool {
 func validCatalogBuilderImage(image string) bool {
 	image = strings.TrimSpace(image)
 	switch strings.ToLower(image) {
-	case "", "automation-dev", "builder", "dev-container", "devcontainer":
+	case "", "dev-build", "builder", "dev-container", "devcontainer":
 		return true
 	}
 	return validBuilderImageDigest(image)

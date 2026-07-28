@@ -20,7 +20,7 @@ Install:             ctr import (gets :bundled or import-DATE) → ctr image tag
 Runtime:             config.*ImageDigest == digest pin → Argo pod image (IfNotPresent)
 ```
 
-Names today: `workspace-provisioner` (alpine/git), `automation-dev` (builder), `zot` (artifact registry dependency), and `coredns` (LAN DNS data plane).
+Names today: `workspace-provisioner` (alpine/git), `dev-build` (builder), `zot` (artifact registry dependency), and `coredns` (LAN DNS data plane).
 
 Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manifest).
 
@@ -43,7 +43,7 @@ Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manif
 7. **Workspace create** → Argo `workspace-prepare` (`argo.workflowContainerSpec`)
    - Pod `image:` = provisioner digest pin
 8. **Build submit** → Argo build pod
-   - `ResolveBuilderImage("automation-dev", …)` → automation-dev digest pin
+   - `ResolveBuilderImage("dev-build", …)` → dev-build digest pin
 9. **Artifact service** (`CapabilityArtifact`)
    - First-class `zotImage` + `zotChart`, with `compatibility.zotVersion`
    - Preload/tag `registry.local/zot@sha256:<platform-manifest-digest>`
@@ -60,7 +60,7 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | EXTRA_OCI pairing / order | `build-full-bundle.sh` (do not append provisioner onto EXTRA list before pairing) | path↔token checks in validator |
 | `RequireReference` + tag | Bundle entry `imageReference` | `install/source.go` `imageName`, `PreloadAll` |
 | Digests in Helm values | `PrepareValuesFile` | chart ConfigMap, `config.Load`, chart schema |
-| Catalog `automation-dev` alias | catalog / examples | `ResolveBuilderImage`, `builderImageReference` |
+| Catalog `dev-build` alias | catalog / examples | `ResolveBuilderImage`, `builderImageReference` |
 | Offline images present | preload/tag | Argo `IfNotPresent` pods |
 | zot image/chart/version | appliance-code release-input + release exporter | ctl schema/load/assemble/source, release validator |
 | Registry signing key | control-plane private seed | installer-derived public-only zot Secret |
@@ -68,20 +68,20 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | `:bundled` coredns + `@sha256` dnsImage | `export-coredns-image-archive.sh` / finalize | ctl assemble/source/preload; release `validate_dns` |
 | DNS capability | profile catalog | appliance-dns Helm before CP; `dnsReadyURL`; dig verify; core/storage/builder skip |
 | Builder Git HTTPS access | UI `PUT /builder/git-access` → CP secret `builder-git-access` | `resolveWorkspaceGitCredential` → Argo mount + `GIT_ASKPASS` clone |
-| Writable tool home for builds | Argo `HOME`/`GOPATH`/`GOCACHE` under `/tmp/appliance-home` | automation-dev image ENV (`/home/vscode/...`) must be overridden |
+| Writable tool home for builds | Argo `HOME`/`GOPATH`/`GOCACHE` under `/tmp/appliance-home` | dev-build image ENV (`/home/devcontainer/...`) must be overridden |
 | Catalog make/script args | `build-catalog.example.yaml` / operator catalog | Must match real repo Makefile/scripts (forgeline: `make build`, not root `build.sh`) |
 
 ## If you change X → also check Y
 
 - **Annotation scheme** → ctl `ValidateOCIArchiveReference` + preload tag tests; release finalize + `validate-release-artifacts.py`; config.example docs
 - **Digest derivation** → finalize (archive wins); never reintroduce inspect-first pins
-- **EXTRA_OCI refs/order** → pairing comments; path/token validator; both provisioner and automation-dev in bundle
+- **EXTRA_OCI refs/order** → pairing comments; path/token validator; both provisioner and dev-build in bundle
 - **Builder image name** → `source.go`, `catalog.go` DefaultBuilderImageRef, chart schema, examples, tests
 - **Tag/import algorithm** → `preload.go` / tests; install+upgrade fake-ctr tests
 - **PrepareValuesFile keys** → chart `configmap.yaml` env names; config Load; chart_test
 - **Argo image / pullPolicy** → offline contract; preload completeness
 - **Git clone / credential mount** → `buildergit` secret shape (`host`/`username`/`token`); `argo.gitAuthPreamble` + workspace-prepare tests; UI git-access form; docs/developer-workflows-v1.md
-- **Builder HOME/GOPATH** → `argo.workflowToolHomeEnv` + build preamble mkdir; automation-dev image ENV; platformkit/forgeline make targets
+- **Builder HOME/GOPATH** → `argo.workflowToolHomeEnv` + build preamble mkdir; dev-build image ENV; platformkit/forgeline make targets
 - **Build catalog targets** → real Makefile/script paths in each product repo; `build-catalog.example.yaml`; operator `build-catalog.yaml`
 - **Workspace UID/path** → install EnsureOwnedDir; chart PVC; argo pod patch; storage invariants in all three AGENTS.md
 - **zot image/chart/version** → release-input schema and loader; bundle assembly/source; dependency preload/tag; registry chart install before control-plane

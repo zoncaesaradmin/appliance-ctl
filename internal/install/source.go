@@ -39,7 +39,7 @@ type Resolved struct {
 	// image used by builder workspace provisioning workflows.
 	WorkspaceProvisionerImageReference string
 	// BuilderImageReference is the single bundled builder/dev-container image
-	// used by Argo build pods (automation-dev).
+	// used by Argo build pods (dev-build).
 	BuilderImageReference string
 	ZotImageReference     string
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
@@ -247,8 +247,8 @@ func workspaceProvisionerImageReference(b *bundle.Bundle) string {
 func builderImageReference(b *bundle.Bundle) string {
 	for _, e := range b.Entries("oci-images") {
 		ref := strings.TrimSpace(e.ImageReference)
-		if strings.Contains(ref, "/automation-dev@sha256:") ||
-			strings.HasPrefix(ref, "automation-dev@sha256:") {
+		if strings.Contains(ref, "/dev-build@sha256:") ||
+			strings.HasPrefix(ref, "dev-build@sha256:") {
 			return ref
 		}
 	}

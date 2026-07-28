@@ -11,7 +11,7 @@ import (
 
 const (
 	workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	builderImage              = "registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
+	builderImage              = "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
 	zotImage                  = "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
@@ -379,7 +379,7 @@ buildTargets:
 	if strings.Contains(text, "allowedBuilderImageDigests:") {
 		t.Fatalf("prepared values should not derive builder image allowlist from catalog: %s", text)
 	}
-	if !strings.Contains(text, "builderImageDigest: registry.local/automation-dev@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c") {
+	if !strings.Contains(text, "builderImageDigest: registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c") {
 		t.Fatalf("prepared values missing bundled builder image: %s", text)
 	}
 }

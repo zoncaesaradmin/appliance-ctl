@@ -89,8 +89,8 @@ func TestValidateOCIArchiveReference_AcceptsBundledTagAnnotation(t *testing.T) {
 func TestValidateOCIArchiveReference_AcceptsAutomationDevBundledTag(t *testing.T) {
 	dir := t.TempDir()
 	digest := "sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
-	ref := "registry.local/automation-dev@" + digest
-	path, _ := writeOCIArchive(t, dir, "automation-dev.tar", "registry.local/automation-dev:bundled", digest)
+	ref := "registry.local/dev-build@" + digest
+	path, _ := writeOCIArchive(t, dir, "dev-build.tar", "registry.local/dev-build:bundled", digest)
 
 	if err := images.ValidateOCIArchiveReference(path, ref); err != nil {
 		t.Fatal(err)
