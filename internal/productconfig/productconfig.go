@@ -45,6 +45,7 @@ type Capability string
 
 const (
 	CapabilityBase      Capability = "base"
+	CapabilityHost      Capability = "host"
 	CapabilityWorkflows Capability = "workflows"
 	CapabilityBuild     Capability = "build"
 	CapabilityArtifact  Capability = "artifact"
@@ -52,13 +53,13 @@ const (
 )
 
 var profileCapabilities = map[string][]Capability{
-	ProfileCore:                 {CapabilityBase, CapabilityWorkflows},
-	ProfileBuilder:              {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact},
-	ProfileStorage:              {CapabilityBase, CapabilityArtifact},
-	ProfileLANDNS:               {CapabilityBase, CapabilityDNS},
-	ProfileStorageLANDNS:        {CapabilityBase, CapabilityArtifact, CapabilityDNS},
-	ProfileBuilderLANDNS:        {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS},
-	ProfileBuilderStorageLANDNS: {CapabilityBase, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS},
+	ProfileCore:                 {CapabilityBase, CapabilityHost, CapabilityWorkflows},
+	ProfileBuilder:              {CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact},
+	ProfileStorage:              {CapabilityBase, CapabilityHost, CapabilityArtifact},
+	ProfileLANDNS:               {CapabilityBase, CapabilityHost, CapabilityDNS},
+	ProfileStorageLANDNS:        {CapabilityBase, CapabilityHost, CapabilityArtifact, CapabilityDNS},
+	ProfileBuilderLANDNS:        {CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS},
+	ProfileBuilderStorageLANDNS: {CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS},
 }
 
 const (
@@ -169,7 +170,7 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 	}, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostServiceImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfile(profile, "")
 	if err != nil {
 		return "", func() {}, err
@@ -180,6 +181,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	}
 	workspaceProvisionerImageReference = strings.TrimSpace(workspaceProvisionerImageReference)
 	builderImageReference = strings.TrimSpace(builderImageReference)
+	hostServiceImageReference = strings.TrimSpace(hostServiceImageReference)
 	zotImageReference := ""
 	if len(registry) > 0 {
 		zotImageReference = strings.TrimSpace(registry[0])
@@ -194,6 +196,9 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	}
 	if HasCapability(effectiveProfile, CapabilityArtifact) && len(registry) > 0 && !validZotImageDigest(zotImageReference) {
 		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/zot@sha256 image reference; got %q", zotImageReference)
+	}
+	if HasCapability(effectiveProfile, CapabilityHost) && !validHostServiceImageDigest(hostServiceImageReference) {
+		return "", func() {}, fmt.Errorf("product config: host capability requires a bundled digest-pinned appliance host service image reference; got %q", hostServiceImageReference)
 	}
 
 	data, err := os.ReadFile(baseValuesPath)
@@ -255,6 +260,39 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	} else {
 		delete(config, "builderImageDigest")
 	}
+	if HasCapability(effectiveProfile, CapabilityHost) {
+		config["serviceRegistry"] = map[string]any{
+			"services": []map[string]any{
+				{
+					"name":       "host-service",
+					"capability": string(CapabilityHost),
+					"baseURL":    "http://api-server-host-service.control.svc.cluster.local:8080",
+					"routes": []map[string]any{
+						{
+							"method":       "GET",
+							"externalPath": "/api/v1/host/info",
+							"upstreamPath": "/internal/v1/host/info",
+							"permission":   "host.read",
+						},
+						{
+							"method":       "GET",
+							"externalPath": "/api/v1/host/stats",
+							"upstreamPath": "/internal/v1/host/stats",
+							"permission":   "host.read",
+						},
+						{
+							"method":       "GET",
+							"externalPath": "/api/v1/host/health",
+							"upstreamPath": "/internal/v1/host/health",
+							"permission":   "host.read",
+						},
+					},
+				},
+			},
+		}
+	} else {
+		delete(config, "serviceRegistry")
+	}
 	delete(config, "allowedBuilderImageDigests")
 	if strings.TrimSpace(buildCatalogPath) != "" {
 		catalog, err := loadBuildCatalog(buildCatalogPath)
@@ -299,6 +337,21 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	if artifactEnabled || HasCapability(effectiveProfile, CapabilityDNS) {
 		values["networkPolicy"] = networkPolicy
 	}
+
+	hostService, _ := values["hostService"].(map[string]any)
+	if hostService == nil {
+		hostService = map[string]any{}
+	}
+	hostService["enabled"] = HasCapability(effectiveProfile, CapabilityHost)
+	imageConfig, _ := hostService["image"].(map[string]any)
+	if imageConfig == nil {
+		imageConfig = map[string]any{}
+	}
+	if HasCapability(effectiveProfile, CapabilityHost) {
+		imageConfig["reference"] = hostServiceImageReference
+	}
+	hostService["image"] = imageConfig
+	values["hostService"] = hostService
 
 	rendered, err := yaml.Marshal(values)
 	if err != nil {
@@ -791,6 +844,15 @@ func validZotImageDigest(image string) bool {
 func validDNSImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/coredns@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
+}
+
+func validHostServiceImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/appliance-host-service@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

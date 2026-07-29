@@ -41,7 +41,10 @@ type Resolved struct {
 	// BuilderImageReference is the single bundled builder/dev-container image
 	// used by Argo build pods (dev-build).
 	BuilderImageReference string
-	ZotImageReference     string
+	// HostServiceImageReference is the bundled, digest-pinned appliance host
+	// service image reference used by the host capability.
+	HostServiceImageReference string
+	ZotImageReference         string
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
 	// image reference used for the landns/storage-landns capability.
 	DNSImageReference string
@@ -140,6 +143,10 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	workspaceProvisionerImageReference := workspaceProvisionerImageReference(b)
 	builderImageReference := builderImageReference(b)
+	hostServiceImageReference, err := requiredHostServiceImageReference(b)
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: %w", err)
+	}
 	zotImageReference := ""
 	if strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
 		zotImageReference, err = requiredZotImageReference(b)
@@ -170,6 +177,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ConfigurationPath:                  configurationPath,
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
 		BuilderImageReference:              builderImageReference,
+		HostServiceImageReference:          hostServiceImageReference,
 		ZotImageReference:                  zotImageReference,
 		DNSImageReference:                  dnsImageReference,
 		K3sImages:                          k3sImages,
@@ -189,6 +197,27 @@ func isWorkflowDependencyReference(ref string) bool {
 	ref = strings.TrimSpace(ref)
 	return strings.Contains(ref, "/argoproj/workflow-controller:") ||
 		strings.Contains(ref, "/argoproj/argoexec:")
+}
+
+func isHostServiceImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/appliance-host-service@sha256:")
+}
+
+func requiredHostServiceImageReference(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isHostServiceImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple appliance host service image entries")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no canonical registry.local/appliance-host-service@sha256 image entry")
+	}
+	return found, nil
 }
 
 func requiredZotImageReference(b *bundle.Bundle) (string, error) {

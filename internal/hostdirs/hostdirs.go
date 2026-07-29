@@ -52,6 +52,9 @@ const (
 	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser). The wrapper
 	// image tees CoreDNS stdout/stderr into /data/zon/logs/dns.
 	DNSDirOwnerUID = 10004
+	// HostServiceDirOwnerUID is the fixed numeric identity for the in-cluster
+	// appliance host service pod.
+	HostServiceDirOwnerUID = 10005
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -87,6 +90,9 @@ const (
 	// DNSLogDir is the host-visible LAN DNS (CoreDNS) log directory under
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
+	// HostServiceLogDir is the host-visible appliance host service log
+	// directory under the shared appliance log tree.
+	HostServiceLogDir = "/data/zon/logs/host-service"
 	// FileserverDir is the host-visible backing store for the authenticated
 	// control-plane files API (/api/v1/files). Owned by the control-plane UID
 	// with the shared fsGroup so the API pod can write and host users can
@@ -105,9 +111,9 @@ type OwnedDir struct {
 }
 
 // ServiceLogDirs returns the host-visible log directories the selected
-// capability set requires. Control-plane and UI logs always exist; registry,
-// files API backing store, workflow-controller, and DNS logs are added only
-// when those capabilities are enabled.
+// capability set requires. Control-plane, UI, and the appliance host service
+// always exist; registry, files API backing store, workflow-controller, and
+// DNS logs are added only when those capabilities are enabled.
 func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedDir {
 	dirs := []OwnedDir{
 		{
@@ -121,6 +127,13 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 			CheckID: "ui-log-directory-owned",
 			Path:    UILogDir,
 			UID:     UIDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		},
+		{
+			CheckID: "host-service-log-directory-owned",
+			Path:    HostServiceLogDir,
+			UID:     HostServiceDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
 		},

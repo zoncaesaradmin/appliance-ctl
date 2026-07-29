@@ -110,6 +110,22 @@ func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
 	}
 }
 
+func TestServiceLogDirs_AlwaysIncludesHostServiceLogDirectory(t *testing.T) {
+	dirs := hostdirs.ServiceLogDirs(false, false, false)
+	for _, dir := range dirs {
+		if dir.Path == hostdirs.HostServiceLogDir {
+			if dir.UID != hostdirs.HostServiceDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
+				t.Fatalf("host service dir ownership = %d:%d, want %d:%d", dir.UID, dir.GID, hostdirs.HostServiceDirOwnerUID, hostdirs.ApplianceSharedFSGID)
+			}
+			if dir.Mode != hostdirs.ServiceLogDirMode {
+				t.Fatalf("host service dir mode = %o, want %o", dir.Mode, hostdirs.ServiceLogDirMode)
+			}
+			return
+		}
+	}
+	t.Fatal("expected host service log directory in ServiceLogDirs")
+}
+
 func TestServiceLogFiles_ArtifactApplicationLogReadable(t *testing.T) {
 	if files := hostdirs.ServiceLogFiles(false, true, true); len(files) != 0 {
 		t.Fatalf("expected no service log files without artifact capability, got %#v", files)

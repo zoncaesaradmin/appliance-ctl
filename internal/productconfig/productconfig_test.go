@@ -12,6 +12,7 @@ import (
 const (
 	workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	builderImage              = "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
+	hostServiceImage          = "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	zotImage                  = "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
@@ -21,7 +22,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", "registry1", "appliance.internal", "192.0.2.10", zotImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", hostServiceImage, "registry1", "appliance.internal", "192.0.2.10", zotImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,6 +38,13 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 		"applianceName: registry1",
 		"dnsZoneName: appliance.internal",
 		"nodeIPv4: 192.0.2.10",
+		"name: host-service",
+		"capability: host",
+		"baseURL: http://api-server-host-service.control.svc.cluster.local:8080",
+		"externalPath: /api/v1/host/info",
+		"externalPath: /api/v1/host/stats",
+		"externalPath: /api/v1/host/health",
+		"reference: " + hostServiceImage,
 		"zotBaseURL:",
 		"kubernetes.io/metadata.name: artifacts",
 		"app.kubernetes.io/name: appliance-registry",
@@ -52,7 +60,7 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, "", "", "", "dns1", "appliance.internal", "192.0.2.10")
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, "", "", "", hostServiceImage, "dns1", "appliance.internal", "192.0.2.10")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +241,7 @@ func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -262,7 +270,7 @@ func TestPrepareValuesFile_InjectsBuildCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -315,7 +323,7 @@ repos:
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -363,7 +371,7 @@ buildTargets:
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -395,7 +403,7 @@ func TestPrepareValuesFile_RejectsInvalidBuildTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected build target missing args to be rejected")
@@ -416,7 +424,7 @@ func TestPrepareValuesFile_RejectsUnknownBuildTargetRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected unknown build target repo to be rejected")
@@ -457,7 +465,7 @@ buildTargets:
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected duplicate build target alias to be rejected")
@@ -478,7 +486,7 @@ func TestPrepareValuesFile_RejectsNonHTTPSCatalogRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected non-HTTPS catalog repo to be rejected")
@@ -499,7 +507,7 @@ func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected placeholder workspace provisioner image digest to be rejected")
@@ -519,7 +527,7 @@ func TestPrepareValuesFile_RejectsEmptyBuildCatalog(t *testing.T) {
 	if err := os.WriteFile(catalogPath, []byte("{}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, ""); err == nil {
+	if _, _, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, ""); err == nil {
 		t.Fatal("expected empty build catalog to be rejected")
 	}
 }
@@ -535,7 +543,7 @@ func TestPrepareValuesFile_RejectsUnknownWorkspaceProfileRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, catalogPath, workspaceProvisionerImage, builderImage, hostServiceImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected unknown work profile repo membership to be rejected")
