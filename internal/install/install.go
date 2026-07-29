@@ -193,15 +193,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return joinCleanupError(primary, cleanup)
 	}
 
-	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, "")
-	if err != nil {
-		return nil, checks, fmt.Errorf("install: %w", err)
-	}
-	resolved, resolveChecks, err := source.Resolve(ctx, effectiveProfile)
+	resolved, resolveChecks, err := source.Resolve(ctx, opts.ApplianceProfile)
 	checks = append(checks, resolveChecks...)
 	if err != nil {
 		return nil, checks, err
 	}
+	effectiveProfile := resolved.EffectiveProfile
 	targetVersion := strings.TrimSpace(resolved.BundleVersion)
 	if targetVersion == "" {
 		targetVersion = strings.TrimSpace(opts.ApplianceVersion)
@@ -214,14 +211,14 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	nodeIPv4 := preferredLocalIPv4(opts.TLSSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	defer cleanupPreparedValues()
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+	if resolved.ArtifactEnabled {
 		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, identity.FQDN)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
@@ -230,7 +227,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	dnsValuesPath := ""
 	cleanupDNSValues := func() {}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
+	if resolved.DNSEnabled {
 		dnsValuesPath, cleanupDNSValues, err = productconfig.PrepareDNSValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.DNSImageReference, identity.Zone, nodeIPv4)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
@@ -247,7 +244,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// and permissions correctly). Seed the right owner ourselves, before
 	// Helm ever applies the chart, rather than discover the gap as a
 	// Permission denied inside a workflow pod.
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityBuild) && opts.WorkspaceRootDir != "" {
+	if resolved.BuildEnabled && opts.WorkspaceRootDir != "" {
 		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare workspace directory: %w", err)
 		}
@@ -264,7 +261,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	requiredPorts := append([]int{}, preflight.RequiredPorts...)
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
+	if resolved.DNSEnabled {
 		// Ubuntu's systemd-resolved stub owns 127.0.0.53:53 and blocks any
 		// wildcard bind on :53. Free that before preflight so the port-53
 		// check reflects the post-prep host, and so CoreDNS can start.
@@ -441,7 +438,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
 
-	imgs := append(append([]images.Image{}, resolved.K3sImages...), profileOCIImages(resolved.OCIImages, effectiveProfile)...)
+	imgs := append(append([]images.Image{}, resolved.K3sImages...), profileOCIImages(resolved.OCIImages, resolved)...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
@@ -471,7 +468,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
 		ArtifactNamespace: registryNamespace,
-		IncludeArtifacts:  productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact),
+		IncludeArtifacts:  resolved.ArtifactEnabled,
 		FQDN:              identity.FQDN,
 		NodeIPv4:          nodeIPv4,
 		ExtraSANs:         opts.TLSSANs,
@@ -483,9 +480,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	rollbacks = append(rollbacks, tlsPrepared.Cleanup)
 
 	for _, dir := range hostdirs.ServiceLogDirs(
-		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact),
-		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows),
-		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS),
+		resolved.ArtifactEnabled,
+		resolved.WorkflowsEnabled,
+		resolved.DNSEnabled,
 	) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare service log directory %s: %w", dir.Path, err)
@@ -497,9 +494,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 	for _, file := range hostdirs.ServiceLogFiles(
-		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact),
-		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows),
-		productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS),
+		resolved.ArtifactEnabled,
+		resolved.WorkflowsEnabled,
+		resolved.DNSEnabled,
 	) {
 		if o.EnsureOwnedFile == nil {
 			continue
@@ -513,7 +510,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityHost) {
+	if resolved.HostEnabled {
 		installHostAgent := o.InstallHostAgent
 		if installHostAgent == nil {
 			installHostAgent = func(hostagent.InstallSpec) (func() error, error) {
@@ -539,7 +536,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact) {
+	if resolved.ArtifactEnabled {
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
 			opts.ChartNamespace, "appliance-keys", registryNamespace, productconfig.DefaultRegistryPublicKeySecret)
 		checks = append(checks, registryKeys.Checks...)
@@ -570,7 +567,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// LAN DNS installs before the control plane, just like the registry
 	// above: the control plane readiness probe polls dnsReadyURL and
 	// assumes the release already exists by the time CP pods start.
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS) {
+	if resolved.DNSEnabled {
 		dnsCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
 			NamespaceLabels: helm.PrivilegedNamespaceLabels(),
@@ -596,7 +593,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if clusterRun == nil {
 		clusterRun = cli.Exec
 	}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows) && len(resolved.ArgoCRDPaths) > 0 {
+	if resolved.WorkflowsEnabled && len(resolved.ArgoCRDPaths) > 0 {
 		argoCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.ArgoCRDPaths, "argo-crd")
 		checks = append(checks, argoCRDChecks...)
 		if applyErr != nil {
@@ -604,7 +601,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 	}
 
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows) && resolved.ArgoChartPath != "" {
+	if resolved.WorkflowsEnabled && resolved.ArgoChartPath != "" {
 		argoPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 			Name:      argoReleaseName,
 			ChartPath: resolved.ArgoChartPath,
@@ -688,8 +685,8 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
-			ZotVersion:   componentZotVersion(effectiveProfile, resolved.Compatibility.ZotVersion),
-			DNSVersion:   componentDNSVersion(effectiveProfile, resolved.Compatibility.DNSVersion),
+			ZotVersion:   componentZotVersion(resolved, resolved.Compatibility.ZotVersion),
+			DNSVersion:   componentDNSVersion(resolved, resolved.Compatibility.DNSVersion),
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -714,20 +711,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	return installed, checks, nil
 }
 
-func profileOCIImages(all []images.Image, profile string) []images.Image {
+func profileOCIImages(all []images.Image, resolved Resolved) []images.Image {
 	out := make([]images.Image, 0, len(all))
 	for _, image := range all {
 		if image.Category == images.CategoryDependency {
 			if strings.HasPrefix(image.Name, "registry.local/zot@") &&
-				!productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
+				!resolved.ArtifactEnabled {
 				continue
 			}
 			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
-				!productconfig.HasCapability(profile, productconfig.CapabilityWorkflows) {
+				!resolved.WorkflowsEnabled {
 				continue
 			}
 			if strings.HasPrefix(image.Name, "registry.local/coredns@") &&
-				!productconfig.HasCapability(profile, productconfig.CapabilityDNS) {
+				!resolved.DNSEnabled {
 				continue
 			}
 		}
@@ -736,15 +733,15 @@ func profileOCIImages(all []images.Image, profile string) []images.Image {
 	return out
 }
 
-func componentZotVersion(profile, version string) string {
-	if productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
+func componentZotVersion(resolved Resolved, version string) string {
+	if resolved.ArtifactEnabled {
 		return version
 	}
 	return ""
 }
 
-func componentDNSVersion(profile, version string) string {
-	if productconfig.HasCapability(profile, productconfig.CapabilityDNS) {
+func componentDNSVersion(resolved Resolved, version string) string {
+	if resolved.DNSEnabled {
 		return version
 	}
 	return ""

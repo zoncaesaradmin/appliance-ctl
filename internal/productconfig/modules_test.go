@@ -20,6 +20,23 @@ func TestResolveModulesIncludesHostAgentForHostCapableProfiles(t *testing.T) {
 	}
 }
 
+func TestResolveModulesIncludesArtifactAndBuildWhenEnabled(t *testing.T) {
+	modules := productconfig.ResolveModules(productconfig.ProfileBuilder, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameArtifactRegistry) {
+		t.Fatal("builder modules should include artifact-registry")
+	}
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
+		t.Fatal("builder modules should include build")
+	}
+}
+
+func TestResolveModulesIncludesDNSWhenEnabled(t *testing.T) {
+	modules := productconfig.ResolveModules(productconfig.ProfileLANDNS, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameLANDNS) {
+		t.Fatal("landns modules should include lan-dns")
+	}
+}
+
 func TestResolveModulesSuppressesModuleWhenNotEntitled(t *testing.T) {
 	modules := productconfig.ResolveModules(productconfig.ProfileCore, denyAllEntitlements{}, productconfig.BuiltInModuleCatalog())
 	if len(modules) != 0 {
@@ -47,6 +64,16 @@ func TestServiceRegistryConfigBuildsHostAgentRoutes(t *testing.T) {
 	}
 	if len(routes) != 3 {
 		t.Fatalf("len(routes) = %d, want 3", len(routes))
+	}
+}
+
+func TestHostAgentEnabledReflectsResolvedModules(t *testing.T) {
+	if productconfig.HostAgentEnabled(nil) {
+		t.Fatal("HostAgentEnabled(nil) should be false")
+	}
+	modules := productconfig.ResolveModules(productconfig.ProfileCore, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	if !productconfig.HostAgentEnabled(modules) {
+		t.Fatal("HostAgentEnabled(core modules) should be true")
 	}
 }
 

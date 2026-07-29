@@ -9,6 +9,13 @@ const (
 	ModuleKindApplication ModuleKind = "application"
 )
 
+const (
+	ModuleNameHostAgent        = "host-agent"
+	ModuleNameArtifactRegistry = "artifact-registry"
+	ModuleNameLANDNS           = "lan-dns"
+	ModuleNameBuild            = "build"
+)
+
 type ExecutionMode string
 
 const (
@@ -69,11 +76,11 @@ func (AlwaysEntitled) IsEntitled(ModuleDescriptor, EntitlementContext) bool {
 func BuiltInModuleCatalog() []ModuleDescriptor {
 	return []ModuleDescriptor{
 		{
-			Name:                 "host-agent",
+			Name:                 ModuleNameHostAgent,
 			Kind:                 ModuleKindPlatform,
 			RequiredCapabilities: []Capability{CapabilityHost},
 			ExecutionMode:        ExecutionModeHostAgent,
-			EntitlementKey:       "host-agent",
+			EntitlementKey:       ModuleNameHostAgent,
 			BaseURL:              "http://host-agent.control.svc.cluster.local:8080",
 			SecurityClass:        SecurityClassHostPrivileged,
 			Routes: []ModuleRoute{
@@ -82,17 +89,71 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 				{Method: "GET", ExternalPath: "/api/v1/host/health", UpstreamPath: "/internal/v1/host/health", Permission: "host.read"},
 			},
 		},
+		{
+			Name:                 ModuleNameArtifactRegistry,
+			Kind:                 ModuleKindPlatform,
+			RequiredCapabilities: []Capability{CapabilityArtifact},
+			ExecutionMode:        ExecutionModeClusterService,
+			EntitlementKey:       ModuleNameArtifactRegistry,
+			SecurityClass:        SecurityClassRestricted,
+		},
+		{
+			Name:                 ModuleNameLANDNS,
+			Kind:                 ModuleKindPlatform,
+			RequiredCapabilities: []Capability{CapabilityDNS},
+			ExecutionMode:        ExecutionModeClusterService,
+			EntitlementKey:       ModuleNameLANDNS,
+			SecurityClass:        SecurityClassRestricted,
+		},
+		{
+			Name:                 ModuleNameBuild,
+			Kind:                 ModuleKindPlatform,
+			RequiredCapabilities: []Capability{CapabilityBuild},
+			ExecutionMode:        ExecutionModeWorkflowBacked,
+			EntitlementKey:       ModuleNameBuild,
+			SecurityClass:        SecurityClassRestricted,
+		},
 	}
 }
 
 func ResolveModules(profile string, evaluator EntitlementEvaluator, catalog []ModuleDescriptor) []ModuleDescriptor {
+	modules, err := ResolveModulesWithLoaders(profile, StaticProfileCatalogLoader{Catalog: builtInProfileCatalog}, StaticModuleCatalogLoader{Modules: catalog}, evaluator)
+	if err != nil {
+		return nil
+	}
+	return modules
+}
+
+func ResolveModulesWithLoaders(profile string, profileLoader ProfileCatalogLoader, moduleLoader ModuleCatalogLoader, evaluator EntitlementEvaluator) ([]ModuleDescriptor, error) {
+	if profileLoader == nil {
+		profileLoader = StaticProfileCatalogLoader{Catalog: builtInProfileCatalog}
+	}
+	if moduleLoader == nil {
+		moduleLoader = StaticModuleCatalogLoader{Modules: BuiltInModuleCatalog()}
+	}
+	profileCatalog, err := profileLoader.LoadProfileCatalog()
+	if err != nil {
+		return nil, err
+	}
+	moduleCatalog, err := moduleLoader.LoadModuleCatalog()
+	if err != nil {
+		return nil, err
+	}
+	return ResolveModulesWithCatalog(profile, profileCatalog, evaluator, moduleCatalog), nil
+}
+
+func ResolveModulesWithCatalog(profile string, profileCatalog ProfileCatalog, evaluator EntitlementEvaluator, catalog []ModuleDescriptor) []ModuleDescriptor {
+	return resolveModulesWithCatalog(profile, profileCatalog, evaluator, catalog)
+}
+
+func resolveModulesWithCatalog(profile string, profileCatalog ProfileCatalog, evaluator EntitlementEvaluator, catalog []ModuleDescriptor) []ModuleDescriptor {
 	if evaluator == nil {
 		evaluator = AlwaysEntitled{}
 	}
 	enabled := make([]ModuleDescriptor, 0, len(catalog))
-	ctx := EntitlementContext{Profile: profile, Capabilities: profileCapabilities[profile]}
+	ctx := EntitlementContext{Profile: profile, Capabilities: capabilitiesForProfileInCatalog(profile, profileCatalog)}
 	for _, module := range catalog {
-		if !moduleEnabled(profile, module) {
+		if !moduleEnabled(profile, profileCatalog, module) {
 			continue
 		}
 		if !evaluator.IsEntitled(module, ctx) {
@@ -131,9 +192,27 @@ func ServiceRegistryConfig(modules []ModuleDescriptor) map[string]any {
 	return map[string]any{"services": services}
 }
 
-func moduleEnabled(profile string, module ModuleDescriptor) bool {
+func ModuleNamed(modules []ModuleDescriptor, name string) (ModuleDescriptor, bool) {
+	for _, module := range modules {
+		if strings.TrimSpace(module.Name) == strings.TrimSpace(name) {
+			return module, true
+		}
+	}
+	return ModuleDescriptor{}, false
+}
+
+func ModuleEnabled(modules []ModuleDescriptor, name string) bool {
+	_, ok := ModuleNamed(modules, name)
+	return ok
+}
+
+func HostAgentEnabled(modules []ModuleDescriptor) bool {
+	return ModuleEnabled(modules, ModuleNameHostAgent)
+}
+
+func moduleEnabled(profile string, profileCatalog ProfileCatalog, module ModuleDescriptor) bool {
 	for _, capability := range module.RequiredCapabilities {
-		if !HasCapability(profile, capability) {
+		if !HasCapabilityInCatalog(profile, capability, profileCatalog) {
 			return false
 		}
 	}

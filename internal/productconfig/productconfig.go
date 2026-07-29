@@ -22,16 +22,6 @@ const (
 	ProfileBuilderStorageLANDNS = "builder-storage-landns"
 )
 
-var supportedProfiles = map[string]struct{}{
-	ProfileCore:                 {},
-	ProfileBuilder:              {},
-	ProfileStorage:              {},
-	ProfileLANDNS:               {},
-	ProfileStorageLANDNS:        {},
-	ProfileBuilderLANDNS:        {},
-	ProfileBuilderStorageLANDNS: {},
-}
-
 // Capability is the granular unit appliance behavior should actually be
 // gated on, not the profile name itself. A profile is just a named bundle
 // of capabilities; more than one profile can enable the same capability,
@@ -52,14 +42,49 @@ const (
 	CapabilityDNS       Capability = "dns"
 )
 
-var profileCapabilities = map[string][]Capability{
-	ProfileCore:                 {CapabilityBase, CapabilityHost, CapabilityWorkflows},
-	ProfileBuilder:              {CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact},
-	ProfileStorage:              {CapabilityBase, CapabilityHost, CapabilityArtifact},
-	ProfileLANDNS:               {CapabilityBase, CapabilityHost, CapabilityDNS},
-	ProfileStorageLANDNS:        {CapabilityBase, CapabilityHost, CapabilityArtifact, CapabilityDNS},
-	ProfileBuilderLANDNS:        {CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS},
-	ProfileBuilderStorageLANDNS: {CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS},
+type ProfileDefinition struct {
+	Capabilities []Capability
+}
+
+type ProfileCatalog map[string]ProfileDefinition
+
+type ProfileCatalogLoader interface {
+	LoadProfileCatalog() (ProfileCatalog, error)
+}
+
+type StaticProfileCatalogLoader struct {
+	Catalog ProfileCatalog
+}
+
+func (l StaticProfileCatalogLoader) LoadProfileCatalog() (ProfileCatalog, error) {
+	if l.Catalog == nil {
+		return BuiltInProfileCatalog(), nil
+	}
+	return cloneProfileCatalog(l.Catalog), nil
+}
+
+var builtInProfileCatalog = ProfileCatalog{
+	ProfileCore:                 {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows}},
+	ProfileBuilder:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
+	ProfileStorage:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact}},
+	ProfileLANDNS:               {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityDNS}},
+	ProfileStorageLANDNS:        {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact, CapabilityDNS}},
+	ProfileBuilderLANDNS:        {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
+	ProfileBuilderStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
+}
+
+var builtInProfileOrder = []string{
+	ProfileCore,
+	ProfileBuilder,
+	ProfileStorage,
+	ProfileLANDNS,
+	ProfileStorageLANDNS,
+	ProfileBuilderLANDNS,
+	ProfileBuilderStorageLANDNS,
+}
+
+func BuiltInProfileCatalog() ProfileCatalog {
+	return cloneProfileCatalog(builtInProfileCatalog)
 }
 
 const (
@@ -81,7 +106,11 @@ const (
 // HasCapability reports whether the given (already-resolved) profile
 // enables capability.
 func HasCapability(profile string, capability Capability) bool {
-	for _, c := range profileCapabilities[profile] {
+	return HasCapabilityInCatalog(profile, capability, builtInProfileCatalog)
+}
+
+func HasCapabilityInCatalog(profile string, capability Capability, catalog ProfileCatalog) bool {
+	for _, c := range capabilitiesForProfileInCatalog(profile, catalog) {
 		if c == capability {
 			return true
 		}
@@ -99,6 +128,21 @@ var (
 )
 
 func ResolveApplianceProfile(requested, current string) (string, error) {
+	return ResolveApplianceProfileWithLoader(requested, current, StaticProfileCatalogLoader{Catalog: builtInProfileCatalog})
+}
+
+func ResolveApplianceProfileWithLoader(requested, current string, loader ProfileCatalogLoader) (string, error) {
+	if loader == nil {
+		loader = StaticProfileCatalogLoader{Catalog: builtInProfileCatalog}
+	}
+	catalog, err := loader.LoadProfileCatalog()
+	if err != nil {
+		return "", fmt.Errorf("load appliance profile catalog: %w", err)
+	}
+	return ResolveApplianceProfileWithCatalog(requested, current, catalog)
+}
+
+func ResolveApplianceProfileWithCatalog(requested, current string, catalog ProfileCatalog) (string, error) {
 	profile := strings.TrimSpace(requested)
 	if profile == "" {
 		profile = strings.TrimSpace(current)
@@ -106,10 +150,32 @@ func ResolveApplianceProfile(requested, current string) (string, error) {
 	if profile == "" {
 		profile = ProfileCore
 	}
-	if _, ok := supportedProfiles[profile]; !ok {
-		return "", fmt.Errorf("unknown appliance profile %q (supported: %s, %s, %s, %s, %s, %s, %s)", profile, ProfileCore, ProfileBuilder, ProfileStorage, ProfileLANDNS, ProfileStorageLANDNS, ProfileBuilderLANDNS, ProfileBuilderStorageLANDNS)
+	if _, ok := catalog[profile]; !ok {
+		return "", fmt.Errorf("unknown appliance profile %q (supported: %s)", profile, strings.Join(builtInProfileOrder, ", "))
 	}
 	return profile, nil
+}
+
+func capabilitiesForProfile(profile string) []Capability {
+	return capabilitiesForProfileInCatalog(profile, builtInProfileCatalog)
+}
+
+func capabilitiesForProfileInCatalog(profile string, catalog ProfileCatalog) []Capability {
+	definition, ok := catalog[strings.TrimSpace(profile)]
+	if !ok {
+		return nil
+	}
+	return append([]Capability(nil), definition.Capabilities...)
+}
+
+func cloneProfileCatalog(catalog ProfileCatalog) ProfileCatalog {
+	cloned := make(ProfileCatalog, len(catalog))
+	for profile, definition := range catalog {
+		cloned[profile] = ProfileDefinition{
+			Capabilities: append([]Capability(nil), definition.Capabilities...),
+		}
+	}
+	return cloned
 }
 
 // ApplianceIdentity is the product LAN name for one appliance instance.
@@ -170,11 +236,33 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 	}, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
-	effectiveProfile, err := ResolveApplianceProfile(profile, "")
+func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
+	catalogDocument := BuiltInCatalogDocument()
+	profileLoader := ProfileCatalogLoader(StaticProfileCatalogLoader{Catalog: builtInProfileCatalog})
+	moduleLoader := ModuleCatalogLoader(StaticModuleCatalogLoader{Modules: BuiltInModuleCatalog()})
+	if strings.TrimSpace(applianceCatalogPath) != "" {
+		document, err := LoadCatalogDocumentFile(applianceCatalogPath)
+		if err != nil {
+			return "", func() {}, err
+		}
+		catalogDocument = document
+		loader := FileCatalogLoader{Path: applianceCatalogPath}
+		profileLoader = loader
+		moduleLoader = loader
+	}
+
+	effectiveProfile, err := ResolveApplianceProfileWithLoader(profile, "", profileLoader)
 	if err != nil {
 		return "", func() {}, err
 	}
+	resolvedModules, err := ResolveModulesWithLoaders(effectiveProfile, profileLoader, moduleLoader, AlwaysEntitled{})
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: resolve modules: %w", err)
+	}
+	hostAgentEnabled := HostAgentEnabled(resolvedModules)
+	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
+	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
+	buildEnabled := ModuleEnabled(resolvedModules, ModuleNameBuild)
 	identity, err := ResolveApplianceIdentity(applianceName, dnsZone)
 	if err != nil {
 		return "", func() {}, err
@@ -186,7 +274,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	if len(registry) > 0 {
 		zotImageReference = strings.TrimSpace(registry[0])
 	}
-	if HasCapability(effectiveProfile, CapabilityBuild) {
+	if buildEnabled {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
 			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
 		}
@@ -194,10 +282,10 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned dev-build builder image reference; got %q", builderImageReference)
 		}
 	}
-	if HasCapability(effectiveProfile, CapabilityArtifact) && len(registry) > 0 && !validZotImageDigest(zotImageReference) {
+	if artifactEnabled && len(registry) > 0 && !validZotImageDigest(zotImageReference) {
 		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/zot@sha256 image reference; got %q", zotImageReference)
 	}
-	if HasCapability(effectiveProfile, CapabilityHost) && !validHostAgentImageDigest(hostAgentImageReference) {
+	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
 	}
 
@@ -219,6 +307,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
+	config["applianceCatalog"] = catalogDocument
 	config["applianceName"] = identity.Name
 	config["dnsZoneName"] = identity.Zone
 	config["canonicalOrigin"] = "https://" + identity.FQDN
@@ -227,13 +316,12 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	} else {
 		delete(config, "nodeIPv4")
 	}
-	artifactEnabled := HasCapability(effectiveProfile, CapabilityArtifact)
 	if artifactEnabled {
 		config["zotBaseURL"] = DefaultZotBaseURL
 	} else {
 		delete(config, "zotBaseURL")
 	}
-	if HasCapability(effectiveProfile, CapabilityDNS) {
+	if dnsEnabled {
 		config["dnsReadyURL"] = DefaultDNSReadyURL
 		config["dnsConfigMapNamespace"] = "dns"
 		config["dnsConfigMapName"] = "dns-server-config"
@@ -260,7 +348,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	} else {
 		delete(config, "builderImageDigest")
 	}
-	if registryConfig := ServiceRegistryConfig(ResolveModules(effectiveProfile, AlwaysEntitled{}, BuiltInModuleCatalog())); registryConfig != nil {
+	if registryConfig := ServiceRegistryConfig(resolvedModules); registryConfig != nil {
 		config["serviceRegistry"] = registryConfig
 	} else {
 		delete(config, "serviceRegistry")
@@ -291,7 +379,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		}
 		networkPolicy["registryPort"] = 5000
 	}
-	if HasCapability(effectiveProfile, CapabilityDNS) {
+	if dnsEnabled {
 		// CoreDNS readiness (:8181) is polled by the control plane; allow
 		// that egress only when the dns capability is enabled.
 		networkPolicy["dnsNamespaceLabel"] = map[string]any{
@@ -306,7 +394,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		delete(networkPolicy, "dnsPodLabels")
 		delete(networkPolicy, "dnsReadyPort")
 	}
-	if artifactEnabled || HasCapability(effectiveProfile, CapabilityDNS) {
+	if artifactEnabled || dnsEnabled {
 		values["networkPolicy"] = networkPolicy
 	}
 
@@ -314,13 +402,15 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	if hostAgent == nil {
 		hostAgent = map[string]any{}
 	}
-	hostAgent["enabled"] = HasCapability(effectiveProfile, CapabilityHost)
+	hostAgent["enabled"] = hostAgentEnabled
 	imageConfig, _ := hostAgent["image"].(map[string]any)
 	if imageConfig == nil {
 		imageConfig = map[string]any{}
 	}
-	if HasCapability(effectiveProfile, CapabilityHost) {
+	if hostAgentEnabled {
 		imageConfig["reference"] = hostAgentImageReference
+	} else {
+		delete(imageConfig, "reference")
 	}
 	hostAgent["image"] = imageConfig
 	values["hostAgent"] = hostAgent

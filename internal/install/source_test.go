@@ -21,6 +21,7 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 		"bin/appliance-host-agentd":               "fake appliance host agent daemon",
 		"k3s/binary/k3s":                          "fake k3s binary",
 		"charts/appliance-chart-2.4.0.tgz":        "fake chart",
+		"configuration/appliance-catalog.json":    `{"version":"appliance.catalog/v1alpha1","profiles":[{"name":"core","capabilities":["base","host","workflows"]}],"modules":[{"name":"host-agent","kind":"platform","requiredCapabilities":["host"],"executionMode":"host-agent","entitlementKey":"host-agent","baseURL":"http://host-agent.control.svc.cluster.local:8080","securityClass":"host-privileged"}]}`,
 		"configuration/configuration.schema.json": `{"type":"object"}`,
 		"configuration/values.yaml":               "replicaCount: 1\n",
 		"oci-images/appliance-host-agent.tar":     "fake appliance host agent image",
@@ -108,6 +109,9 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	}
 	if filepath.Base(resolved.ConfigurationPath) != "values.yaml" {
 		t.Fatalf("expected values.yaml to be selected, got %s", resolved.ConfigurationPath)
+	}
+	if filepath.Base(resolved.CatalogPath) != "appliance-catalog.json" {
+		t.Fatalf("expected appliance-catalog.json to be selected, got %s", resolved.CatalogPath)
 	}
 }
 

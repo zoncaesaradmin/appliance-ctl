@@ -143,15 +143,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: installed-state does not record appliance ownership")
 	}
 
-	effectiveProfile, err := productconfig.ResolveApplianceProfile(opts.ApplianceProfile, installed.ApplianceProfile)
-	if err != nil {
-		return nil, checks, fmt.Errorf("upgrade: %w", err)
+	requestedProfile := strings.TrimSpace(opts.ApplianceProfile)
+	if requestedProfile == "" {
+		requestedProfile = strings.TrimSpace(installed.ApplianceProfile)
 	}
-	resolved, resolveChecks, err := source.Resolve(ctx, effectiveProfile)
+	resolved, resolveChecks, err := source.Resolve(ctx, requestedProfile)
 	checks = append(checks, resolveChecks...)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
+	effectiveProfile := resolved.EffectiveProfile
 	targetVersion := strings.TrimSpace(resolved.BundleVersion)
 	if targetVersion == "" {
 		targetVersion = strings.TrimSpace(opts.TargetApplianceVersion)
@@ -163,9 +164,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	hadArtifactBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact)
 	hadWorkflowsBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityWorkflows)
 	hadDNSBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityDNS)
-	targetArtifact := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityArtifact)
-	targetWorkflows := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows)
-	targetDNS := productconfig.HasCapability(effectiveProfile, productconfig.CapabilityDNS)
+	targetArtifact := resolved.ArtifactEnabled
+	targetWorkflows := resolved.WorkflowsEnabled
+	targetDNS := resolved.DNSEnabled
+	targetBuild := resolved.BuildEnabled
+	targetHost := resolved.HostEnabled
 	if hadArtifactBefore && !targetArtifact {
 		return nil, checks, fmt.Errorf("upgrade: changing from artifact-capable profile %q to non-artifact profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
 	}
@@ -188,7 +191,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -220,7 +223,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// drifted for any other reason — self-heals here rather than needing
 	// a manual chown. See internal/hostdirs for why this can't be left
 	// to Kubernetes' own fsGroup handling.
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityBuild) && opts.WorkspaceRootDir != "" {
+	if targetBuild && opts.WorkspaceRootDir != "" {
 		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 			return nil, checks, fmt.Errorf("upgrade: prepare workspace directory: %w", err)
 		}
@@ -295,7 +298,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	importer := &images.Importer{Run: o.ImagesRun, Namespace: "k8s.io"}
-	imgs := append(append([]images.Image{}, resolved.K3sImages...), upgradeProfileOCIImages(resolved.OCIImages, effectiveProfile)...)
+	imgs := append(append([]images.Image{}, resolved.K3sImages...), upgradeProfileOCIImages(resolved.OCIImages, resolved)...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
@@ -465,7 +468,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityHost) {
+	if targetHost {
 		installHostAgent := o.InstallHostAgent
 		if installHostAgent == nil {
 			installHostAgent = func(hostagent.InstallSpec) (func() error, error) {
@@ -655,8 +658,8 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
-			ZotVersion:   upgradeComponentZotVersion(effectiveProfile, resolved.Compatibility.ZotVersion),
-			DNSVersion:   upgradeComponentDNSVersion(effectiveProfile, resolved.Compatibility.DNSVersion),
+			ZotVersion:   upgradeComponentZotVersion(resolved, resolved.Compatibility.ZotVersion),
+			DNSVersion:   upgradeComponentDNSVersion(resolved, resolved.Compatibility.DNSVersion),
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -686,20 +689,20 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	return updated, checks, nil
 }
 
-func upgradeProfileOCIImages(all []images.Image, profile string) []images.Image {
+func upgradeProfileOCIImages(all []images.Image, resolved install.Resolved) []images.Image {
 	out := make([]images.Image, 0, len(all))
 	for _, image := range all {
 		if image.Category == images.CategoryDependency {
 			if strings.HasPrefix(image.Name, "registry.local/zot@") &&
-				!productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
+				!resolved.ArtifactEnabled {
 				continue
 			}
 			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
-				!productconfig.HasCapability(profile, productconfig.CapabilityWorkflows) {
+				!resolved.WorkflowsEnabled {
 				continue
 			}
 			if strings.HasPrefix(image.Name, "registry.local/coredns@") &&
-				!productconfig.HasCapability(profile, productconfig.CapabilityDNS) {
+				!resolved.DNSEnabled {
 				continue
 			}
 		}
@@ -708,15 +711,15 @@ func upgradeProfileOCIImages(all []images.Image, profile string) []images.Image 
 	return out
 }
 
-func upgradeComponentZotVersion(profile, version string) string {
-	if productconfig.HasCapability(profile, productconfig.CapabilityArtifact) {
+func upgradeComponentZotVersion(resolved install.Resolved, version string) string {
+	if resolved.ArtifactEnabled {
 		return version
 	}
 	return ""
 }
 
-func upgradeComponentDNSVersion(profile, version string) string {
-	if productconfig.HasCapability(profile, productconfig.CapabilityDNS) {
+func upgradeComponentDNSVersion(resolved install.Resolved, version string) string {
+	if resolved.DNSEnabled {
 		return version
 	}
 	return ""

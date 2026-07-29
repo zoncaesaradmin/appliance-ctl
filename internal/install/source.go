@@ -23,6 +23,13 @@ type Resolved struct {
 	BundleVersion    string
 	ReleaseID        string
 	Compatibility    bundle.Compatibility
+	EffectiveProfile string
+	CatalogPath      string
+	HostEnabled      bool
+	ArtifactEnabled  bool
+	DNSEnabled       bool
+	BuildEnabled     bool
+	WorkflowsEnabled bool
 	ZonctlBinaryPath string
 	// HelperBinaryPaths are durable host tools (currently helm) installed
 	// next to zonctl-real so status/verify work without the temp bundle PATH.
@@ -60,12 +67,13 @@ type Resolved struct {
 // Source acquires and verifies every artifact Install needs, returning
 // local paths. V1 uses a signed local bundle only, but the interface
 // keeps the orchestration logic decoupled from bundle layout details.
-// The effectiveProfile is the already-resolved target appliance profile
-// so source resolution can ignore workflow-only artifacts for
-// non-workflow profiles while still failing closed for profiles that
-// actually require those artifacts.
+// requestedProfile is the target appliance profile requested by the
+// operator (or the caller's current-profile fallback). The source
+// resolves it against the bundle's catalog when present, falling back to
+// built-ins otherwise, so artifact selection follows the same catalog the
+// installer/control plane will later use.
 type Source interface {
-	Resolve(ctx context.Context, effectiveProfile string) (Resolved, []evidence.Check, error)
+	Resolve(ctx context.Context, requestedProfile string) (Resolved, []evidence.Check, error)
 }
 
 // OfflineSource resolves artifacts from a verified local air-gap bundle.
@@ -75,11 +83,7 @@ type OfflineSource struct {
 }
 
 func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Resolved, []evidence.Check, error) {
-	effectiveProfile, err := productconfig.ResolveApplianceProfile(requestedProfile, "")
-	if err != nil {
-		return Resolved{}, nil, fmt.Errorf("install: %w", err)
-	}
-
+	_ = ctx
 	b, checks, err := bundle.Load(s.BundleDir, s.PublicKey)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -93,29 +97,6 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
-	argoChartPath := ""
-	argoCRDPaths := []string(nil)
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityWorkflows) {
-		argoChartPath = optionalArgoChartPath(b)
-		argoCRDPaths = crdPaths(b)
-		if argoChartPath != "" && len(argoCRDPaths) == 0 {
-			return Resolved{}, checks, fmt.Errorf("install: bundle has an argo-workflows chart but no argo-crds artifact; the workflow controller cannot start without its CRDs")
-		}
-	}
-	registryChartPath := ""
-	if strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
-		registryChartPath, err = requiredRegistryChartPath(b)
-		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: %w", err)
-		}
-	}
-	dnsChartPath := ""
-	if strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
-		dnsChartPath, err = requiredDNSChartPath(b)
-		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: %w", err)
-		}
-	}
 	zonctlBinaryPath, err := applianceBinaryPath(b, "zonctl-real")
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -128,8 +109,61 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
+	catalogPath, err := optionalCatalogPath(b)
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: %w", err)
+	}
+	profileLoader := productconfig.ProfileCatalogLoader(productconfig.StaticProfileCatalogLoader{Catalog: productconfig.BuiltInProfileCatalog()})
+	moduleLoader := productconfig.ModuleCatalogLoader(productconfig.StaticModuleCatalogLoader{Modules: productconfig.BuiltInModuleCatalog()})
+	if strings.TrimSpace(catalogPath) != "" {
+		loader := productconfig.FileCatalogLoader{Path: catalogPath}
+		profileLoader = loader
+		moduleLoader = loader
+	}
+	profileCatalog, err := profileLoader.LoadProfileCatalog()
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: load appliance profile catalog: %w", err)
+	}
+	effectiveProfile, err := productconfig.ResolveApplianceProfileWithCatalog(requestedProfile, "", profileCatalog)
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: %w", err)
+	}
+	moduleCatalog, err := moduleLoader.LoadModuleCatalog()
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: load appliance module catalog: %w", err)
+	}
+	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, profileCatalog, productconfig.AlwaysEntitled{}, moduleCatalog)
+	hostEnabled := productconfig.HostAgentEnabled(resolvedModules)
+	artifactEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameArtifactRegistry)
+	dnsEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameLANDNS)
+	buildEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameBuild)
+	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, profileCatalog)
+
+	argoChartPath := ""
+	argoCRDPaths := []string(nil)
+	if workflowsEnabled {
+		argoChartPath = optionalArgoChartPath(b)
+		argoCRDPaths = crdPaths(b)
+		if argoChartPath != "" && len(argoCRDPaths) == 0 {
+			return Resolved{}, checks, fmt.Errorf("install: bundle has an argo-workflows chart but no argo-crds artifact; the workflow controller cannot start without its CRDs")
+		}
+	}
+	registryChartPath := ""
+	if artifactEnabled && strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
+		registryChartPath, err = requiredRegistryChartPath(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
+	dnsChartPath := ""
+	if dnsEnabled && strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
+		dnsChartPath, err = requiredDNSChartPath(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
 	hostAgentBinaryPath := ""
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityHost) {
+	if hostEnabled {
 		hostAgentBinaryPath, err = applianceBinaryPath(b, "appliance-host-agentd")
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -151,19 +185,22 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	workspaceProvisionerImageReference := workspaceProvisionerImageReference(b)
 	builderImageReference := builderImageReference(b)
-	hostAgentImageReference, err := requiredHostAgentImageReference(b)
-	if err != nil {
-		return Resolved{}, checks, fmt.Errorf("install: %w", err)
+	hostAgentImageReference := ""
+	if hostEnabled {
+		hostAgentImageReference, err = requiredHostAgentImageReference(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
 	}
 	zotImageReference := ""
-	if strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
+	if artifactEnabled && strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
 		zotImageReference, err = requiredZotImageReference(b)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
 	dnsImageReference := ""
-	if strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
+	if dnsEnabled && strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
 		dnsImageReference, err = requiredDNSImageReference(b)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -174,6 +211,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		BundleVersion:                      b.BundleVersion,
 		ReleaseID:                          b.ReleaseID,
 		Compatibility:                      b.Compatibility,
+		EffectiveProfile:                   effectiveProfile,
+		CatalogPath:                        catalogPath,
+		HostEnabled:                        hostEnabled,
+		ArtifactEnabled:                    artifactEnabled,
+		DNSEnabled:                         dnsEnabled,
+		BuildEnabled:                       buildEnabled,
+		WorkflowsEnabled:                   workflowsEnabled,
 		ZonctlBinaryPath:                   zonctlBinaryPath,
 		HelperBinaryPaths:                  helperBinaryPaths,
 		K3sBinaryPath:                      k3sBinaryPath,
@@ -381,6 +425,21 @@ func configurationPath(b *bundle.Bundle) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("bundle has multiple configuration entries but none is values.yaml/values.yml")
+}
+
+func optionalCatalogPath(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("configuration") {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if base != "appliance-catalog.json" {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple configuration entries named appliance-catalog.json")
+		}
+		found = e.Path
+	}
+	return found, nil
 }
 
 func applianceBinaryPath(b *bundle.Bundle, baseName string) (string, error) {
