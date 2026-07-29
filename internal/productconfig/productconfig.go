@@ -260,36 +260,8 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	} else {
 		delete(config, "builderImageDigest")
 	}
-	if HasCapability(effectiveProfile, CapabilityHost) {
-		config["serviceRegistry"] = map[string]any{
-			"services": []map[string]any{
-				{
-					"name":       "host-agent",
-					"capability": string(CapabilityHost),
-					"baseURL":    "http://host-agent.control.svc.cluster.local:8080",
-					"routes": []map[string]any{
-						{
-							"method":       "GET",
-							"externalPath": "/api/v1/host/info",
-							"upstreamPath": "/internal/v1/host/info",
-							"permission":   "host.read",
-						},
-						{
-							"method":       "GET",
-							"externalPath": "/api/v1/host/stats",
-							"upstreamPath": "/internal/v1/host/stats",
-							"permission":   "host.read",
-						},
-						{
-							"method":       "GET",
-							"externalPath": "/api/v1/host/health",
-							"upstreamPath": "/internal/v1/host/health",
-							"permission":   "host.read",
-						},
-					},
-				},
-			},
-		}
+	if registryConfig := ServiceRegistryConfig(ResolveModules(effectiveProfile, AlwaysEntitled{}, BuiltInModuleCatalog())); registryConfig != nil {
+		config["serviceRegistry"] = registryConfig
 	} else {
 		delete(config, "serviceRegistry")
 	}
