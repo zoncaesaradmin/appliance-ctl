@@ -16,6 +16,12 @@
       "sizeBytes": 16777216,
       "signature": "appliance-ui.oci.tar.zst.sig"
     },
+    "hostServiceImage": {
+      "path": "appliance-host-service.oci.tar.zst",
+      "digest": "sha256:4682666514c07508d9ee41ca0a32cf2fc8e0fbda9466c5bfd0f88b82ca5389e9",
+      "sizeBytes": 8388608,
+      "imageReference": "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
     "applianceChart": {
       "path": "appliance-chart-2.4.0.tgz",
       "digest": "sha256:cc57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",

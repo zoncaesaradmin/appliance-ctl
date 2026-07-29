@@ -135,6 +135,18 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			ImageReference: input.Artifacts.UIImage.ImageReference,
 		}
 	}
+	hostServiceImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostServiceImage.Path)
+	if _, exists := entryByTarget[hostServiceImageTarget]; !exists {
+		if !isCanonicalHostServiceReference(input.Artifacts.HostServiceImage.ImageReference) {
+			return Result{}, fmt.Errorf("releasebundle: host-service imageReference must be registry.local/appliance-host-service@sha256:<64 lowercase hex>, got %q", input.Artifacts.HostServiceImage.ImageReference)
+		}
+		entryByTarget[hostServiceImageTarget] = EntryConfig{
+			SourcePath:     input.Artifacts.HostServiceImage.Path,
+			TargetPath:     hostServiceImageTarget,
+			Component:      "oci-images",
+			ImageReference: input.Artifacts.HostServiceImage.ImageReference,
+		}
+	}
 	zotImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ZotImage.Path)
 	if _, exists := entryByTarget[zotImageTarget]; !exists {
 		if !isCanonicalZotReference(input.Artifacts.ZotImage.ImageReference) {
@@ -299,6 +311,19 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 
 func isCanonicalZotReference(ref string) bool {
 	const prefix = "registry.local/zot@sha256:"
+	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
+		return false
+	}
+	for _, c := range strings.TrimPrefix(ref, prefix) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCanonicalHostServiceReference(ref string) bool {
+	const prefix = "registry.local/appliance-host-service@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}

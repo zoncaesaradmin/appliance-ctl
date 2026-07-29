@@ -52,6 +52,7 @@ type DirArtifact struct {
 type Artifacts struct {
 	ControlPlaneImage   FileArtifact
 	UIImage             FileArtifact
+	HostServiceImage    FileArtifact
 	ApplianceChart      FileArtifact
 	ZotImage            FileArtifact
 	ZotChart            FileArtifact
@@ -77,6 +78,7 @@ type doc struct {
 	Artifacts   struct {
 		ControlPlaneImage   fileArtifact   `json:"controlPlaneImage"`
 		UIImage             fileArtifact   `json:"uiImage"`
+		HostServiceImage    fileArtifact   `json:"hostServiceImage"`
 		ApplianceChart      fileArtifact   `json:"applianceChart"`
 		ZotImage            fileArtifact   `json:"zotImage"`
 		ZotChart            fileArtifact   `json:"zotChart"`
@@ -137,6 +139,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		Artifacts: Artifacts{
 			ControlPlaneImage:   toFileArtifact(rootDir, parsed.Artifacts.ControlPlaneImage),
 			UIImage:             toFileArtifact(rootDir, parsed.Artifacts.UIImage),
+			HostServiceImage:    toFileArtifact(rootDir, parsed.Artifacts.HostServiceImage),
 			ApplianceChart:      toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
 			ZotImage:            toFileArtifact(rootDir, parsed.Artifacts.ZotImage),
 			ZotChart:            toFileArtifact(rootDir, parsed.Artifacts.ZotChart),
@@ -160,6 +163,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 	artifacts := []verify.Artifact{
 		{Name: "control-plane-image", Path: input.Artifacts.ControlPlaneImage.Path, ExpectedDigest: input.Artifacts.ControlPlaneImage.Digest, ExpectedSizeBytes: input.Artifacts.ControlPlaneImage.SizeBytes},
 		{Name: "ui-image", Path: input.Artifacts.UIImage.Path, ExpectedDigest: input.Artifacts.UIImage.Digest, ExpectedSizeBytes: input.Artifacts.UIImage.SizeBytes},
+		{Name: "host-service-image", Path: input.Artifacts.HostServiceImage.Path, ExpectedDigest: input.Artifacts.HostServiceImage.Digest, ExpectedSizeBytes: input.Artifacts.HostServiceImage.SizeBytes},
 		{Name: "appliance-chart", Path: input.Artifacts.ApplianceChart.Path, ExpectedDigest: input.Artifacts.ApplianceChart.Digest, ExpectedSizeBytes: input.Artifacts.ApplianceChart.SizeBytes},
 		{Name: "zot-image", Path: input.Artifacts.ZotImage.Path, ExpectedDigest: input.Artifacts.ZotImage.Digest, ExpectedSizeBytes: input.Artifacts.ZotImage.SizeBytes},
 		{Name: "zot-chart", Path: input.Artifacts.ZotChart.Path, ExpectedDigest: input.Artifacts.ZotChart.Digest, ExpectedSizeBytes: input.Artifacts.ZotChart.SizeBytes},
