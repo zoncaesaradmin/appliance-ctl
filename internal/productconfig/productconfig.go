@@ -264,9 +264,9 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		config["serviceRegistry"] = map[string]any{
 			"services": []map[string]any{
 				{
-					"name":       "host-service",
+					"name":       "host-server",
 					"capability": string(CapabilityHost),
-					"baseURL":    "http://api-server-host-service.control.svc.cluster.local:8080",
+					"baseURL":    "http://host-server.control.svc.cluster.local:8080",
 					"routes": []map[string]any{
 						{
 							"method":       "GET",

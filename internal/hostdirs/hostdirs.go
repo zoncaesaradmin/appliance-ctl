@@ -92,7 +92,7 @@ const (
 	DNSLogDir = "/data/zon/logs/dns"
 	// HostServiceLogDir is the host-visible appliance host service log
 	// directory under the shared appliance log tree.
-	HostServiceLogDir = "/data/zon/logs/host-service"
+	HostServiceLogDir = "/data/zon/logs/host-server"
 	// FileserverDir is the host-visible backing store for the authenticated
 	// control-plane files API (/api/v1/files). Owned by the control-plane UID
 	// with the shared fsGroup so the API pod can write and host users can
@@ -131,7 +131,7 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 			Mode:    ServiceLogDirMode,
 		},
 		{
-			CheckID: "host-service-log-directory-owned",
+			CheckID: "host-server-log-directory-owned",
 			Path:    HostServiceLogDir,
 			UID:     HostServiceDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
