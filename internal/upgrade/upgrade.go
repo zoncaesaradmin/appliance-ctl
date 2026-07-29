@@ -15,6 +15,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
@@ -32,15 +33,20 @@ import (
 type Options struct {
 	TargetApplianceVersion string
 
-	InstalledStatePath string
-	K3sConfigPath      string
-	K3sUnitPath        string
-	K3sBinaryDestPath  string
-	K3sUnitName        string
-	K3sDataDir         string
-	KubeconfigPath     string
-	ApplianceProfile   string
-	BuildCatalogPath   string
+	InstalledStatePath      string
+	K3sConfigPath           string
+	K3sUnitPath             string
+	K3sBinaryDestPath       string
+	K3sUnitName             string
+	K3sDataDir              string
+	KubeconfigPath          string
+	HostAgentBinaryDestPath string
+	HostAgentUnitPath       string
+	HostAgentUnitName       string
+	HostAgentSocketPath     string
+	HostAgentLogPath        string
+	ApplianceProfile        string
+	BuildCatalogPath        string
 	// WorkspaceRootDir is the host directory backing the workspace
 	// storage hostPath PersistentVolume (builder profile only). See
 	// internal/hostdirs — re-applied on every upgrade so a host whose
@@ -88,9 +94,10 @@ type Orchestrator struct {
 	// PersistentVolume with the correct owner; see internal/hostdirs.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
 	// EnsureOwnedFile reseeds operator-facing log files to a host-readable mode.
-	EnsureOwnedFile func(path string, uid, gid int, perm os.FileMode) error
-	PrepareHostDNS  func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
-	RestoreHostDNS  func() error
+	EnsureOwnedFile  func(path string, uid, gid int, perm os.FileMode) error
+	PrepareHostDNS   func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
+	RestoreHostDNS   func() error
+	InstallHostAgent func(hostagent.InstallSpec) (func() error, error)
 }
 
 // NewOrchestrator wires an Orchestrator to the real adapters.
@@ -103,8 +110,9 @@ func NewOrchestrator() *Orchestrator {
 		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedFile(path, uid, gid, perm, os.Chown)
 		},
-		PrepareHostDNS: hostdns.Prepare,
-		RestoreHostDNS: hostdns.Restore,
+		PrepareHostDNS:   hostdns.Prepare,
+		RestoreHostDNS:   hostdns.Restore,
+		InstallHostAgent: hostagent.InstallOrUpdate,
 	}
 }
 
@@ -180,7 +188,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostServiceImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -250,6 +258,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 
 	binaryReverted := false
 	restoreHostDNSOnRollback := false
+	var hostAgentRollback func() error
 	rollback := func() []evidence.Check {
 		var rc []evidence.Check
 		var rollbackErrs []error
@@ -262,6 +271,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 		if restoreHostDNSOnRollback && o.RestoreHostDNS != nil {
 			if err := o.RestoreHostDNS(); err != nil {
+				rollbackErrs = append(rollbackErrs, err)
+			}
+		}
+		if hostAgentRollback != nil {
+			if err := hostAgentRollback(); err != nil {
 				rollbackErrs = append(rollbackErrs, err)
 			}
 		}
@@ -448,6 +462,32 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, evidence.Check{
 			ID: file.CheckID, Category: "host", Status: evidence.StatusPass,
 			Message:   fmt.Sprintf("%s owned by %d:%d mode %04o", file.Path, file.UID, file.GID, file.Mode.Perm()),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityHost) {
+		installHostAgent := o.InstallHostAgent
+		if installHostAgent == nil {
+			installHostAgent = func(hostagent.InstallSpec) (func() error, error) {
+				return func() error { return nil }, nil
+			}
+		}
+		hostAgentRollback, err = installHostAgent(hostagent.InstallSpec{
+			SourceBinaryPath: resolved.HostAgentBinaryPath,
+			BinaryDestPath:   opts.HostAgentBinaryDestPath,
+			UnitPath:         opts.HostAgentUnitPath,
+			UnitName:         opts.HostAgentUnitName,
+			SocketPath:       opts.HostAgentSocketPath,
+			LogPath:          opts.HostAgentLogPath,
+		})
+		if err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host agent: %w", err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		checks = append(checks, evidence.Check{
+			ID: "host-agent-installed", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}

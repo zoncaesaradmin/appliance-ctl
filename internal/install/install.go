@@ -16,6 +16,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
@@ -50,11 +51,16 @@ const (
 type Options struct {
 	ApplianceVersion string
 
-	InstalledStatePath string
-	K3sConfigPath      string
-	K3sUnitPath        string
-	K3sBinaryDestPath  string
-	K3sUnitName        string
+	InstalledStatePath      string
+	K3sConfigPath           string
+	K3sUnitPath             string
+	K3sBinaryDestPath       string
+	K3sUnitName             string
+	HostAgentBinaryDestPath string
+	HostAgentUnitPath       string
+	HostAgentUnitName       string
+	HostAgentSocketPath     string
+	HostAgentLogPath        string
 	// KubectlSymlinkPath is where a "kubectl" symlink to K3sBinaryDestPath
 	// is created (K3s is a multicall binary, so this makes plain
 	// `kubectl` work as a real, standalone command on the host).
@@ -139,7 +145,8 @@ type Orchestrator struct {
 	// the stub (and MagicDNS) is gone. Tests leave this nil as a no-op.
 	PrepareHostDNS func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
 	// RestoreHostDNS undoes PrepareHostDNS on rollback/uninstall.
-	RestoreHostDNS func() error
+	RestoreHostDNS   func() error
+	InstallHostAgent func(hostagent.InstallSpec) (func() error, error)
 }
 
 // NewOrchestrator wires an Orchestrator to the real K3s, ctr, helm/kubectl,
@@ -153,8 +160,9 @@ func NewOrchestrator() *Orchestrator {
 		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedFile(path, uid, gid, perm, os.Chown)
 		},
-		PrepareHostDNS: hostdns.Prepare,
-		RestoreHostDNS: hostdns.Restore,
+		PrepareHostDNS:   hostdns.Prepare,
+		RestoreHostDNS:   hostdns.Restore,
+		InstallHostAgent: hostagent.InstallOrUpdate,
 	}
 }
 
@@ -206,7 +214,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	nodeIPv4 := preferredLocalIPv4(opts.TLSSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostServiceImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -502,6 +510,31 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		checks = append(checks, evidence.Check{
 			ID: file.CheckID, Category: "host", Status: evidence.StatusPass,
 			Message:   fmt.Sprintf("%s owned by %d:%d mode %04o", file.Path, file.UID, file.GID, file.Mode.Perm()),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityHost) {
+		installHostAgent := o.InstallHostAgent
+		if installHostAgent == nil {
+			installHostAgent = func(hostagent.InstallSpec) (func() error, error) {
+				return func() error { return nil }, nil
+			}
+		}
+		hostAgentRollback, err := installHostAgent(hostagent.InstallSpec{
+			SourceBinaryPath: resolved.HostAgentBinaryPath,
+			BinaryDestPath:   opts.HostAgentBinaryDestPath,
+			UnitPath:         opts.HostAgentUnitPath,
+			UnitName:         opts.HostAgentUnitName,
+			SocketPath:       opts.HostAgentSocketPath,
+			LogPath:          opts.HostAgentLogPath,
+		})
+		if err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: install host agent: %w", err), runRollbacks())
+		}
+		rollbacks = append(rollbacks, hostAgentRollback)
+		checks = append(checks, evidence.Check{
+			ID: "host-agent-installed", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}

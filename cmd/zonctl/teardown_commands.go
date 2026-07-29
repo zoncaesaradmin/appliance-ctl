@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/teardown"
 )
@@ -35,6 +37,14 @@ func runUninstall(ctx context.Context, opts cliOptions, logger *slog.Logger, res
 	if err != nil {
 		logger.Error("uninstall failed", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
+	}
+	if err := hostagent.Uninstall(hostagent.InstallSpec{
+		BinaryDestPath: defaultHostAgentBinaryPath,
+		UnitPath:       defaultHostAgentUnitPath,
+		UnitName:       defaultHostAgentUnitName,
+	}); err != nil {
+		logger.Error("uninstall failed removing host agent", "error", err)
+		return finish(result, "failed", 1, fmt.Sprintf("uninstall complete but failed removing host agent: %v", err), nil)
 	}
 
 	logger.Info("uninstall complete", "dataPreserved", true)
@@ -81,6 +91,14 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	if err != nil {
 		logger.Error("factory-reset failed", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
+	}
+	if err := hostagent.Uninstall(hostagent.InstallSpec{
+		BinaryDestPath: defaultHostAgentBinaryPath,
+		UnitPath:       defaultHostAgentUnitPath,
+		UnitName:       defaultHostAgentUnitName,
+	}); err != nil {
+		logger.Error("factory-reset failed removing host agent", "error", err)
+		return finish(result, "failed", 1, fmt.Sprintf("factory-reset complete but failed removing host agent: %v", err), nil)
 	}
 
 	logger.Info("factory-reset complete", "backupVerified", backupVerified, "workspacesWiped", opts.wipeWorkspaces)

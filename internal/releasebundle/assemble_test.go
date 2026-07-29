@@ -33,7 +33,8 @@ func buildReleaseInputDir(t *testing.T) string {
 	files := map[string]string{
 		"control-plane.oci.tar.zst":            "control-plane",
 		"appliance-ui.oci.tar.zst":             "ui-image",
-		"appliance-host-service.oci.tar.zst":   "host-service-image",
+		"appliance-host-agent.oci.tar.zst":     "host-agent-image",
+		"appliance-host-agentd":                "host-agentd",
 		"appliance-chart-2.4.0.tgz":            "chart",
 		"zot.oci.tar.zst":                      "zot-image",
 		"appliance-registry-2.1.7.tgz":         "zot-chart",
@@ -74,7 +75,8 @@ func buildReleaseInputDir(t *testing.T) string {
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane"), "imageReference": "internal/control-plane:2.4.0"},
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-image"), "imageReference": "internal/appliance-ui:2.4.0"},
-			"hostServiceImage":    map[string]any{"path": "appliance-host-service.oci.tar.zst", "digest": digestOf("appliance-host-service.oci.tar.zst"), "sizeBytes": len("host-service-image"), "imageReference": "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-image"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
@@ -170,8 +172,11 @@ func TestAssembleAndVerifyBundle(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "appliance-ui.oci.tar.zst")); err != nil {
 		t.Fatalf("expected UI image to be carried into the bundle: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "appliance-host-service.oci.tar.zst")); err != nil {
-		t.Fatalf("expected host-service image to be carried into the bundle: %v", err)
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "appliance-host-agent.oci.tar.zst")); err != nil {
+		t.Fatalf("expected host-agent image to be carried into the bundle: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "bin", "appliance-host-agentd")); err != nil {
+		t.Fatalf("expected host-agent binary to be carried into the bundle: %v", err)
 	}
 }
 

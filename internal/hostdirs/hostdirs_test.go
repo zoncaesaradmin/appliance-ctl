@@ -110,31 +110,31 @@ func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
 	}
 }
 
-func TestServiceLogDirs_AlwaysIncludesHostServiceLogDirectory(t *testing.T) {
+func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
 	dirs := hostdirs.ServiceLogDirs(false, false, false)
 	for _, dir := range dirs {
-		if dir.Path == hostdirs.HostServiceLogDir {
-			if dir.UID != hostdirs.HostServiceDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
-				t.Fatalf("host service dir ownership = %d:%d, want %d:%d", dir.UID, dir.GID, hostdirs.HostServiceDirOwnerUID, hostdirs.ApplianceSharedFSGID)
+		if dir.Path == hostdirs.HostAgentLogDir {
+			if dir.UID != hostdirs.HostAgentDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
+				t.Fatalf("host agent dir ownership = %d:%d, want %d:%d", dir.UID, dir.GID, hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID)
 			}
 			if dir.Mode != hostdirs.ServiceLogDirMode {
-				t.Fatalf("host service dir mode = %o, want %o", dir.Mode, hostdirs.ServiceLogDirMode)
+				t.Fatalf("host agent dir mode = %o, want %o", dir.Mode, hostdirs.ServiceLogDirMode)
 			}
 			return
 		}
 	}
-	t.Fatal("expected host service log directory in ServiceLogDirs")
+	t.Fatal("expected host agent log directory in ServiceLogDirs")
 }
 
 func TestServiceLogFiles_ArtifactApplicationLogReadable(t *testing.T) {
-	if files := hostdirs.ServiceLogFiles(false, true, true); len(files) != 0 {
-		t.Fatalf("expected no service log files without artifact capability, got %#v", files)
+	if files := hostdirs.ServiceLogFiles(false, true, true); len(files) != 1 || files[0].Path != hostdirs.HostAgentDaemonLog {
+		t.Fatalf("expected only host-agent daemon log without artifact capability, got %#v", files)
 	}
 	files := hostdirs.ServiceLogFiles(true, false, false)
-	if len(files) != 1 {
-		t.Fatalf("expected one artifact log file, got %#v", files)
+	if len(files) != 2 {
+		t.Fatalf("expected host-agent and artifact log files, got %#v", files)
 	}
-	f := files[0]
+	f := files[1]
 	if f.Path != hostdirs.ArtifactServerApplicationLog {
 		t.Fatalf("path = %s, want %s", f.Path, hostdirs.ArtifactServerApplicationLog)
 	}

@@ -39,6 +39,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 	}{
 		{"bin/zonctl-real", "appliance", "fake zonctl binary " + spec.bundleVersion, ""},
 		{"bin/helm", "appliance", "fake helm binary " + spec.bundleVersion, ""},
+		{"bin/appliance-host-agentd", "appliance", "fake host agent daemon " + spec.bundleVersion, ""},
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary " + spec.k3sVersion, ""},
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion, ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart", ""},
@@ -46,7 +47,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image " + spec.bundleVersion, "internal/control-plane:" + spec.bundleVersion},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image " + spec.bundleVersion, "internal/appliance-ui:" + spec.bundleVersion},
-		{"oci-images/appliance-host-service.tar", "oci-images", "fake appliance host service image " + spec.bundleVersion, "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+		{"oci-images/appliance-host-agent.tar", "oci-images", "fake appliance host agent image " + spec.bundleVersion, "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image " + spec.bundleVersion, "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/zot.tar", "oci-images", "fake zot image " + spec.bundleVersion, "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
@@ -239,23 +240,28 @@ func setupEnvironment(t *testing.T, installedVersion, k3sVersion, chartVersion, 
 
 func (env environment) options(targetVersion string) upgrade.Options {
 	return upgrade.Options{
-		TargetApplianceVersion: targetVersion,
-		InstalledStatePath:     env.installedStatePath,
-		K3sConfigPath:          env.k3sConfigPath,
-		K3sUnitPath:            env.k3sUnitPath,
-		K3sBinaryDestPath:      env.k3sBinaryDestPath,
-		K3sUnitName:            "k3s.service",
-		K3sDataDir:             env.dataDir,
-		KubeconfigPath:         env.kubeconfigPath,
-		NodeName:               "appliance-node",
-		ApplianceName:          "testapp",
-		DNSZone:                "appliance.internal",
-		ZonctlRealDestPath:     filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
-		ZonctlLauncherDestPath: filepath.Join(env.stateDir, "usr-local-bin", "zonctl"),
-		ChartReleaseName:       "appliance",
-		ChartNamespace:         "control",
-		BackupRoot:             env.backupRoot,
-		TransactionID:          "txn-upgrade-test",
+		TargetApplianceVersion:  targetVersion,
+		InstalledStatePath:      env.installedStatePath,
+		K3sConfigPath:           env.k3sConfigPath,
+		K3sUnitPath:             env.k3sUnitPath,
+		K3sBinaryDestPath:       env.k3sBinaryDestPath,
+		K3sUnitName:             "k3s.service",
+		K3sDataDir:              env.dataDir,
+		KubeconfigPath:          env.kubeconfigPath,
+		NodeName:                "appliance-node",
+		ApplianceName:           "testapp",
+		DNSZone:                 "appliance.internal",
+		ZonctlRealDestPath:      filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
+		ZonctlLauncherDestPath:  filepath.Join(env.stateDir, "usr-local-bin", "zonctl"),
+		HostAgentBinaryDestPath: filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "appliance-host-agentd"),
+		HostAgentUnitPath:       filepath.Join(env.stateDir, "systemd", "zon-host-agent.service"),
+		HostAgentUnitName:       "zon-host-agent.service",
+		HostAgentSocketPath:     filepath.Join(env.stateDir, "run", "zon", "host-agent", "agent.sock"),
+		HostAgentLogPath:        filepath.Join(env.stateDir, "logs", "host-agent", "host-agentd.log"),
+		ChartReleaseName:        "appliance",
+		ChartNamespace:          "control",
+		BackupRoot:              env.backupRoot,
+		TransactionID:           "txn-upgrade-test",
 	}
 }
 
@@ -373,7 +379,7 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 		}
 	}
 	if importCalls != 6 {
-		t.Fatalf("expected 6 image import calls during same-version refresh (zot + control-plane + UI + host service + workspace provisioner + dev-build), got %d: %v", importCalls, fcli.calls)
+		t.Fatalf("expected 6 image import calls during same-version refresh (zot + control-plane + UI + host agent + workspace provisioner + dev-build), got %d: %v", importCalls, fcli.calls)
 	}
 }
 
@@ -688,7 +694,7 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 			wantOwnedPaths := map[string][2]int{
 				hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-				hostdirs.HostServiceLogDir:    {hostdirs.HostServiceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.FileserverDir:        {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 			}
@@ -822,7 +828,7 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 	wantOwnedPaths := map[string][2]int{
 		hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostServiceLogDir:    {hostdirs.HostServiceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -1015,8 +1021,8 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"internal/control-plane:2.4.0"}
 	case "appliance-ui.tar":
 		return []string{"internal/appliance-ui:2.4.0"}
-	case "appliance-host-service.tar":
-		return []string{"registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+	case "appliance-host-agent.tar":
+		return []string{"registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
 	case "workspace-provisioner.tar":
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "dev-build.tar":

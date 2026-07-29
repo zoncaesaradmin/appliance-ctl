@@ -87,6 +87,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 	entries := []fixtureEntry{
 		{"bin/zonctl-real", "appliance", "fake zonctl binary bytes", ""},
 		{"bin/helm", "appliance", "fake helm binary bytes", ""},
+		{"bin/appliance-host-agentd", "appliance", "fake host agent daemon bytes", ""},
 		{"k3s/binary/k3s", "k3s-binary", "fake k3s binary bytes", ""},
 		{"charts/appliance-chart-2.4.0.tgz", "chart", "fake chart bytes", ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart bytes", ""},
@@ -95,7 +96,7 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 		{"k3s/images/coredns.tar", "k3s-images", "fake coredns image tar", "docker.io/rancher/mirrored-coredns-coredns:1.11.3"},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image tar", "internal/appliance-ui:2.4.0"},
-		{"oci-images/appliance-host-service.tar", "oci-images", "fake appliance host service image tar", "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+		{"oci-images/appliance-host-agent.tar", "oci-images", "fake appliance host agent image tar", "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image tar", "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/zot.tar", "oci-images", "fake zot image tar", "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
@@ -418,8 +419,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"internal/control-plane:2.4.0"}
 	case "appliance-ui.tar":
 		return []string{"internal/appliance-ui:2.4.0"}
-	case "appliance-host-service.tar":
-		return []string{"registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+	case "appliance-host-agent.tar":
+		return []string{"registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
 	case "workspace-provisioner.tar":
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "dev-build.tar":
@@ -468,25 +469,30 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 	t.Helper()
 	stateDir := t.TempDir()
 	return install.Options{
-		ApplianceVersion:       "2.4.0",
-		InstalledStatePath:     filepath.Join(stateDir, "installed-state.json"),
-		K3sConfigPath:          filepath.Join(stateDir, "k3s", "config.yaml"),
-		K3sDataDir:             filepath.Join(stateDir, "k3s", "data"),
-		K3sUnitPath:            filepath.Join(stateDir, "systemd", "k3s.service"),
-		K3sBinaryDestPath:      filepath.Join(stateDir, "bin", "k3s"),
-		KubectlSymlinkPath:     filepath.Join(stateDir, "bin", "kubectl"),
-		K3sCNINetworkDir:       filepath.Join(stateDir, "cni", "networks", "cbr0"),
-		K3sCNIInterfaces:       []string{"cni0", "flannel.1"},
-		K3sUnitName:            "k3s.service",
-		KubeconfigPath:         filepath.Join(stateDir, "k3s.yaml"),
-		NodeName:               "appliance-node",
-		ApplianceName:          "testapp",
-		DNSZone:                "appliance.internal",
-		ZonctlRealDestPath:     filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
-		ZonctlLauncherDestPath: filepath.Join(stateDir, "usr-local-bin", "zonctl"),
-		ChartReleaseName:       "appliance",
-		ChartNamespace:         "control",
-		TransactionID:          "txn-test-0000000000000000000000",
+		ApplianceVersion:        "2.4.0",
+		InstalledStatePath:      filepath.Join(stateDir, "installed-state.json"),
+		K3sConfigPath:           filepath.Join(stateDir, "k3s", "config.yaml"),
+		K3sDataDir:              filepath.Join(stateDir, "k3s", "data"),
+		K3sUnitPath:             filepath.Join(stateDir, "systemd", "k3s.service"),
+		K3sBinaryDestPath:       filepath.Join(stateDir, "bin", "k3s"),
+		KubectlSymlinkPath:      filepath.Join(stateDir, "bin", "kubectl"),
+		K3sCNINetworkDir:        filepath.Join(stateDir, "cni", "networks", "cbr0"),
+		K3sCNIInterfaces:        []string{"cni0", "flannel.1"},
+		K3sUnitName:             "k3s.service",
+		KubeconfigPath:          filepath.Join(stateDir, "k3s.yaml"),
+		NodeName:                "appliance-node",
+		ApplianceName:           "testapp",
+		DNSZone:                 "appliance.internal",
+		ZonctlRealDestPath:      filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
+		ZonctlLauncherDestPath:  filepath.Join(stateDir, "usr-local-bin", "zonctl"),
+		HostAgentBinaryDestPath: filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "appliance-host-agentd"),
+		HostAgentUnitPath:       filepath.Join(stateDir, "systemd", "zon-host-agent.service"),
+		HostAgentUnitName:       "zon-host-agent.service",
+		HostAgentSocketPath:     filepath.Join(stateDir, "run", "zon", "host-agent", "agent.sock"),
+		HostAgentLogPath:        filepath.Join(stateDir, "logs", "host-agent", "host-agentd.log"),
+		ChartReleaseName:        "appliance",
+		ChartNamespace:          "control",
+		TransactionID:           "txn-test-0000000000000000000000",
 	}
 }
 
@@ -575,7 +581,7 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 		}
 	}
 	if importCalls != 6 {
-		t.Errorf("expected 6 image import calls (k3s platform + control-plane app + UI app + host service + workspace provisioner + dev-build), got %d: %v", importCalls, fcli.calls)
+		t.Errorf("expected 6 image import calls (k3s platform + control-plane app + UI app + host agent + workspace provisioner + dev-build), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -738,7 +744,7 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 	wantOwnedPaths := map[string][2]int{
 		hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostServiceLogDir:    {hostdirs.HostServiceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.FileserverDir:        {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
@@ -752,6 +758,7 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		}
 	}
 	wantOwnedFiles := map[string][2]int{
+		hostdirs.HostAgentDaemonLog:           {0, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerApplicationLog: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedFiles) != len(wantOwnedFiles) {
@@ -803,7 +810,7 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 	wantOwnedPaths := map[string][2]int{
 		hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostServiceLogDir:    {hostdirs.HostServiceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -842,7 +849,7 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 	wantOwnedPaths := map[string][2]int{
 		hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostServiceLogDir:    {hostdirs.HostServiceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.FileserverDir:        {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}

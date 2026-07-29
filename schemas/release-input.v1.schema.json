@@ -37,7 +37,8 @@
       "required": [
         "controlPlaneImage",
         "uiImage",
-        "hostServiceImage",
+        "hostAgentImage",
+        "hostAgentBinary",
         "applianceChart",
         "zotImage",
         "zotChart",
@@ -54,7 +55,8 @@
       "properties": {
         "controlPlaneImage": { "$ref": "#/$defs/artifact" },
         "uiImage": { "$ref": "#/$defs/artifact" },
-        "hostServiceImage": { "$ref": "#/$defs/artifact" },
+        "hostAgentImage": { "$ref": "#/$defs/artifact" },
+        "hostAgentBinary": { "$ref": "#/$defs/artifact" },
         "applianceChart": { "$ref": "#/$defs/artifact" },
         "zotImage": { "$ref": "#/$defs/artifact" },
         "zotChart": { "$ref": "#/$defs/artifact" },

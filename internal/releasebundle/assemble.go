@@ -135,16 +135,25 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			ImageReference: input.Artifacts.UIImage.ImageReference,
 		}
 	}
-	hostServiceImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostServiceImage.Path)
-	if _, exists := entryByTarget[hostServiceImageTarget]; !exists {
-		if !isCanonicalHostServiceReference(input.Artifacts.HostServiceImage.ImageReference) {
-			return Result{}, fmt.Errorf("releasebundle: host-service imageReference must be registry.local/appliance-host-service@sha256:<64 lowercase hex>, got %q", input.Artifacts.HostServiceImage.ImageReference)
+	hostAgentImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostAgentImage.Path)
+	if _, exists := entryByTarget[hostAgentImageTarget]; !exists {
+		if !isCanonicalHostAgentReference(input.Artifacts.HostAgentImage.ImageReference) {
+			return Result{}, fmt.Errorf("releasebundle: host-agent imageReference must be registry.local/appliance-host-agent@sha256:<64 lowercase hex>, got %q", input.Artifacts.HostAgentImage.ImageReference)
 		}
-		entryByTarget[hostServiceImageTarget] = EntryConfig{
-			SourcePath:     input.Artifacts.HostServiceImage.Path,
-			TargetPath:     hostServiceImageTarget,
+		entryByTarget[hostAgentImageTarget] = EntryConfig{
+			SourcePath:     input.Artifacts.HostAgentImage.Path,
+			TargetPath:     hostAgentImageTarget,
 			Component:      "oci-images",
-			ImageReference: input.Artifacts.HostServiceImage.ImageReference,
+			ImageReference: input.Artifacts.HostAgentImage.ImageReference,
+		}
+	}
+	hostAgentBinaryTarget := "bin/" + filepath.Base(input.Artifacts.HostAgentBinary.Path)
+	if _, exists := entryByTarget[hostAgentBinaryTarget]; !exists {
+		entryByTarget[hostAgentBinaryTarget] = EntryConfig{
+			SourcePath: input.Artifacts.HostAgentBinary.Path,
+			TargetPath: hostAgentBinaryTarget,
+			Component:  "appliance",
+			Executable: true,
 		}
 	}
 	zotImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ZotImage.Path)
@@ -322,8 +331,8 @@ func isCanonicalZotReference(ref string) bool {
 	return true
 }
 
-func isCanonicalHostServiceReference(ref string) bool {
-	const prefix = "registry.local/appliance-host-service@sha256:"
+func isCanonicalHostAgentReference(ref string) bool {
+	const prefix = "registry.local/appliance-host-agent@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}

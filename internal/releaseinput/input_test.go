@@ -32,7 +32,8 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 	root := t.TempDir()
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
-	writeFile(t, root, "appliance-host-service.oci.tar.zst", "host-service-bytes")
+	writeFile(t, root, "appliance-host-agent.oci.tar.zst", "host-agent-bytes")
+	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
 	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
@@ -69,7 +70,8 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
-			"hostServiceImage":    map[string]any{"path": "appliance-host-service.oci.tar.zst", "digest": digestOf("appliance-host-service.oci.tar.zst"), "sizeBytes": len("host-service-bytes"), "imageReference": "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-bytes"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
@@ -116,8 +118,11 @@ func TestLoad_ValidReleaseInput(t *testing.T) {
 	if in.Artifacts.UIImage.ImageReference != "localhost/appliance-ui:2.4.0" {
 		t.Fatalf("unexpected UI image reference: %+v", in.Artifacts.UIImage)
 	}
-	if in.Artifacts.HostServiceImage.ImageReference != "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" {
-		t.Fatalf("unexpected host-service image reference: %+v", in.Artifacts.HostServiceImage)
+	if in.Artifacts.HostAgentImage.ImageReference != "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" {
+		t.Fatalf("unexpected host-agent image reference: %+v", in.Artifacts.HostAgentImage)
+	}
+	if filepath.Base(in.Artifacts.HostAgentBinary.Path) != "appliance-host-agentd" {
+		t.Fatalf("unexpected host-agent binary path: %+v", in.Artifacts.HostAgentBinary)
 	}
 	if len(checks) == 0 {
 		t.Fatal("expected evidence checks")
@@ -128,7 +133,8 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
-	writeFile(t, root, "appliance-host-service.oci.tar.zst", "host-service-bytes")
+	writeFile(t, root, "appliance-host-agent.oci.tar.zst", "host-agent-bytes")
+	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
 	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
@@ -170,7 +176,8 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
-			"hostServiceImage":    map[string]any{"path": "appliance-host-service.oci.tar.zst", "digest": digestOf("appliance-host-service.oci.tar.zst"), "sizeBytes": len("host-service-bytes"), "imageReference": "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-bytes"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
@@ -251,7 +258,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
-	writeFile(t, root, "appliance-host-service.oci.tar.zst", "host-service-bytes")
+	writeFile(t, root, "appliance-host-agent.oci.tar.zst", "host-agent-bytes")
+	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
 	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
@@ -288,7 +296,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 		"artifacts": map[string]any{
 			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
-			"hostServiceImage":    map[string]any{"path": "appliance-host-service.oci.tar.zst", "digest": digestOf("appliance-host-service.oci.tar.zst"), "sizeBytes": len("host-service-bytes"), "imageReference": "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-bytes"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},

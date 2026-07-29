@@ -28,23 +28,24 @@ type Resolved struct {
 	// next to zonctl-real so status/verify work without the temp bundle PATH.
 	HelperBinaryPaths []string
 
-	K3sBinaryPath     string
-	ChartPath         string
-	RegistryChartPath string
-	DNSChartPath      string
-	ArgoChartPath     string
-	ArgoCRDPaths      []string
-	ConfigurationPath string
+	K3sBinaryPath       string
+	ChartPath           string
+	RegistryChartPath   string
+	DNSChartPath        string
+	ArgoChartPath       string
+	ArgoCRDPaths        []string
+	ConfigurationPath   string
+	HostAgentBinaryPath string
 	// WorkspaceProvisionerImageReference is the appliance-owned generic
 	// image used by builder workspace provisioning workflows.
 	WorkspaceProvisionerImageReference string
 	// BuilderImageReference is the single bundled builder/dev-container image
 	// used by Argo build pods (dev-build).
 	BuilderImageReference string
-	// HostServiceImageReference is the bundled, digest-pinned appliance host
-	// service image reference used by the host capability.
-	HostServiceImageReference string
-	ZotImageReference         string
+	// HostAgentImageReference is the bundled, digest-pinned appliance host
+	// agent image reference used by the host capability.
+	HostAgentImageReference string
+	ZotImageReference       string
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
 	// image reference used for the landns/storage-landns capability.
 	DNSImageReference string
@@ -127,6 +128,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
+	hostAgentBinaryPath := ""
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityHost) {
+		hostAgentBinaryPath, err = applianceBinaryPath(b, "appliance-host-agentd")
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
 
 	var k3sImages, ociImages []images.Image
 	for _, e := range b.Entries("k3s-images") {
@@ -143,7 +151,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	workspaceProvisionerImageReference := workspaceProvisionerImageReference(b)
 	builderImageReference := builderImageReference(b)
-	hostServiceImageReference, err := requiredHostServiceImageReference(b)
+	hostAgentImageReference, err := requiredHostAgentImageReference(b)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
@@ -175,9 +183,10 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ArgoChartPath:                      argoChartPath,
 		ArgoCRDPaths:                       argoCRDPaths,
 		ConfigurationPath:                  configurationPath,
+		HostAgentBinaryPath:                hostAgentBinaryPath,
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
 		BuilderImageReference:              builderImageReference,
-		HostServiceImageReference:          hostServiceImageReference,
+		HostAgentImageReference:            hostAgentImageReference,
 		ZotImageReference:                  zotImageReference,
 		DNSImageReference:                  dnsImageReference,
 		K3sImages:                          k3sImages,
@@ -199,23 +208,23 @@ func isWorkflowDependencyReference(ref string) bool {
 		strings.Contains(ref, "/argoproj/argoexec:")
 }
 
-func isHostServiceImageReference(ref string) bool {
-	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/appliance-host-service@sha256:")
+func isHostAgentImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/appliance-host-agent@sha256:")
 }
 
-func requiredHostServiceImageReference(b *bundle.Bundle) (string, error) {
+func requiredHostAgentImageReference(b *bundle.Bundle) (string, error) {
 	var found string
 	for _, e := range b.Entries("oci-images") {
-		if !isHostServiceImageReference(e.ImageReference) {
+		if !isHostAgentImageReference(e.ImageReference) {
 			continue
 		}
 		if found != "" {
-			return "", fmt.Errorf("bundle has multiple appliance host service image entries")
+			return "", fmt.Errorf("bundle has multiple appliance host agent image entries")
 		}
 		found = strings.TrimSpace(e.ImageReference)
 	}
 	if found == "" {
-		return "", fmt.Errorf("bundle has no canonical registry.local/appliance-host-service@sha256 image entry")
+		return "", fmt.Errorf("bundle has no canonical registry.local/appliance-host-agent@sha256 image entry")
 	}
 	return found, nil
 }

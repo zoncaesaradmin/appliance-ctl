@@ -18,11 +18,12 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	files := map[string]string{
 		"bin/zonctl-real":                         "fake zonctl binary",
 		"bin/helm":                                "fake helm binary",
+		"bin/appliance-host-agentd":               "fake appliance host agent daemon",
 		"k3s/binary/k3s":                          "fake k3s binary",
 		"charts/appliance-chart-2.4.0.tgz":        "fake chart",
 		"configuration/configuration.schema.json": `{"type":"object"}`,
 		"configuration/values.yaml":               "replicaCount: 1\n",
-		"oci-images/appliance-host-service.tar":   "fake appliance host service image",
+		"oci-images/appliance-host-agent.tar":     "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -40,20 +41,20 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 		}
 		component := "configuration"
 		switch {
-		case rel == "bin/zonctl-real", rel == "bin/helm":
+		case rel == "bin/zonctl-real", rel == "bin/helm", rel == "bin/appliance-host-agentd":
 			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"
 		case rel == "charts/appliance-chart-2.4.0.tgz":
 			component = "chart"
-		case rel == "oci-images/appliance-host-service.tar":
+		case rel == "oci-images/appliance-host-agent.tar":
 			component = "oci-images"
 		}
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-service.tar" {
-			entry["imageReference"] = "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		if rel == "oci-images/appliance-host-agent.tar" {
+			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -115,12 +116,13 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 	files := map[string]string{
 		"bin/zonctl-real":                            "fake zonctl binary",
 		"bin/helm":                                   "fake helm binary",
+		"bin/appliance-host-agentd":                  "fake appliance host agent daemon",
 		"k3s/binary/k3s":                             "fake k3s binary",
 		"charts/argo-workflows-chart-3.5.10.tgz":     "fake argo chart",
 		"charts/appliance-chart-2.4.0.tgz":           "fake appliance chart",
 		"configuration/values.yaml":                  "replicaCount: 1\n",
 		"kubernetes/crds/workflows.argoproj.io.yaml": "kind: CustomResourceDefinition\n",
-		"oci-images/appliance-host-service.tar":      "fake appliance host service image",
+		"oci-images/appliance-host-agent.tar":        "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -138,7 +140,7 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 		}
 		component := "configuration"
 		switch {
-		case rel == "bin/zonctl-real", rel == "bin/helm":
+		case rel == "bin/zonctl-real", rel == "bin/helm", rel == "bin/appliance-host-agentd":
 			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"
@@ -146,14 +148,14 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 			component = "chart"
 		case filepath.Dir(rel) == "kubernetes/crds":
 			component = "kubernetes-crds"
-		case rel == "oci-images/appliance-host-service.tar":
+		case rel == "oci-images/appliance-host-agent.tar":
 			component = "oci-images"
 		}
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-service.tar" {
-			entry["imageReference"] = "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		if rel == "oci-images/appliance-host-agent.tar" {
+			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -210,14 +212,15 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                       "fake zonctl binary",
-		"bin/helm":                              "fake helm binary",
-		"k3s/binary/k3s":                        "fake k3s binary",
-		"charts/appliance-chart-2.4.0.tgz":      "fake appliance chart",
-		"configuration/values.yaml":             "replicaCount: 1\n",
-		"oci-images/control-plane.tar":          "fake control plane image",
-		"oci-images/appliance-ui.tar":           "fake appliance ui image",
-		"oci-images/appliance-host-service.tar": "fake appliance host service image",
+		"bin/zonctl-real":                     "fake zonctl binary",
+		"bin/helm":                            "fake helm binary",
+		"bin/appliance-host-agentd":           "fake appliance host agent daemon",
+		"k3s/binary/k3s":                      "fake k3s binary",
+		"charts/appliance-chart-2.4.0.tgz":    "fake appliance chart",
+		"configuration/values.yaml":           "replicaCount: 1\n",
+		"oci-images/control-plane.tar":        "fake control plane image",
+		"oci-images/appliance-ui.tar":         "fake appliance ui image",
+		"oci-images/appliance-host-agent.tar": "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -237,7 +240,7 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 			"path": rel, "digest": digest, "sizeBytes": len(content),
 		}
 		switch {
-		case rel == "bin/zonctl-real", rel == "bin/helm":
+		case rel == "bin/zonctl-real", rel == "bin/helm", rel == "bin/appliance-host-agentd":
 			entry["component"] = "appliance"
 		case rel == "k3s/binary/k3s":
 			entry["component"] = "k3s-binary"
@@ -253,8 +256,8 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 			entry["imageReference"] = "internal/control-plane:2.4.0"
 		case "oci-images/appliance-ui.tar":
 			entry["imageReference"] = "internal/appliance-ui:2.4.0"
-		case "oci-images/appliance-host-service.tar":
-			entry["imageReference"] = "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		case "oci-images/appliance-host-agent.tar":
+			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -308,8 +311,8 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 	if !strings.Contains(strings.Join(names, ","), "internal/appliance-ui:2.4.0") {
 		t.Fatalf("resolved OCI images missing UI reference: %v", names)
 	}
-	if !strings.Contains(strings.Join(names, ","), "registry.local/appliance-host-service@sha256:") {
-		t.Fatalf("resolved OCI images missing host service reference: %v", names)
+	if !strings.Contains(strings.Join(names, ","), "registry.local/appliance-host-agent@sha256:") {
+		t.Fatalf("resolved OCI images missing host agent reference: %v", names)
 	}
 }
 
@@ -325,11 +328,12 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 	files := map[string]string{
 		"bin/zonctl-real":                        "fake zonctl binary",
 		"bin/helm":                               "fake helm binary",
+		"bin/appliance-host-agentd":              "fake appliance host agent daemon",
 		"k3s/binary/k3s":                         "fake k3s binary",
 		"charts/argo-workflows-chart-3.5.10.tgz": "fake argo chart",
 		"charts/appliance-chart-2.4.0.tgz":       "fake appliance chart",
 		"configuration/values.yaml":              "replicaCount: 1\n",
-		"oci-images/appliance-host-service.tar":  "fake appliance host service image",
+		"oci-images/appliance-host-agent.tar":    "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -347,7 +351,7 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 		}
 		component := "configuration"
 		switch {
-		case rel == "bin/zonctl-real", rel == "bin/helm":
+		case rel == "bin/zonctl-real", rel == "bin/helm", rel == "bin/appliance-host-agentd":
 			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"
@@ -357,9 +361,9 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-service.tar" {
+		if rel == "oci-images/appliance-host-agent.tar" {
 			entry["component"] = "oci-images"
-			entry["imageReference"] = "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -412,11 +416,12 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 	files := map[string]string{
 		"bin/zonctl-real":                        "fake zonctl binary",
 		"bin/helm":                               "fake helm binary",
+		"bin/appliance-host-agentd":              "fake appliance host agent daemon",
 		"k3s/binary/k3s":                         "fake k3s binary",
 		"charts/argo-workflows-chart-3.5.10.tgz": "fake argo chart",
 		"charts/appliance-chart-2.4.0.tgz":       "fake appliance chart",
 		"configuration/values.yaml":              "replicaCount: 1\n",
-		"oci-images/appliance-host-service.tar":  "fake appliance host service image",
+		"oci-images/appliance-host-agent.tar":    "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -434,7 +439,7 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 		}
 		component := "configuration"
 		switch {
-		case rel == "bin/zonctl-real", rel == "bin/helm":
+		case rel == "bin/zonctl-real", rel == "bin/helm", rel == "bin/appliance-host-agentd":
 			component = "appliance"
 		case rel == "k3s/binary/k3s":
 			component = "k3s-binary"
@@ -444,9 +449,9 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-service.tar" {
+		if rel == "oci-images/appliance-host-agent.tar" {
 			entry["component"] = "oci-images"
-			entry["imageReference"] = "registry.local/appliance-host-service@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}

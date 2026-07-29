@@ -52,9 +52,9 @@ const (
 	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser). The wrapper
 	// image tees CoreDNS stdout/stderr into /data/zon/logs/dns.
 	DNSDirOwnerUID = 10004
-	// HostServiceDirOwnerUID is the fixed numeric identity for the in-cluster
-	// appliance host service pod.
-	HostServiceDirOwnerUID = 10005
+	// HostAgentDirOwnerUID is the fixed numeric identity for the in-cluster
+	// appliance host agent pod.
+	HostAgentDirOwnerUID = 10005
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -90,9 +90,11 @@ const (
 	// DNSLogDir is the host-visible LAN DNS (CoreDNS) log directory under
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
-	// HostServiceLogDir is the host-visible appliance host service log
-	// directory under the shared appliance log tree.
-	HostServiceLogDir = "/data/zon/logs/host-server"
+	// HostAgentLogDir is the host-visible appliance host agent log directory
+	// under the shared appliance log tree.
+	HostAgentLogDir = "/data/zon/logs/host-agent"
+	// HostAgentDaemonLog is the host-side daemon log file under HostAgentLogDir.
+	HostAgentDaemonLog = HostAgentLogDir + "/host-agentd.log"
 	// FileserverDir is the host-visible backing store for the authenticated
 	// control-plane files API (/api/v1/files). Owned by the control-plane UID
 	// with the shared fsGroup so the API pod can write and host users can
@@ -111,7 +113,7 @@ type OwnedDir struct {
 }
 
 // ServiceLogDirs returns the host-visible log directories the selected
-// capability set requires. Control-plane, UI, and the appliance host service
+// capability set requires. Control-plane, UI, and the appliance host agent
 // always exist; registry, files API backing store, workflow-controller, and
 // DNS logs are added only when those capabilities are enabled.
 func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedDir {
@@ -131,9 +133,9 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 			Mode:    ServiceLogDirMode,
 		},
 		{
-			CheckID: "host-server-log-directory-owned",
-			Path:    HostServiceLogDir,
-			UID:     HostServiceDirOwnerUID,
+			CheckID: "host-agent-log-directory-owned",
+			Path:    HostAgentLogDir,
+			UID:     HostAgentDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
 		},
@@ -181,16 +183,24 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 // re-chmod) in addition to ServiceLogDirs. Today this is only zot's
 // application.log, which upstream creates as 0600.
 func ServiceLogFiles(includeArtifact, _, _ bool) []OwnedDir {
+	files := []OwnedDir{{
+		CheckID: "host-agent-daemon-log-readable",
+		Path:    HostAgentDaemonLog,
+		UID:     0,
+		GID:     ApplianceSharedFSGID,
+		Mode:    ServiceLogFileMode,
+	}}
 	if !includeArtifact {
-		return nil
+		return files
 	}
-	return []OwnedDir{{
+	files = append(files, OwnedDir{
 		CheckID: "artifactserver-application-log-readable",
 		Path:    ArtifactServerApplicationLog,
 		UID:     RegistryDirOwnerUID,
 		GID:     ApplianceSharedFSGID,
 		Mode:    ServiceLogFileMode,
-	}}
+	})
+	return files
 }
 
 // WorkspaceDirMode is deliberately world-readable and world-writable

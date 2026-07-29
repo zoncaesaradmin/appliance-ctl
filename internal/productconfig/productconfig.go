@@ -170,7 +170,7 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 	}, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostServiceImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfile(profile, "")
 	if err != nil {
 		return "", func() {}, err
@@ -181,7 +181,7 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	}
 	workspaceProvisionerImageReference = strings.TrimSpace(workspaceProvisionerImageReference)
 	builderImageReference = strings.TrimSpace(builderImageReference)
-	hostServiceImageReference = strings.TrimSpace(hostServiceImageReference)
+	hostAgentImageReference = strings.TrimSpace(hostAgentImageReference)
 	zotImageReference := ""
 	if len(registry) > 0 {
 		zotImageReference = strings.TrimSpace(registry[0])
@@ -197,8 +197,8 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 	if HasCapability(effectiveProfile, CapabilityArtifact) && len(registry) > 0 && !validZotImageDigest(zotImageReference) {
 		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/zot@sha256 image reference; got %q", zotImageReference)
 	}
-	if HasCapability(effectiveProfile, CapabilityHost) && !validHostServiceImageDigest(hostServiceImageReference) {
-		return "", func() {}, fmt.Errorf("product config: host capability requires a bundled digest-pinned appliance host service image reference; got %q", hostServiceImageReference)
+	if HasCapability(effectiveProfile, CapabilityHost) && !validHostAgentImageDigest(hostAgentImageReference) {
+		return "", func() {}, fmt.Errorf("product config: host capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
 	}
 
 	data, err := os.ReadFile(baseValuesPath)
@@ -264,9 +264,9 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		config["serviceRegistry"] = map[string]any{
 			"services": []map[string]any{
 				{
-					"name":       "host-server",
+					"name":       "host-agent",
 					"capability": string(CapabilityHost),
-					"baseURL":    "http://host-server.control.svc.cluster.local:8080",
+					"baseURL":    "http://host-agent.control.svc.cluster.local:8080",
 					"routes": []map[string]any{
 						{
 							"method":       "GET",
@@ -338,20 +338,21 @@ func PrepareValuesFile(baseValuesPath, profile, buildCatalogPath, workspaceProvi
 		values["networkPolicy"] = networkPolicy
 	}
 
-	hostService, _ := values["hostService"].(map[string]any)
-	if hostService == nil {
-		hostService = map[string]any{}
+	hostAgent, _ := values["hostAgent"].(map[string]any)
+	if hostAgent == nil {
+		hostAgent = map[string]any{}
 	}
-	hostService["enabled"] = HasCapability(effectiveProfile, CapabilityHost)
-	imageConfig, _ := hostService["image"].(map[string]any)
+	hostAgent["enabled"] = HasCapability(effectiveProfile, CapabilityHost)
+	imageConfig, _ := hostAgent["image"].(map[string]any)
 	if imageConfig == nil {
 		imageConfig = map[string]any{}
 	}
 	if HasCapability(effectiveProfile, CapabilityHost) {
-		imageConfig["reference"] = hostServiceImageReference
+		imageConfig["reference"] = hostAgentImageReference
 	}
-	hostService["image"] = imageConfig
-	values["hostService"] = hostService
+	hostAgent["image"] = imageConfig
+	values["hostAgent"] = hostAgent
+	delete(values, "hostService")
 
 	rendered, err := yaml.Marshal(values)
 	if err != nil {
@@ -850,9 +851,9 @@ func validDNSImageDigest(image string) bool {
 	return digest != placeholderImageDigestHex
 }
 
-func validHostServiceImageDigest(image string) bool {
+func validHostAgentImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
-	if !strings.HasPrefix(image, "registry.local/appliance-host-service@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+	if !strings.HasPrefix(image, "registry.local/appliance-host-agent@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")
