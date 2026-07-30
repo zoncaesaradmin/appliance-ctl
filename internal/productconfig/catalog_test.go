@@ -9,7 +9,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 )
 
-func TestFileCatalogLoaderLoadsBuiltInCatalogDocument(t *testing.T) {
+func TestLoadCatalogLoadsBuiltInCatalogDocument(t *testing.T) {
 	document := productconfig.BuiltInCatalogDocument()
 	data, err := json.Marshal(document)
 	if err != nil {
@@ -21,15 +21,15 @@ func TestFileCatalogLoaderLoadsBuiltInCatalogDocument(t *testing.T) {
 		t.Fatalf("os.WriteFile: %v", err)
 	}
 
-	loader := productconfig.FileCatalogLoader{Path: path}
-	profile, err := productconfig.ResolveApplianceProfileWithLoader("builder-landns", "", loader)
+	catalog, err := productconfig.LoadCatalog(path)
 	if err != nil {
-		t.Fatalf("ResolveApplianceProfileWithLoader(builder-landns): %v", err)
+		t.Fatalf("LoadCatalog: %v", err)
 	}
-	modules, err := productconfig.ResolveModulesWithLoaders(profile, loader, loader, productconfig.AlwaysEntitled{})
+	profile, err := productconfig.ResolveApplianceProfileWithCatalog("builder-landns", "", catalog.Profiles)
 	if err != nil {
-		t.Fatalf("ResolveModulesWithLoaders: %v", err)
+		t.Fatalf("ResolveApplianceProfileWithCatalog(builder-landns): %v", err)
 	}
+	modules := productconfig.ResolveModulesWithCatalog(profile, catalog.Profiles, productconfig.AlwaysEntitled{}, catalog.Modules)
 	for _, moduleName := range []string{
 		productconfig.ModuleNameHostAgent,
 		productconfig.ModuleNameArtifactRegistry,

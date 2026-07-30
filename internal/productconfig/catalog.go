@@ -40,39 +40,10 @@ type CatalogRoute struct {
 	Permission   string `json:"permission"`
 }
 
-type ModuleCatalogLoader interface {
-	LoadModuleCatalog() ([]ModuleDescriptor, error)
-}
-
-type StaticModuleCatalogLoader struct {
-	Modules []ModuleDescriptor
-}
-
-func (l StaticModuleCatalogLoader) LoadModuleCatalog() ([]ModuleDescriptor, error) {
-	if l.Modules == nil {
-		return BuiltInModuleCatalog(), nil
-	}
-	return append([]ModuleDescriptor(nil), l.Modules...), nil
-}
-
-type FileCatalogLoader struct {
-	Path string
-}
-
-func (l FileCatalogLoader) LoadProfileCatalog() (ProfileCatalog, error) {
-	document, err := LoadCatalogDocumentFile(l.Path)
-	if err != nil {
-		return nil, err
-	}
-	return ProfileCatalogFromDocument(document)
-}
-
-func (l FileCatalogLoader) LoadModuleCatalog() ([]ModuleDescriptor, error) {
-	document, err := LoadCatalogDocumentFile(l.Path)
-	if err != nil {
-		return nil, err
-	}
-	return ModuleCatalogFromDocument(document)
+type LoadedCatalog struct {
+	Document CatalogDocument
+	Profiles ProfileCatalog
+	Modules  []ModuleDescriptor
 }
 
 func BuiltInCatalogDocument() CatalogDocument {
@@ -119,6 +90,35 @@ func BuiltInCatalogDocument() CatalogDocument {
 	}
 
 	return document
+}
+
+func LoadCatalog(path string) (LoadedCatalog, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return LoadedCatalog{
+			Document: BuiltInCatalogDocument(),
+			Profiles: BuiltInProfileCatalog(),
+			Modules:  BuiltInModuleCatalog(),
+		}, nil
+	}
+
+	document, err := LoadCatalogDocumentFile(path)
+	if err != nil {
+		return LoadedCatalog{}, err
+	}
+	profiles, err := ProfileCatalogFromDocument(document)
+	if err != nil {
+		return LoadedCatalog{}, err
+	}
+	modules, err := ModuleCatalogFromDocument(document)
+	if err != nil {
+		return LoadedCatalog{}, err
+	}
+	return LoadedCatalog{
+		Document: document,
+		Profiles: profiles,
+		Modules:  modules,
+	}, nil
 }
 
 func LoadCatalogDocumentFile(path string) (CatalogDocument, error) {

@@ -298,7 +298,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	importer := &images.Importer{Run: o.ImagesRun, Namespace: "k8s.io"}
-	imgs := append(append([]images.Image{}, resolved.K3sImages...), upgradeProfileOCIImages(resolved.OCIImages, resolved)...)
+	imgs := append(append([]images.Image{}, resolved.K3sImages...), resolved.FilterOCIImages(resolved.OCIImages)...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
@@ -658,8 +658,8 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
-			ZotVersion:   upgradeComponentZotVersion(resolved, resolved.Compatibility.ZotVersion),
-			DNSVersion:   upgradeComponentDNSVersion(resolved, resolved.Compatibility.DNSVersion),
+			ZotVersion:   resolved.ZotComponentVersion(resolved.Compatibility.ZotVersion),
+			DNSVersion:   resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -687,42 +687,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	return updated, checks, nil
-}
-
-func upgradeProfileOCIImages(all []images.Image, resolved install.Resolved) []images.Image {
-	out := make([]images.Image, 0, len(all))
-	for _, image := range all {
-		if image.Category == images.CategoryDependency {
-			if strings.HasPrefix(image.Name, "registry.local/zot@") &&
-				!resolved.ArtifactEnabled {
-				continue
-			}
-			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
-				!resolved.WorkflowsEnabled {
-				continue
-			}
-			if strings.HasPrefix(image.Name, "registry.local/coredns@") &&
-				!resolved.DNSEnabled {
-				continue
-			}
-		}
-		out = append(out, image)
-	}
-	return out
-}
-
-func upgradeComponentZotVersion(resolved install.Resolved, version string) string {
-	if resolved.ArtifactEnabled {
-		return version
-	}
-	return ""
-}
-
-func upgradeComponentDNSVersion(resolved install.Resolved, version string) string {
-	if resolved.DNSEnabled {
-		return version
-	}
-	return ""
 }
 
 // preferredUpgradeLocalIPv4 mirrors internal/install's preferredLocalIPv4:

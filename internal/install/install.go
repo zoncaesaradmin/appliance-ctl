@@ -438,7 +438,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
 
-	imgs := append(append([]images.Image{}, resolved.K3sImages...), profileOCIImages(resolved.OCIImages, resolved)...)
+	imgs := append(append([]images.Image{}, resolved.K3sImages...), resolved.FilterOCIImages(resolved.OCIImages)...)
 	preloadResult, err := importer.PreloadAll(ctx, imgs)
 	checks = append(checks, preloadResult.Checks...)
 	if err != nil {
@@ -685,8 +685,8 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,
-			ZotVersion:   componentZotVersion(resolved, resolved.Compatibility.ZotVersion),
-			DNSVersion:   componentDNSVersion(resolved, resolved.Compatibility.DNSVersion),
+			ZotVersion:   resolved.ZotComponentVersion(resolved.Compatibility.ZotVersion),
+			DNSVersion:   resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -709,42 +709,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	return installed, checks, nil
-}
-
-func profileOCIImages(all []images.Image, resolved Resolved) []images.Image {
-	out := make([]images.Image, 0, len(all))
-	for _, image := range all {
-		if image.Category == images.CategoryDependency {
-			if strings.HasPrefix(image.Name, "registry.local/zot@") &&
-				!resolved.ArtifactEnabled {
-				continue
-			}
-			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
-				!resolved.WorkflowsEnabled {
-				continue
-			}
-			if strings.HasPrefix(image.Name, "registry.local/coredns@") &&
-				!resolved.DNSEnabled {
-				continue
-			}
-		}
-		out = append(out, image)
-	}
-	return out
-}
-
-func componentZotVersion(resolved Resolved, version string) string {
-	if resolved.ArtifactEnabled {
-		return version
-	}
-	return ""
-}
-
-func componentDNSVersion(resolved Resolved, version string) string {
-	if resolved.DNSEnabled {
-		return version
-	}
-	return ""
 }
 
 // preferredLocalIPv4 returns the first candidate that parses as a literal

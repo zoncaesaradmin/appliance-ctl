@@ -1,7 +1,6 @@
 package productconfig_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,22 +252,6 @@ func TestResolveApplianceProfileWithCatalogUsesProvidedCatalog(t *testing.T) {
 	if !productconfig.HasCapabilityInCatalog(profile, productconfig.CapabilityHost, catalog) {
 		t.Fatal("custom profile should enable host")
 	}
-}
-
-func TestResolveApplianceProfileWithLoaderPropagatesLoaderError(t *testing.T) {
-	_, err := productconfig.ResolveApplianceProfileWithLoader("core", "", failingProfileCatalogLoader{})
-	if err == nil {
-		t.Fatal("ResolveApplianceProfileWithLoader should fail when the loader fails")
-	}
-	if !strings.Contains(err.Error(), "load appliance profile catalog") {
-		t.Fatalf("error = %q, want loader context", err)
-	}
-}
-
-type failingProfileCatalogLoader struct{}
-
-func (failingProfileCatalogLoader) LoadProfileCatalog() (productconfig.ProfileCatalog, error) {
-	return nil, errors.New("boom")
 }
 
 func TestResolveApplianceProfile_RejectsUnknownProfile(t *testing.T) {

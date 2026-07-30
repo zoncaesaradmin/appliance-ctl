@@ -116,37 +116,7 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 	}
 }
 
-func ResolveModules(profile string, evaluator EntitlementEvaluator, catalog []ModuleDescriptor) []ModuleDescriptor {
-	modules, err := ResolveModulesWithLoaders(profile, StaticProfileCatalogLoader{Catalog: builtInProfileCatalog}, StaticModuleCatalogLoader{Modules: catalog}, evaluator)
-	if err != nil {
-		return nil
-	}
-	return modules
-}
-
-func ResolveModulesWithLoaders(profile string, profileLoader ProfileCatalogLoader, moduleLoader ModuleCatalogLoader, evaluator EntitlementEvaluator) ([]ModuleDescriptor, error) {
-	if profileLoader == nil {
-		profileLoader = StaticProfileCatalogLoader{Catalog: builtInProfileCatalog}
-	}
-	if moduleLoader == nil {
-		moduleLoader = StaticModuleCatalogLoader{Modules: BuiltInModuleCatalog()}
-	}
-	profileCatalog, err := profileLoader.LoadProfileCatalog()
-	if err != nil {
-		return nil, err
-	}
-	moduleCatalog, err := moduleLoader.LoadModuleCatalog()
-	if err != nil {
-		return nil, err
-	}
-	return ResolveModulesWithCatalog(profile, profileCatalog, evaluator, moduleCatalog), nil
-}
-
 func ResolveModulesWithCatalog(profile string, profileCatalog ProfileCatalog, evaluator EntitlementEvaluator, catalog []ModuleDescriptor) []ModuleDescriptor {
-	return resolveModulesWithCatalog(profile, profileCatalog, evaluator, catalog)
-}
-
-func resolveModulesWithCatalog(profile string, profileCatalog ProfileCatalog, evaluator EntitlementEvaluator, catalog []ModuleDescriptor) []ModuleDescriptor {
 	if evaluator == nil {
 		evaluator = AlwaysEntitled{}
 	}

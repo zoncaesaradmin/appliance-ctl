@@ -48,21 +48,6 @@ type ProfileDefinition struct {
 
 type ProfileCatalog map[string]ProfileDefinition
 
-type ProfileCatalogLoader interface {
-	LoadProfileCatalog() (ProfileCatalog, error)
-}
-
-type StaticProfileCatalogLoader struct {
-	Catalog ProfileCatalog
-}
-
-func (l StaticProfileCatalogLoader) LoadProfileCatalog() (ProfileCatalog, error) {
-	if l.Catalog == nil {
-		return BuiltInProfileCatalog(), nil
-	}
-	return cloneProfileCatalog(l.Catalog), nil
-}
-
 var builtInProfileCatalog = ProfileCatalog{
 	ProfileCore:                 {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows}},
 	ProfileBuilder:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
@@ -128,18 +113,7 @@ var (
 )
 
 func ResolveApplianceProfile(requested, current string) (string, error) {
-	return ResolveApplianceProfileWithLoader(requested, current, StaticProfileCatalogLoader{Catalog: builtInProfileCatalog})
-}
-
-func ResolveApplianceProfileWithLoader(requested, current string, loader ProfileCatalogLoader) (string, error) {
-	if loader == nil {
-		loader = StaticProfileCatalogLoader{Catalog: builtInProfileCatalog}
-	}
-	catalog, err := loader.LoadProfileCatalog()
-	if err != nil {
-		return "", fmt.Errorf("load appliance profile catalog: %w", err)
-	}
-	return ResolveApplianceProfileWithCatalog(requested, current, catalog)
+	return ResolveApplianceProfileWithCatalog(requested, current, builtInProfileCatalog)
 }
 
 func ResolveApplianceProfileWithCatalog(requested, current string, catalog ProfileCatalog) (string, error) {
@@ -237,28 +211,16 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 }
 
 func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
-	catalogDocument := BuiltInCatalogDocument()
-	profileLoader := ProfileCatalogLoader(StaticProfileCatalogLoader{Catalog: builtInProfileCatalog})
-	moduleLoader := ModuleCatalogLoader(StaticModuleCatalogLoader{Modules: BuiltInModuleCatalog()})
-	if strings.TrimSpace(applianceCatalogPath) != "" {
-		document, err := LoadCatalogDocumentFile(applianceCatalogPath)
-		if err != nil {
-			return "", func() {}, err
-		}
-		catalogDocument = document
-		loader := FileCatalogLoader{Path: applianceCatalogPath}
-		profileLoader = loader
-		moduleLoader = loader
-	}
-
-	effectiveProfile, err := ResolveApplianceProfileWithLoader(profile, "", profileLoader)
+	catalog, err := LoadCatalog(applianceCatalogPath)
 	if err != nil {
 		return "", func() {}, err
 	}
-	resolvedModules, err := ResolveModulesWithLoaders(effectiveProfile, profileLoader, moduleLoader, AlwaysEntitled{})
+
+	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", catalog.Profiles)
 	if err != nil {
-		return "", func() {}, fmt.Errorf("product config: resolve modules: %w", err)
+		return "", func() {}, err
 	}
+	resolvedModules := ResolveModulesWithCatalog(effectiveProfile, catalog.Profiles, AlwaysEntitled{}, catalog.Modules)
 	hostAgentEnabled := HostAgentEnabled(resolvedModules)
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
@@ -307,7 +269,7 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
-	config["applianceCatalog"] = catalogDocument
+	config["applianceCatalog"] = catalog.Document
 	config["applianceName"] = identity.Name
 	config["dnsZoneName"] = identity.Zone
 	config["canonicalOrigin"] = "https://" + identity.FQDN
@@ -414,7 +376,6 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 	}
 	hostAgent["image"] = imageConfig
 	values["hostAgent"] = hostAgent
-	delete(values, "hostService")
 
 	rendered, err := yaml.Marshal(values)
 	if err != nil {

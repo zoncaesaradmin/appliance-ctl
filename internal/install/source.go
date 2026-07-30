@@ -113,31 +113,20 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
-	profileLoader := productconfig.ProfileCatalogLoader(productconfig.StaticProfileCatalogLoader{Catalog: productconfig.BuiltInProfileCatalog()})
-	moduleLoader := productconfig.ModuleCatalogLoader(productconfig.StaticModuleCatalogLoader{Modules: productconfig.BuiltInModuleCatalog()})
-	if strings.TrimSpace(catalogPath) != "" {
-		loader := productconfig.FileCatalogLoader{Path: catalogPath}
-		profileLoader = loader
-		moduleLoader = loader
-	}
-	profileCatalog, err := profileLoader.LoadProfileCatalog()
+	catalog, err := productconfig.LoadCatalog(catalogPath)
 	if err != nil {
-		return Resolved{}, checks, fmt.Errorf("install: load appliance profile catalog: %w", err)
+		return Resolved{}, checks, fmt.Errorf("install: load appliance catalog: %w", err)
 	}
-	effectiveProfile, err := productconfig.ResolveApplianceProfileWithCatalog(requestedProfile, "", profileCatalog)
+	effectiveProfile, err := productconfig.ResolveApplianceProfileWithCatalog(requestedProfile, "", catalog.Profiles)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
-	moduleCatalog, err := moduleLoader.LoadModuleCatalog()
-	if err != nil {
-		return Resolved{}, checks, fmt.Errorf("install: load appliance module catalog: %w", err)
-	}
-	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, profileCatalog, productconfig.AlwaysEntitled{}, moduleCatalog)
+	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, catalog.Profiles, productconfig.AlwaysEntitled{}, catalog.Modules)
 	hostEnabled := productconfig.HostAgentEnabled(resolvedModules)
 	artifactEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameArtifactRegistry)
 	dnsEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameLANDNS)
 	buildEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameBuild)
-	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, profileCatalog)
+	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, catalog.Profiles)
 
 	argoChartPath := ""
 	argoCRDPaths := []string(nil)
@@ -449,4 +438,41 @@ func applianceBinaryPath(b *bundle.Bundle, baseName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("bundle has no appliance entry named %s", baseName)
+}
+
+// FilterOCIImages removes dependency archives that the resolved module set
+// does not need, while preserving the original relative order of everything
+// else for deterministic preload behavior.
+func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
+	out := make([]images.Image, 0, len(all))
+	for _, image := range all {
+		if image.Category == images.CategoryDependency {
+			if strings.HasPrefix(image.Name, "registry.local/zot@") && !r.ArtifactEnabled {
+				continue
+			}
+			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
+				!r.WorkflowsEnabled {
+				continue
+			}
+			if strings.HasPrefix(image.Name, "registry.local/coredns@") && !r.DNSEnabled {
+				continue
+			}
+		}
+		out = append(out, image)
+	}
+	return out
+}
+
+func (r Resolved) ZotComponentVersion(version string) string {
+	if r.ArtifactEnabled {
+		return version
+	}
+	return ""
+}
+
+func (r Resolved) DNSComponentVersion(version string) string {
+	if r.DNSEnabled {
+		return version
+	}
+	return ""
 }
