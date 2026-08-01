@@ -78,12 +78,12 @@ type fixtureEntry struct {
 // release-manifest.json describing them, and a valid detached signature.
 func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 	t.Helper()
-	return buildFixtureBundleWithOptions(t, false, false)
+	return buildFixtureBundleWithOptions(t, false, true)
 }
 
 func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub verify.PublicKey) {
 	t.Helper()
-	return buildFixtureBundleWithOptions(t, includeArgo, false)
+	return buildFixtureBundleWithOptions(t, includeArgo, true)
 }
 
 func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackages bool) (dir string, pub verify.PublicKey) {

@@ -160,6 +160,9 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		}
 	}
 	hostPackagesRootDir := componentRootDir(b, "host-packages")
+	if hostPackagesRootDir == "" {
+		return Resolved{}, checks, fmt.Errorf("install: bundle has no host-packages artifact; offline installer-owned host capabilities such as mDNS require bundled host packages")
+	}
 
 	var k3sImages, ociImages []images.Image
 	for _, e := range b.Entries("k3s-images") {

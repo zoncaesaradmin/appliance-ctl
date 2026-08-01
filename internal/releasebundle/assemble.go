@@ -538,6 +538,9 @@ func validateInstallableBundle(entries []manifestEntry) error {
 	if counts["oci-images"] == 0 {
 		return fmt.Errorf("releasebundle: assembled bundle must include at least one oci-images archive")
 	}
+	if counts["host-packages"] == 0 {
+		return fmt.Errorf("releasebundle: assembled bundle must include bundled host-packages for installer-owned host capabilities such as mDNS")
+	}
 	return nil
 }
 

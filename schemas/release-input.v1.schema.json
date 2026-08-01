@@ -39,6 +39,7 @@
         "uiImage",
         "hostAgentImage",
         "hostAgentBinary",
+        "hostPackages",
         "applianceChart",
         "zotImage",
         "zotChart",
@@ -57,6 +58,10 @@
         "uiImage": { "$ref": "#/$defs/artifact" },
         "hostAgentImage": { "$ref": "#/$defs/artifact" },
         "hostAgentBinary": { "$ref": "#/$defs/artifact" },
+        "hostPackages": {
+          "$ref": "#/$defs/artifactDirectory",
+          "description": "Offline host package directory carrying bundled operating-system packages required by installer-owned host capabilities such as mDNS."
+        },
         "applianceChart": { "$ref": "#/$defs/artifact" },
         "zotImage": { "$ref": "#/$defs/artifact" },
         "zotChart": { "$ref": "#/$defs/artifact" },
@@ -69,10 +74,6 @@
         "provenance": { "$ref": "#/$defs/artifactDirectory" },
         "notices": { "$ref": "#/$defs/artifactDirectory" },
         "tests": { "$ref": "#/$defs/artifactDirectory" },
-        "hostPackages": {
-          "$ref": "#/$defs/artifactDirectory",
-          "description": "Optional offline host package directory carrying bundled operating-system packages required by installer-owned host capabilities such as mDNS."
-        },
         "argoWorkflowsChart": { "$ref": "#/$defs/artifact" },
         "argoCRDs": { "$ref": "#/$defs/artifactDirectory" },
         "argoControllerImage": { "$ref": "#/$defs/artifact" },

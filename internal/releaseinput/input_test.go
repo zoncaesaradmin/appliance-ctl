@@ -140,6 +140,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
 	writeFile(t, root, "appliance-host-agent.oci.tar.zst", "host-agent-bytes")
 	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
+	writeFile(t, root, "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", "avahi-deb")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
 	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
@@ -183,6 +184,7 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
 			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-bytes"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
+			"hostPackages":        map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
@@ -265,6 +267,7 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
 	writeFile(t, root, "appliance-host-agent.oci.tar.zst", "host-agent-bytes")
 	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
+	writeFile(t, root, "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", "avahi-deb")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
 	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
 	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
@@ -303,6 +306,7 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
 			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-bytes"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
+			"hostPackages":        map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
