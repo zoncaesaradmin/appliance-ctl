@@ -22,6 +22,7 @@ import (
 type Resolved struct {
 	BundleVersion    string
 	ReleaseID        string
+	HostBaseline     bundle.HostBaseline
 	Compatibility    bundle.Compatibility
 	EffectiveProfile string
 	CatalogPath      string
@@ -204,6 +205,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	return Resolved{
 		BundleVersion:                      b.BundleVersion,
 		ReleaseID:                          b.ReleaseID,
+		HostBaseline:                       b.HostBaseline,
 		Compatibility:                      b.Compatibility,
 		EffectiveProfile:                   effectiveProfile,
 		CatalogPath:                        catalogPath,

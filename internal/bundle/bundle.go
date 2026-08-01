@@ -43,6 +43,13 @@ type Compatibility struct {
 	SupportedUpgradeSources []string
 }
 
+// HostBaseline mirrors release-manifest.v1's hostBaseline block.
+type HostBaseline struct {
+	OS        string
+	OSVersion string
+	Arch      string
+}
+
 // Bundle is a verified, loaded air-gap release bundle. Every Entries()
 // path is guaranteed to exist under RootDir with a digest and size that
 // matched the signed manifest at load time.
@@ -50,6 +57,7 @@ type Bundle struct {
 	RootDir       string
 	BundleVersion string
 	ReleaseID     string
+	HostBaseline  HostBaseline
 	Compatibility Compatibility
 	entries       []Entry
 }
@@ -58,6 +66,11 @@ type manifestDoc struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	BundleVersion string `json:"bundleVersion"`
 	ReleaseID     string `json:"releaseId"`
+	HostBaseline  struct {
+		OS        string `json:"os"`
+		OSVersion string `json:"osVersion"`
+		Arch      string `json:"arch"`
+	} `json:"hostBaseline"`
 	Compatibility struct {
 		K3sVersion              string   `json:"k3sVersion"`
 		ChartVersion            string   `json:"chartVersion"`
@@ -113,6 +126,11 @@ func Load(rootDir string, pub *verify.PublicKey) (*Bundle, []evidence.Check, err
 		RootDir:       rootDir,
 		BundleVersion: doc.BundleVersion,
 		ReleaseID:     doc.ReleaseID,
+		HostBaseline: HostBaseline{
+			OS:        doc.HostBaseline.OS,
+			OSVersion: doc.HostBaseline.OSVersion,
+			Arch:      doc.HostBaseline.Arch,
+		},
 		Compatibility: Compatibility{
 			K3sVersion:              doc.Compatibility.K3sVersion,
 			ChartVersion:            doc.Compatibility.ChartVersion,

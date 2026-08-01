@@ -307,6 +307,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if overall := preflight.OverallStatus(preflightChecks); overall == preflight.StatusOperatorAction || overall == preflight.StatusUnsupported {
 		return nil, checks, failInstall(fmt.Errorf("install: preflight blocked with status %q; resolve reported findings before installing", overall), runRollbacks())
 	}
+	baselineCheck := CheckBundleHostBaseline(facts, resolved.HostBaseline)
+	checks = append(checks, baselineCheck)
+	if baselineCheck.Status != evidence.StatusPass {
+		return nil, checks, failInstall(fmt.Errorf("install: target host does not match the signed bundle baseline"), runRollbacks())
+	}
 	if resolved.HostPackagesRootDir != "" {
 		installHostPackages := o.InstallHostPackages
 		if installHostPackages == nil {

@@ -193,16 +193,18 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
-	var facts host.Facts
-	if resolved.HostPackagesRootDir != "" {
-		detectHost := o.DetectHost
-		if detectHost == nil {
-			detectHost = host.Detect
-		}
-		facts, err = detectHost(host.Options{DataDir: opts.K3sDataDir})
-		if err != nil {
-			return nil, checks, fmt.Errorf("upgrade: detect host: %w", err)
-		}
+	detectHost := o.DetectHost
+	if detectHost == nil {
+		detectHost = host.Detect
+	}
+	facts, err := detectHost(host.Options{DataDir: opts.K3sDataDir})
+	if err != nil {
+		return nil, checks, fmt.Errorf("upgrade: detect host: %w", err)
+	}
+	baselineCheck := install.CheckBundleHostBaseline(facts, resolved.HostBaseline)
+	checks = append(checks, baselineCheck)
+	if baselineCheck.Status != evidence.StatusPass {
+		return nil, checks, fmt.Errorf("upgrade: target host does not match the signed bundle baseline")
 	}
 	// Always include the derived FQDN even when the CLI computed TLSSANs before
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).

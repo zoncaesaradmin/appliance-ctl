@@ -64,6 +64,15 @@ func healthyHostFactsWithK3SPortsInUse(host.Options) (host.Facts, error) {
 	return facts, nil
 }
 
+func ubuntu2204HostFacts(host.Options) (host.Facts, error) {
+	facts, err := healthyHostFacts(host.Options{})
+	if err != nil {
+		return host.Facts{}, err
+	}
+	facts.OSVersion = "22.04"
+	return facts, nil
+}
+
 // fixtureEntry is one file the fixture bundle writes and describes in its
 // manifest.
 type fixtureEntry struct {
@@ -646,6 +655,50 @@ func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 	}
 	if !sawEvidence {
 		t.Fatal("expected host-mdns-installed evidence check")
+	}
+}
+
+func TestInstall_RefusesHostWhenBundleBaselineDoesNotMatch(t *testing.T) {
+	dir, pub := buildFixtureBundleWithOptions(t, false, true)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	var installHostPackagesCalled bool
+	orch := &install.Orchestrator{
+		K3s:        fk3s.ops(),
+		ImagesRun:  fcli.Run,
+		HelmRun:    fcli.Run,
+		ClusterRun: fcli.Run,
+		DetectHost: ubuntu2204HostFacts,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			return nil
+		},
+		InstallHostPackages: func(hostpackages.InstallSpec) (func() error, error) {
+			installHostPackagesCalled = true
+			return func() error { return nil }, nil
+		},
+	}
+
+	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil || !strings.Contains(err.Error(), "signed bundle baseline") {
+		t.Fatalf("expected exact bundle baseline mismatch failure, got: %v", err)
+	}
+	if installHostPackagesCalled {
+		t.Fatal("did not expect InstallHostPackages after a bundle baseline mismatch")
+	}
+	var sawMismatch bool
+	for _, check := range checks {
+		if check.ID == "bundle-host-baseline-match" && check.Status != "" {
+			sawMismatch = true
+			break
+		}
+	}
+	if !sawMismatch {
+		t.Fatalf("expected bundle-host-baseline-match evidence, got %+v", checks)
+	}
+	if len(fcli.calls) != 0 {
+		t.Fatalf("expected no CLI mutations before baseline refusal, got %v", fcli.calls)
 	}
 }
 

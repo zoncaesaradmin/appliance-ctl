@@ -29,6 +29,26 @@ type bundleSpec struct {
 	supportedSources []string
 }
 
+func healthyUpgradeHostFacts(host.Options) (host.Facts, error) {
+	return host.Facts{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"}, nil
+}
+
+func ubuntu2204UpgradeHostFacts(host.Options) (host.Facts, error) {
+	return host.Facts{OS: "ubuntu", OSVersion: "22.04", Arch: "amd64"}, nil
+}
+
+func newUpgradeOrchestrator(fake *fakeK3s, fcli *fakeCLI) *upgrade.Orchestrator {
+	return &upgrade.Orchestrator{
+		K3s:        fake.ops(),
+		ImagesRun:  fcli.Run,
+		HelmRun:    fcli.Run,
+		DetectHost: healthyUpgradeHostFacts,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			return nil
+		},
+	}
+}
+
 func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKey) {
 	t.Helper()
 	dir = t.TempDir()
@@ -290,7 +310,7 @@ func TestUpgrade_SupportedSourceMatrix(t *testing.T) {
 
 			fake := &fakeK3s{}
 			fcli := &fakeCLI{}
-			orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+			orch := newUpgradeOrchestrator(fake, fcli)
 
 			offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 			updated, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
@@ -313,7 +333,7 @@ func TestUpgrade_UsesBundleVersionAsTargetVersion(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	updated, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("v9.9.9"))
@@ -339,21 +359,11 @@ func TestUpgrade_InstallsBundledHostPackages(t *testing.T) {
 	fcli := &fakeCLI{}
 	var called bool
 	var gotSpecRoot string
-	orch := &upgrade.Orchestrator{
-		K3s:       fake.ops(),
-		ImagesRun: fcli.Run,
-		HelmRun:   fcli.Run,
-		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
-			return nil
-		},
-		DetectHost: func(host.Options) (host.Facts, error) {
-			return host.Facts{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"}, nil
-		},
-		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
-			called = true
-			gotSpecRoot = spec.RootDir
-			return func() error { return nil }, nil
-		},
+	orch := newUpgradeOrchestrator(fake, fcli)
+	orch.InstallHostPackages = func(spec hostpackages.InstallSpec) (func() error, error) {
+		called = true
+		gotSpecRoot = spec.RootDir
+		return func() error { return nil }, nil
 	}
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
@@ -380,6 +390,46 @@ func TestUpgrade_InstallsBundledHostPackages(t *testing.T) {
 	}
 }
 
+func TestUpgrade_RefusesHostWhenBundleBaselineDoesNotMatch(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	var installHostPackagesCalled bool
+	orch := newUpgradeOrchestrator(fake, fcli)
+	orch.DetectHost = ubuntu2204UpgradeHostFacts
+	orch.InstallHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
+		installHostPackagesCalled = true
+		return func() error { return nil }, nil
+	}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	_, checks, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
+	if err == nil || !strings.Contains(err.Error(), "signed bundle baseline") {
+		t.Fatalf("expected exact bundle baseline mismatch failure, got: %v", err)
+	}
+	if installHostPackagesCalled {
+		t.Fatal("did not expect InstallHostPackages after a bundle baseline mismatch")
+	}
+	var sawMismatch bool
+	for _, check := range checks {
+		if check.ID == "bundle-host-baseline-match" {
+			sawMismatch = true
+			break
+		}
+	}
+	if !sawMismatch {
+		t.Fatalf("expected bundle-host-baseline-match evidence, got %+v", checks)
+	}
+	if len(fake.calls) != 0 || len(fcli.calls) != 0 {
+		t.Fatalf("expected no mutations before baseline refusal, got k3s=%v cli=%v", fake.calls, fcli.calls)
+	}
+}
+
 func TestUpgrade_PreservesInstalledApplianceProfileWhenFlagOmitted(t *testing.T) {
 	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "storage")
 	bundleDir, pub := buildBundle(t, bundleSpec{
@@ -389,7 +439,7 @@ func TestUpgrade_PreservesInstalledApplianceProfileWhenFlagOmitted(t *testing.T)
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	updated, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
@@ -414,7 +464,7 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	updated, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
@@ -455,7 +505,7 @@ func TestUpgrade_RefusesUnsupportedSource(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	_, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
@@ -482,7 +532,7 @@ func TestUpgrade_FailedChartApplyRollsBackToPreUpgradeBackup(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{failOn: map[string]bool{"upgrade --install": true}}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	_, checks, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
@@ -530,7 +580,7 @@ func TestUpgrade_PreserveFailedStateSkipsRollbackOnChartFailure(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{failOn: map[string]bool{"upgrade --install": true}}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	opts := env.options("2.4.0")
 	opts.PreserveFailedState = true
@@ -563,7 +613,7 @@ func TestUpgrade_RecreatesNamespaceAfterPriorTermination(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{namespaceTerminating: true}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	if _, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0")); err != nil {
@@ -591,7 +641,7 @@ func TestUpgrade_FailedChartApplyCleansInstallerManagedSecret(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{failOn: map[string]bool{"upgrade --install": true}}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	if _, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0")); err == nil {
@@ -629,7 +679,7 @@ func TestUpgrade_HTTPSSourcesDoNotCreateSourceCredentialSecrets(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	opts := env.options("2.4.0")
 	opts.BuildCatalogPath = buildCatalogPath
@@ -654,7 +704,7 @@ func TestUpgrade_PreservedIdentityIncludedInTLSSANs(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	opts := env.options("2.4.0")
 	// Simulate CLI upgrade with omitted identity flags: SANs computed without FQDN.
@@ -690,7 +740,7 @@ func TestUpgrade_ArtifactProfileUsesApplianceIdentityForRegistry(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	opts := env.options("2.4.0")
 	opts.ApplianceProfile = "storage"
@@ -729,7 +779,10 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 			fcli := &fakeCLI{}
 			ownedPaths := map[string][2]int{}
 			orch := &upgrade.Orchestrator{
-				K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run,
+				K3s:        fake.ops(),
+				ImagesRun:  fcli.Run,
+				HelmRun:    fcli.Run,
+				DetectHost: healthyUpgradeHostFacts,
 				EnsureOwnedDir: func(path string, uid, gid int, _ os.FileMode) error {
 					ownedPaths[path] = [2]int{uid, gid}
 					return nil
@@ -787,7 +840,7 @@ func TestUpgrade_RefusesArtifactCapabilityRemoval(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	opts := env.options("2.4.0")
 	opts.ApplianceProfile = "core"
@@ -813,7 +866,7 @@ func TestUpgrade_RefusesDNSCapabilityRemoval(t *testing.T) {
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	opts := env.options("2.4.0")
 	opts.ApplianceProfile = "core"
@@ -839,7 +892,7 @@ func TestUpgrade_RegistryFailureAfterArtifactEnablementUninstallsFreshRelease(t 
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{failOn: map[string]bool{"upgrade --install appliance-registry": true}}
-	orch := &upgrade.Orchestrator{K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	orch := newUpgradeOrchestrator(fake, fcli)
 
 	opts := env.options("2.4.0")
 	opts.ApplianceProfile = "storage"
@@ -875,7 +928,10 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 	fcli := &fakeCLI{}
 	ownedPaths := map[string][2]int{}
 	orch := &upgrade.Orchestrator{
-		K3s: fake.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run,
+		K3s:        fake.ops(),
+		ImagesRun:  fcli.Run,
+		HelmRun:    fcli.Run,
+		DetectHost: healthyUpgradeHostFacts,
 		EnsureOwnedDir: func(path string, uid, gid int, _ os.FileMode) error {
 			ownedPaths[path] = [2]int{uid, gid}
 			return nil

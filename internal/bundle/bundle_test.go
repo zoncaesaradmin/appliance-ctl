@@ -74,6 +74,9 @@ func TestLoad_ValidBundle(t *testing.T) {
 	if b.BundleVersion != "2.4.0" {
 		t.Errorf("expected bundle version 2.4.0, got %s", b.BundleVersion)
 	}
+	if b.HostBaseline.OS != "ubuntu" || b.HostBaseline.OSVersion != "24.04" || b.HostBaseline.Arch != "amd64" {
+		t.Errorf("unexpected host baseline: %+v", b.HostBaseline)
+	}
 	if len(checks) == 0 {
 		t.Error("expected at least one evidence check")
 	}

@@ -104,6 +104,9 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	if resolved.BundleVersion != "2.4.0" {
 		t.Fatalf("expected bundle version 2.4.0, got %s", resolved.BundleVersion)
 	}
+	if resolved.HostBaseline.OS != "ubuntu" || resolved.HostBaseline.OSVersion != "24.04" || resolved.HostBaseline.Arch != "amd64" {
+		t.Fatalf("unexpected host baseline: %+v", resolved.HostBaseline)
+	}
 	if filepath.Base(resolved.ZonctlBinaryPath) != "zonctl-real" {
 		t.Fatalf("expected zonctl-real to be selected, got %s", resolved.ZonctlBinaryPath)
 	}
