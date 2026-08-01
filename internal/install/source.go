@@ -43,6 +43,7 @@ type Resolved struct {
 	ArgoCRDPaths        []string
 	ConfigurationPath   string
 	HostAgentBinaryPath string
+	HostPackagesRootDir string
 	// WorkspaceProvisionerImageReference is the appliance-owned generic
 	// image used by builder workspace provisioning workflows.
 	WorkspaceProvisionerImageReference string
@@ -158,6 +159,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
+	hostPackagesRootDir := componentRootDir(b, "host-packages")
 
 	var k3sImages, ociImages []images.Image
 	for _, e := range b.Entries("k3s-images") {
@@ -217,6 +219,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ArgoCRDPaths:                       argoCRDPaths,
 		ConfigurationPath:                  configurationPath,
 		HostAgentBinaryPath:                hostAgentBinaryPath,
+		HostPackagesRootDir:                hostPackagesRootDir,
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
 		BuilderImageReference:              builderImageReference,
 		HostAgentImageReference:            hostAgentImageReference,
@@ -438,6 +441,14 @@ func applianceBinaryPath(b *bundle.Bundle, baseName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("bundle has no appliance entry named %s", baseName)
+}
+
+func componentRootDir(b *bundle.Bundle, component string) string {
+	entries := b.Entries(component)
+	if len(entries) == 0 {
+		return ""
+	}
+	return filepath.Join(b.RootDir, component)
 }
 
 // FilterOCIImages removes dependency archives that the resolved module set

@@ -15,9 +15,11 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
@@ -94,10 +96,12 @@ type Orchestrator struct {
 	// PersistentVolume with the correct owner; see internal/hostdirs.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
 	// EnsureOwnedFile reseeds operator-facing log files to a host-readable mode.
-	EnsureOwnedFile  func(path string, uid, gid int, perm os.FileMode) error
-	PrepareHostDNS   func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
-	RestoreHostDNS   func() error
-	InstallHostAgent func(hostagent.InstallSpec) (func() error, error)
+	EnsureOwnedFile     func(path string, uid, gid int, perm os.FileMode) error
+	PrepareHostDNS      func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
+	RestoreHostDNS      func() error
+	DetectHost          func(host.Options) (host.Facts, error)
+	InstallHostAgent    func(hostagent.InstallSpec) (func() error, error)
+	InstallHostPackages func(hostpackages.InstallSpec) (func() error, error)
 }
 
 // NewOrchestrator wires an Orchestrator to the real adapters.
@@ -110,9 +114,11 @@ func NewOrchestrator() *Orchestrator {
 		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedFile(path, uid, gid, perm, os.Chown)
 		},
-		PrepareHostDNS:   hostdns.Prepare,
-		RestoreHostDNS:   hostdns.Restore,
-		InstallHostAgent: hostagent.InstallOrUpdate,
+		PrepareHostDNS:      hostdns.Prepare,
+		RestoreHostDNS:      hostdns.Restore,
+		DetectHost:          host.Detect,
+		InstallHostAgent:    hostagent.InstallOrUpdate,
+		InstallHostPackages: hostpackages.InstallRequiredPackages,
 	}
 }
 
@@ -186,6 +192,17 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	identity, err := productconfig.ResolveApplianceIdentity(applianceName, dnsZone)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
+	}
+	var facts host.Facts
+	if resolved.HostPackagesRootDir != "" {
+		detectHost := o.DetectHost
+		if detectHost == nil {
+			detectHost = host.Detect
+		}
+		facts, err = detectHost(host.Options{DataDir: opts.K3sDataDir})
+		if err != nil {
+			return nil, checks, fmt.Errorf("upgrade: detect host: %w", err)
+		}
 	}
 	// Always include the derived FQDN even when the CLI computed TLSSANs before
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
@@ -261,6 +278,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 
 	binaryReverted := false
 	restoreHostDNSOnRollback := false
+	var hostPackagesRollback func() error
 	var hostAgentRollback func() error
 	rollback := func() []evidence.Check {
 		var rc []evidence.Check
@@ -274,6 +292,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 		if restoreHostDNSOnRollback && o.RestoreHostDNS != nil {
 			if err := o.RestoreHostDNS(); err != nil {
+				rollbackErrs = append(rollbackErrs, err)
+			}
+		}
+		if hostPackagesRollback != nil {
+			if err := hostPackagesRollback(); err != nil {
 				rollbackErrs = append(rollbackErrs, err)
 			}
 		}
@@ -386,6 +409,30 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	checks = append(checks, binaryCheck)
+	if resolved.HostPackagesRootDir != "" {
+		installHostPackages := o.InstallHostPackages
+		if installHostPackages == nil {
+			installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
+				return func() error { return nil }, nil
+			}
+		}
+		hostPackagesRollback, err = installHostPackages(hostpackages.InstallSpec{
+			RootDir:   resolved.HostPackagesRootDir,
+			OS:        facts.OS,
+			OSVersion: facts.OSVersion,
+			Arch:      facts.Arch,
+		})
+		if err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host packages: %w", err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		checks = append(checks, evidence.Check{
+			ID: "host-mdns-installed", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("installed bundled host mDNS packages from %s and enabled avahi-daemon", resolved.HostPackagesRootDir),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,

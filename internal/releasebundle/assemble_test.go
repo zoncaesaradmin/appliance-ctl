@@ -31,22 +31,23 @@ func buildReleaseInputDir(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"control-plane.oci.tar.zst":            "control-plane",
-		"appliance-ui.oci.tar.zst":             "ui-image",
-		"appliance-host-agent.oci.tar.zst":     "host-agent-image",
-		"appliance-host-agentd":                "host-agentd",
-		"appliance-chart-2.4.0.tgz":            "chart",
-		"zot.oci.tar.zst":                      "zot-image",
-		"appliance-registry-2.1.7.tgz":         "zot-chart",
-		"coredns.oci.tar.zst":                  "dns-image",
-		"appliance-dns-1.14.4.tgz":             "dns-chart",
-		"configuration.schema.json":            `{"type":"object"}`,
-		"compatibility.json":                   `{"k3sVersion":"v1.30.4+k3s1"}`,
-		"checksums.txt":                        "checksums",
-		"sbom/appliance.spdx.json":             "{}",
-		"provenance/appliance.provenance.json": "{}",
-		"notices/THIRD-PARTY-NOTICES.txt":      "notice",
-		"tests/conformance.tar.zst":            "tests",
+		"control-plane.oci.tar.zst":                         "control-plane",
+		"appliance-ui.oci.tar.zst":                          "ui-image",
+		"appliance-host-agent.oci.tar.zst":                  "host-agent-image",
+		"appliance-host-agentd":                             "host-agentd",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "avahi-deb",
+		"appliance-chart-2.4.0.tgz":                         "chart",
+		"zot.oci.tar.zst":                                   "zot-image",
+		"appliance-registry-2.1.7.tgz":                      "zot-chart",
+		"coredns.oci.tar.zst":                               "dns-image",
+		"appliance-dns-1.14.4.tgz":                          "dns-chart",
+		"configuration.schema.json":                         `{"type":"object"}`,
+		"compatibility.json":                                `{"k3sVersion":"v1.30.4+k3s1"}`,
+		"checksums.txt":                                     "checksums",
+		"sbom/appliance.spdx.json":                          "{}",
+		"provenance/appliance.provenance.json":              "{}",
+		"notices/THIRD-PARTY-NOTICES.txt":                   "notice",
+		"tests/conformance.tar.zst":                         "tests",
 	}
 	for rel, content := range files {
 		writeTestFile(t, root, rel, content, 0o640)
@@ -77,6 +78,7 @@ func buildReleaseInputDir(t *testing.T) string {
 			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-image"), "imageReference": "internal/appliance-ui:2.4.0"},
 			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-image"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd")},
+			"hostPackages":        map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart")},
 			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
@@ -180,6 +182,9 @@ func TestAssembleAndVerifyBundle(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "bin", "appliance-host-agentd")); err != nil {
 		t.Fatalf("expected host-agent binary to be carried into the bundle: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "host-packages", "ubuntu", "24.04", "amd64", "avahi-daemon.deb")); err != nil {
+		t.Fatalf("expected host packages to be carried into the bundle: %v", err)
 	}
 }
 

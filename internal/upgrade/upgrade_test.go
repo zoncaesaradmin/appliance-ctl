@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -21,10 +23,11 @@ import (
 )
 
 type bundleSpec struct {
-	bundleVersion    string
-	k3sVersion       string
-	chartVersion     string
-	supportedSources []string
+	bundleVersion       string
+	k3sVersion          string
+	chartVersion        string
+	supportedSources    []string
+	includeHostPackages bool
 }
 
 func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKey) {
@@ -52,6 +55,16 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image " + spec.bundleVersion, "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/zot.tar", "oci-images", "fake zot image " + spec.bundleVersion, "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/appliance-coredns.tar", "oci-images", "fake appliance coredns image " + spec.bundleVersion, "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+	}
+	if spec.includeHostPackages {
+		entries = append(entries, struct {
+			relPath        string
+			component      string
+			content        string
+			imageReference string
+		}{
+			relPath: "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", component: "host-packages", content: "fake avahi deb",
+		})
 	}
 
 	var manifestEntries []map[string]any
@@ -315,6 +328,58 @@ func TestUpgrade_UsesBundleVersionAsTargetVersion(t *testing.T) {
 	}
 	if updated.LastOperation.TargetVersion != "2.4.0" {
 		t.Fatalf("expected target version from bundle, got %s", updated.LastOperation.TargetVersion)
+	}
+}
+
+func TestUpgrade_InstallsBundledHostPackages(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"}, includeHostPackages: true,
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	var called bool
+	var gotSpecRoot string
+	orch := &upgrade.Orchestrator{
+		K3s:       fake.ops(),
+		ImagesRun: fcli.Run,
+		HelmRun:   fcli.Run,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			return nil
+		},
+		DetectHost: func(host.Options) (host.Facts, error) {
+			return host.Facts{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"}, nil
+		},
+		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
+			called = true
+			gotSpecRoot = spec.RootDir
+			return func() error { return nil }, nil
+		},
+	}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	_, checks, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
+	if err != nil {
+		t.Fatalf("expected upgrade to succeed, got: %v", err)
+	}
+	if !called {
+		t.Fatal("expected InstallHostPackages to be called")
+	}
+	wantRoot := filepath.Join(bundleDir, "host-packages")
+	if gotSpecRoot != wantRoot {
+		t.Fatalf("InstallHostPackages root = %q, want %q", gotSpecRoot, wantRoot)
+	}
+	var sawEvidence bool
+	for _, check := range checks {
+		if check.ID == "host-mdns-installed" {
+			sawEvidence = true
+			break
+		}
+	}
+	if !sawEvidence {
+		t.Fatal("expected host-mdns-installed evidence check")
 	}
 }
 

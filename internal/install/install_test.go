@@ -16,6 +16,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
@@ -77,10 +78,15 @@ type fixtureEntry struct {
 // release-manifest.json describing them, and a valid detached signature.
 func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 	t.Helper()
-	return buildFixtureBundleWithArgo(t, false)
+	return buildFixtureBundleWithOptions(t, false, false)
 }
 
 func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub verify.PublicKey) {
+	t.Helper()
+	return buildFixtureBundleWithOptions(t, includeArgo, false)
+}
+
+func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackages bool) (dir string, pub verify.PublicKey) {
 	t.Helper()
 	dir = t.TempDir()
 
@@ -108,6 +114,11 @@ func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub
 			fixtureEntry{"kubernetes/crds/workflows.argoproj.io.yaml", "kubernetes-crds", "kind: CustomResourceDefinition\n", ""},
 			fixtureEntry{"oci-images/argo-controller.tar", "oci-images", "fake argo controller image tar", "quay.io/argoproj/workflow-controller:v3.5.10"},
 			fixtureEntry{"oci-images/argo-executor.tar", "oci-images", "fake argo executor image tar", "quay.io/argoproj/argoexec:v3.5.10"},
+		)
+	}
+	if includeHostPackages {
+		entries = append(entries,
+			fixtureEntry{"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", "host-packages", "fake avahi deb", ""},
 		)
 	}
 
@@ -585,6 +596,56 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
+	}
+}
+
+func TestInstall_InstallsBundledHostPackages(t *testing.T) {
+	dir, pub := buildFixtureBundleWithOptions(t, false, true)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	var called bool
+	var gotSpecRoot string
+	orch := &install.Orchestrator{
+		K3s:        fk3s.ops(),
+		ImagesRun:  fcli.Run,
+		HelmRun:    fcli.Run,
+		ClusterRun: fcli.Run,
+		DetectHost: healthyHostFacts,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			return nil
+		},
+		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
+			called = true
+			gotSpecRoot = spec.RootDir
+			if spec.OS != "ubuntu" || spec.OSVersion != "24.04" || spec.Arch != "amd64" {
+				t.Fatalf("unexpected host package spec: %+v", spec)
+			}
+			return func() error { return nil }, nil
+		},
+	}
+
+	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("expected host package install to succeed, got: %v", err)
+	}
+	if !called {
+		t.Fatal("expected InstallHostPackages to be called")
+	}
+	wantRoot := filepath.Join(dir, "host-packages")
+	if gotSpecRoot != wantRoot {
+		t.Fatalf("InstallHostPackages root = %q, want %q", gotSpecRoot, wantRoot)
+	}
+	var sawEvidence bool
+	for _, check := range checks {
+		if check.ID == "host-mdns-installed" {
+			sawEvidence = true
+			break
+		}
+	}
+	if !sawEvidence {
+		t.Fatal("expected host-mdns-installed evidence check")
 	}
 }
 

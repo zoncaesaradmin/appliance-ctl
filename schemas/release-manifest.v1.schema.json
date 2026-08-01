@@ -28,7 +28,7 @@
       "required": ["os", "osVersion", "arch"],
       "properties": {
         "os": { "const": "ubuntu" },
-        "osVersion": { "const": "24.04" },
+        "osVersion": { "enum": ["22.04", "24.04"] },
         "arch": { "const": "amd64" }
       }
     },
@@ -77,7 +77,8 @@
         "provenance",
         "notices",
         "public-keys",
-        "tests"
+        "tests",
+        "host-packages"
       ]
     },
     "entry": {

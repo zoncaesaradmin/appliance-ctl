@@ -267,6 +267,11 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.Tests.Path, "tests", &manifestEntries); err != nil {
 		return Result{}, err
 	}
+	if input.Artifacts.HostPackages.Path != "" {
+		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.HostPackages.Path, "host-packages", &manifestEntries); err != nil {
+			return Result{}, err
+		}
+	}
 
 	pubEntry, err := describeFile(filepath.Join(cfg.BundleDir, publicKeyTarget), publicKeyTarget, "public-keys", false, "")
 	if err != nil {
@@ -407,7 +412,7 @@ func validateConfiguredEntry(entry EntryConfig) error {
 		return fmt.Errorf("releasebundle: every entry requires sourcePath, targetPath, and component")
 	}
 	switch entry.Component {
-	case "appliance", "k3s-binary", "k3s-install", "k3s-images", "oci-images", "chart", "kubernetes-crds", "configuration", "scanner-data", "sbom", "provenance", "notices", "public-keys", "tests":
+	case "appliance", "k3s-binary", "k3s-install", "k3s-images", "oci-images", "chart", "kubernetes-crds", "configuration", "scanner-data", "sbom", "provenance", "notices", "public-keys", "tests", "host-packages":
 	default:
 		return fmt.Errorf("releasebundle: unsupported component %q", entry.Component)
 	}

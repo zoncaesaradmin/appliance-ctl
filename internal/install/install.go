@@ -19,6 +19,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
@@ -145,8 +146,9 @@ type Orchestrator struct {
 	// the stub (and MagicDNS) is gone. Tests leave this nil as a no-op.
 	PrepareHostDNS func(hostdns.PrepareConfig) (hostdns.PrepareResult, error)
 	// RestoreHostDNS undoes PrepareHostDNS on rollback/uninstall.
-	RestoreHostDNS   func() error
-	InstallHostAgent func(hostagent.InstallSpec) (func() error, error)
+	RestoreHostDNS      func() error
+	InstallHostAgent    func(hostagent.InstallSpec) (func() error, error)
+	InstallHostPackages func(hostpackages.InstallSpec) (func() error, error)
 }
 
 // NewOrchestrator wires an Orchestrator to the real K3s, ctr, helm/kubectl,
@@ -160,9 +162,10 @@ func NewOrchestrator() *Orchestrator {
 		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedFile(path, uid, gid, perm, os.Chown)
 		},
-		PrepareHostDNS:   hostdns.Prepare,
-		RestoreHostDNS:   hostdns.Restore,
-		InstallHostAgent: hostagent.InstallOrUpdate,
+		PrepareHostDNS:      hostdns.Prepare,
+		RestoreHostDNS:      hostdns.Restore,
+		InstallHostAgent:    hostagent.InstallOrUpdate,
+		InstallHostPackages: hostpackages.InstallRequiredPackages,
 	}
 }
 
@@ -303,6 +306,29 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	checks = append(checks, toEvidenceChecks(preflightChecks)...)
 	if overall := preflight.OverallStatus(preflightChecks); overall == preflight.StatusOperatorAction || overall == preflight.StatusUnsupported {
 		return nil, checks, failInstall(fmt.Errorf("install: preflight blocked with status %q; resolve reported findings before installing", overall), runRollbacks())
+	}
+	if resolved.HostPackagesRootDir != "" {
+		installHostPackages := o.InstallHostPackages
+		if installHostPackages == nil {
+			installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
+				return func() error { return nil }, nil
+			}
+		}
+		hostPackagesRollback, err := installHostPackages(hostpackages.InstallSpec{
+			RootDir:   resolved.HostPackagesRootDir,
+			OS:        facts.OS,
+			OSVersion: facts.OSVersion,
+			Arch:      facts.Arch,
+		})
+		if err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: install host packages: %w", err), runRollbacks())
+		}
+		rollbacks = append(rollbacks, hostPackagesRollback)
+		checks = append(checks, evidence.Check{
+			ID: "host-mdns-installed", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("installed bundled host mDNS packages from %s and enabled avahi-daemon", resolved.HostPackagesRootDir),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
 	}
 
 	existing, err := state.Load(opts.InstalledStatePath)

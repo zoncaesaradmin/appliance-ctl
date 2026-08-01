@@ -4,7 +4,7 @@
   "releaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
   "hostBaseline": {
     "os": "ubuntu",
-    "osVersion": "22.04",
+    "osVersion": "20.04",
     "arch": "amd64"
   },
   "builtAt": "2026-06-02T03:00:00Z",

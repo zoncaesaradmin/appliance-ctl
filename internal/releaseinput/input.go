@@ -54,6 +54,7 @@ type Artifacts struct {
 	UIImage             FileArtifact
 	HostAgentImage      FileArtifact
 	HostAgentBinary     FileArtifact
+	HostPackages        DirArtifact
 	ApplianceChart      FileArtifact
 	ZotImage            FileArtifact
 	ZotChart            FileArtifact
@@ -81,6 +82,7 @@ type doc struct {
 		UIImage             fileArtifact   `json:"uiImage"`
 		HostAgentImage      fileArtifact   `json:"hostAgentImage"`
 		HostAgentBinary     fileArtifact   `json:"hostAgentBinary"`
+		HostPackages        dirArtifact    `json:"hostPackages"`
 		ApplianceChart      fileArtifact   `json:"applianceChart"`
 		ZotImage            fileArtifact   `json:"zotImage"`
 		ZotChart            fileArtifact   `json:"zotChart"`
@@ -143,6 +145,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			UIImage:             toFileArtifact(rootDir, parsed.Artifacts.UIImage),
 			HostAgentImage:      toFileArtifact(rootDir, parsed.Artifacts.HostAgentImage),
 			HostAgentBinary:     toFileArtifact(rootDir, parsed.Artifacts.HostAgentBinary),
+			HostPackages:        toDirArtifact(rootDir, parsed.Artifacts.HostPackages),
 			ApplianceChart:      toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
 			ZotImage:            toFileArtifact(rootDir, parsed.Artifacts.ZotImage),
 			ZotChart:            toFileArtifact(rootDir, parsed.Artifacts.ZotChart),
@@ -214,12 +217,22 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		return nil, checks, fmt.Errorf("release-input: %w", err)
 	}
 
-	dirChecks, err := verifyDirArtifacts([]namedDirArtifact{
+	dirChecks, dirErr := verifyDirArtifacts([]namedDirArtifact{
 		{Name: "sbom", DirArtifact: input.Artifacts.SBOM},
 		{Name: "provenance", DirArtifact: input.Artifacts.Provenance},
 		{Name: "notices", DirArtifact: input.Artifacts.Notices},
 		{Name: "tests", DirArtifact: input.Artifacts.Tests},
 	})
+	if input.Artifacts.HostPackages.Path != "" {
+		var hostPackageChecks []evidence.Check
+		hostPackageChecks, err = verifyDirArtifacts([]namedDirArtifact{
+			{Name: "host-packages", DirArtifact: input.Artifacts.HostPackages},
+		})
+		checks = append(checks, hostPackageChecks...)
+		if err != nil {
+			return nil, checks, fmt.Errorf("release-input: %w", err)
+		}
+	}
 	if input.Artifacts.ArgoCRDs.Path != "" {
 		var argoChecks []evidence.Check
 		argoChecks, err = verifyDirArtifacts([]namedDirArtifact{
@@ -231,8 +244,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		}
 	}
 	checks = append(checks, dirChecks...)
-	if err != nil {
-		return nil, checks, fmt.Errorf("release-input: %w", err)
+	if dirErr != nil {
+		return nil, checks, fmt.Errorf("release-input: %w", dirErr)
 	}
 
 	return input, checks, nil
