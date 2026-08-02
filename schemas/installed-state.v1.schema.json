@@ -56,6 +56,10 @@
       "minLength": 3,
       "description": "LAN DNS zone for this appliance identity (default appliance.internal)."
     },
+    "hostMDNSEnabled": {
+      "type": "boolean",
+      "description": "Whether this installation manages host-level mDNS discovery and the hostname.local TLS SAN."
+    },
     "components": {
       "type": "object",
       "additionalProperties": false,

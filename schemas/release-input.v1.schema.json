@@ -39,7 +39,6 @@
         "uiImage",
         "hostAgentImage",
         "hostAgentBinary",
-        "hostPackages",
         "applianceChart",
         "zotImage",
         "zotChart",

@@ -67,6 +67,9 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	tlsOpts := opts
 	tlsOpts.applianceName = applianceName
 	tlsOpts.dnsZone = dnsZone
+	if installed != nil && !tlsOpts.hostMDNSEnabledSet {
+		tlsOpts.hostMDNSEnabled = installed.HostMDNSEnabled
+	}
 
 	upgradeOpts := upgrade.Options{
 		TargetApplianceVersion:  version,
@@ -89,6 +92,7 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		NodeName:                opts.nodeName,
 		ApplianceName:           applianceName,
 		DNSZone:                 dnsZone,
+		HostMDNSEnabled:         tlsOpts.hostMDNSEnabled,
 		TLSSANs:                 installTLSSANs(tlsOpts),
 		PreserveFailedState:     opts.preserveFailedState,
 		ZonctlRealDestPath:      defaultZonctlRealPath,

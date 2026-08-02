@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
@@ -62,6 +63,8 @@ type cliOptions struct {
 	nodeName            string
 	applianceName       string
 	dnsZone             string
+	hostMDNSEnabled     bool
+	hostMDNSEnabledSet  bool
 	tlsSANs             []string
 	preserveFailedState bool
 	backupID            string
@@ -162,6 +165,7 @@ func run(args []string) int {
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
 	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN becomes <name>.<dns-zone> for TLS and canonical origin (required for install; upgrade preserves installed value when omitted)")
 	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")
+	hostMDNSEnabled := fs.String("host-mdns-enabled", "", "enable host-level mDNS support and the derived hostname.local TLS SAN; accepts true|false; install defaults false and upgrade preserves the installed value when omitted")
 	var tlsSANs stringListFlag
 	fs.Var(&tlsSANs, "tls-san", "additional TLS subjectAltName to include on the appliance certificate; repeatable (for example a raw IP)")
 	preserveFailedState := fs.Bool("preserve-failed-state", false, "debug mode: do not roll back a failed install or upgrade; preserve the partial target state for investigation")
@@ -182,6 +186,11 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "zonctl: invalid --output %q: must be \"text\" or \"json\"\n", *output)
 		return 2
 	}
+	parsedHostMDNSEnabled, hostMDNSEnabledSet, err := parseOptionalBool(*hostMDNSEnabled)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "zonctl: invalid --host-mdns-enabled %q: %v\n", *hostMDNSEnabled, err)
+		return 2
+	}
 	if *nodeName == "" {
 		if h, err := os.Hostname(); err == nil {
 			*nodeName = h
@@ -200,6 +209,8 @@ func run(args []string) int {
 		nodeName:                      *nodeName,
 		applianceName:                 *applianceName,
 		dnsZone:                       *dnsZone,
+		hostMDNSEnabled:               parsedHostMDNSEnabled,
+		hostMDNSEnabledSet:            hostMDNSEnabledSet,
 		tlsSANs:                       append([]string(nil), tlsSANs...),
 		preserveFailedState:           *preserveFailedState,
 		backupID:                      *backupID,
@@ -224,7 +235,13 @@ func installTLSSANs(opts cliOptions) []string {
 	if identity, err := productconfig.ResolveApplianceIdentity(opts.applianceName, opts.dnsZone); err == nil {
 		fqdn = identity.FQDN
 	}
-	return effectiveTLSSANs(opts.nodeName, fqdn, opts.tlsSANs...)
+	extra := append([]string(nil), opts.tlsSANs...)
+	if opts.hostMDNSEnabled {
+		if san := hostMDNSTLSSAN(opts.nodeName); san != "" {
+			extra = append([]string{san}, extra...)
+		}
+	}
+	return effectiveTLSSANs(opts.nodeName, fqdn, extra...)
 }
 
 func effectiveTLSSANs(nodeName, fqdn string, extra ...string) []string {
@@ -248,6 +265,34 @@ func effectiveTLSSANs(nodeName, fqdn string, extra ...string) []string {
 		appendUnique(san)
 	}
 	return out
+}
+
+func hostMDNSTLSSAN(nodeName string) string {
+	shortHost := strings.ToLower(strings.TrimSpace(nodeName))
+	shortHost = strings.TrimSuffix(shortHost, ".local")
+	shortHost = strings.TrimSuffix(shortHost, ".")
+	if shortHost == "" {
+		return ""
+	}
+	if strings.Contains(shortHost, ".") {
+		shortHost = strings.SplitN(shortHost, ".", 2)[0]
+	}
+	if _, err := productconfig.NormalizeApplianceName(shortHost); err != nil {
+		return ""
+	}
+	return shortHost + ".local"
+}
+
+func parseOptionalBool(value string) (bool, bool, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false, false, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, true, err
+	}
+	return parsed, true, nil
 }
 
 func newLogger(r *redact.Redactor, output string) *slog.Logger {

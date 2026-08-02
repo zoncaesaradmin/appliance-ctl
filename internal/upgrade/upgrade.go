@@ -57,6 +57,7 @@ type Options struct {
 	NodeName               string
 	ApplianceName          string
 	DNSZone                string
+	HostMDNSEnabled        bool
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -210,7 +211,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, opts.HostMDNSEnabled, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -411,7 +412,10 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	checks = append(checks, binaryCheck)
-	if resolved.HostPackagesRootDir != "" {
+	if opts.HostMDNSEnabled {
+		if resolved.HostPackagesRootDir == "" {
+			return nil, checks, fmt.Errorf("upgrade: bundle has no host-packages artifact but host mDNS is enabled")
+		}
 		installHostPackages := o.InstallHostPackages
 		if installHostPackages == nil {
 			installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
@@ -704,6 +708,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		ApplianceProfile:    effectiveProfile,
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
+		HostMDNSEnabled:     opts.HostMDNSEnabled,
 		Components: state.Components{
 			K3sVersion:   resolved.Compatibility.K3sVersion,
 			ChartVersion: resolved.Compatibility.ChartVersion,

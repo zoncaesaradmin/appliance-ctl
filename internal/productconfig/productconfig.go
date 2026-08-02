@@ -75,6 +75,7 @@ func BuiltInProfileCatalog() ProfileCatalog {
 const (
 	DefaultZotBaseURL              = "http://appliance-registry.artifacts.svc.cluster.local:5000"
 	DefaultRegistryPublicKeySecret = "appliance-registry-verification-key"
+	DefaultHostMDNSEnabled         = false
 	// DefaultDNSReadyURL is the CoreDNS health-plugin readiness endpoint
 	// the control plane polls to gate any dns-capability-dependent
 	// behavior on the LAN DNS release actually being up, mirroring how
@@ -210,7 +211,7 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 	}, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, hostMDNSEnabled bool, registry ...string) (string, func(), error) {
 	catalog, err := LoadCatalog(applianceCatalogPath)
 	if err != nil {
 		return "", func() {}, err
@@ -272,6 +273,7 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 	config["applianceCatalog"] = catalog.Document
 	config["applianceName"] = identity.Name
 	config["dnsZoneName"] = identity.Zone
+	config["hostMDNSEnabled"] = hostMDNSEnabled
 	config["canonicalOrigin"] = "https://" + identity.FQDN
 	if ip := strings.TrimSpace(nodeIPv4); ip != "" {
 		config["nodeIPv4"] = ip

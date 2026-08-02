@@ -17,6 +17,7 @@ func sampleState() *state.InstalledState {
 		InstalledVersion:    "2.4.0",
 		InstalledReleaseID:  "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		ApplianceProfile:    "builder",
+		HostMDNSEnabled:     true,
 		Components: state.Components{
 			K3sVersion:   "v1.30.4+k3s1",
 			ChartVersion: "2.4.0",
@@ -63,6 +64,9 @@ func TestSaveThenLoad_RoundTrips(t *testing.T) {
 	}
 	if got.ApplianceProfile != want.ApplianceProfile {
 		t.Fatalf("appliance profile = %q, want %q", got.ApplianceProfile, want.ApplianceProfile)
+	}
+	if got.HostMDNSEnabled != want.HostMDNSEnabled {
+		t.Fatalf("hostMDNSEnabled = %v, want %v", got.HostMDNSEnabled, want.HostMDNSEnabled)
 	}
 	if !got.K3sOwnership.Owned {
 		t.Error("expected K3sOwnership.Owned to survive the round trip")

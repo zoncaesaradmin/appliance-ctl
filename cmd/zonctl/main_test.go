@@ -444,3 +444,21 @@ func TestInstallTLSSANs_UsesApplianceIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallTLSSANs_AddsMDNSSANWhenEnabled(t *testing.T) {
+	got := installTLSSANs(cliOptions{
+		applianceName:   "registry1",
+		dnsZone:         "appliance.internal",
+		nodeName:        "zonsyssrv1",
+		hostMDNSEnabled: true,
+	})
+	want := []string{"registry1.appliance.internal", "zonsyssrv1", "zonsyssrv1.local"}
+	if len(got) != len(want) {
+		t.Fatalf("installTLSSANs = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("installTLSSANs = %#v, want %#v", got, want)
+		}
+	}
+}

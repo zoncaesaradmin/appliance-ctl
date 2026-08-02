@@ -503,6 +503,7 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		NodeName:                "appliance-node",
 		ApplianceName:           "testapp",
 		DNSZone:                 "appliance.internal",
+		HostMDNSEnabled:         false,
 		ZonctlRealDestPath:      filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath:  filepath.Join(stateDir, "usr-local-bin", "zonctl"),
 		HostAgentBinaryDestPath: filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "appliance-host-agentd"),
@@ -527,6 +528,7 @@ func saveInstalledState(t *testing.T, path, installedVersion string) {
 		ApplianceProfile:    "core",
 		ApplianceName:       "testapp",
 		DNSZone:             "appliance.internal",
+		HostMDNSEnabled:     false,
 		Components:          state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: installedVersion},
 		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: installedVersion},
 		LastOperation: state.Operation{
@@ -611,6 +613,7 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
+	opts.HostMDNSEnabled = true
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -661,6 +664,7 @@ func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 func TestInstall_RefusesHostWhenBundleBaselineDoesNotMatch(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
+	opts.HostMDNSEnabled = true
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
