@@ -9,9 +9,11 @@ import (
 
 func TestConfig_Render(t *testing.T) {
 	cfg := k3s.Config{
-		NodeName: "appliance-node",
-		DataDir:  "/var/lib/appliance/k3s",
-		TLSSANs:  []string{"appliance.internal.example.com", "10.0.0.5"},
+		NodeName:    "appliance-node",
+		DataDir:     "/var/lib/appliance/k3s",
+		TLSSANs:     []string{"appliance.internal.example.com", "10.0.0.5"},
+		ClusterCIDR: k3s.DefaultClusterCIDR,
+		ServiceCIDR: k3s.DefaultServiceCIDR,
 	}
 
 	rendered := cfg.Render()
@@ -39,6 +41,19 @@ func TestConfig_Render_OmitsTLSSANWhenEmpty(t *testing.T) {
 	cfg := k3s.Config{NodeName: "n", DataDir: "/d"}
 	if strings.Contains(cfg.Render(), "tls-san:") {
 		t.Error("expected no tls-san section when TLSSANs is empty")
+	}
+}
+
+func TestConfig_Render_OmitsCIDRWhenEmpty(t *testing.T) {
+	// Upgrade path: leave CIDRs empty so an existing data dir retains its
+	// network parameters (changing cluster-cidr against leftover etcd fails flannel).
+	cfg := k3s.Config{NodeName: "n", DataDir: "/d"}
+	rendered := cfg.Render()
+	if strings.Contains(rendered, "cluster-cidr:") {
+		t.Fatalf("expected no cluster-cidr when empty:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "service-cidr:") {
+		t.Fatalf("expected no service-cidr when empty:\n%s", rendered)
 	}
 }
 

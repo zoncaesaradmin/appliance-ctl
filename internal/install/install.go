@@ -452,10 +452,27 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 				return nil, checks, fmt.Errorf("install: clean leftover k3s runtime before start: %w", err)
 			}
 		}
+		// Uninstall preserves /var/lib/rancher/k3s by design. A fresh
+		// reinstall that pins cluster-cidr (10.44/16 so 10.42 is free for
+		// WiFi AP) against leftover etcd/node PodCIDR 10.42.0.0/24 makes
+		// flannel exit and containerd disappear mid image-preload. Wipe
+		// the K3s data dir only for DecisionFreshInstall.
+		if decision == k3s.DecisionFreshInstall {
+			if err := wipeK3sDataDir(opts.K3sDataDir); err != nil {
+				return nil, checks, failInstall(fmt.Errorf("install: reset k3s data dir for fresh install: %w", err), runRollbacks())
+			}
+			checks = append(checks, evidence.Check{
+				ID: "k3s-data-dir-reset", Category: "k3s", Status: evidence.StatusPass,
+				Message:   fmt.Sprintf("reset k3s data directory %s for fresh cluster network params", opts.K3sDataDir),
+				Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+			})
+		}
 		if err := o.K3s.WriteConfig(opts.K3sConfigPath, k3s.Config{
-			NodeName: opts.NodeName,
-			DataDir:  opts.K3sDataDir,
-			TLSSANs:  opts.TLSSANs,
+			NodeName:    opts.NodeName,
+			DataDir:     opts.K3sDataDir,
+			TLSSANs:     opts.TLSSANs,
+			ClusterCIDR: k3s.DefaultClusterCIDR,
+			ServiceCIDR: k3s.DefaultServiceCIDR,
 		}); err != nil {
 			return nil, checks, fmt.Errorf("install: write k3s config: %w", err)
 		}
@@ -1002,6 +1019,19 @@ func joinCleanupError(primary, cleanup error) error {
 		return primary
 	}
 	return errors.Join(primary, fmt.Errorf("install cleanup failed: %w", cleanup))
+}
+
+// wipeK3sDataDir removes leftover K3s etcd/server state preserved by
+// uninstall so a fresh install can re-pin pod/service CIDRs safely.
+func wipeK3sDataDir(dataDir string) error {
+	dataDir = filepath.Clean(strings.TrimSpace(dataDir))
+	if dataDir == "" || dataDir == "." || dataDir == string(filepath.Separator) || !filepath.IsAbs(dataDir) {
+		return fmt.Errorf("refusing to wipe invalid k3s data dir %q", dataDir)
+	}
+	if err := os.RemoveAll(dataDir); err != nil {
+		return err
+	}
+	return nil
 }
 
 func newApplianceInstanceID() string {
