@@ -39,7 +39,7 @@ func EnsureClusterBaseline(ctx context.Context, run cli.Runner, kubeconfig, valu
 	// routing works after a K3s (re)start. Without this, a split-brain
 	// leftover shim set can leave ClusterIP unreachable while the node
 	// still reports Ready and helm --wait later times out on PVCs.
-	corednsCheck, err := waitDeploymentAvailable(ctx, run, kubeconfig, "kube-system", "coredns", "k3s-coredns-ready")
+	corednsCheck, err := WaitDeploymentAvailable(ctx, run, kubeconfig, "kube-system", "coredns", "k3s-coredns-ready")
 	checks = append(checks, corednsCheck)
 	if err != nil {
 		return checks, err
@@ -52,7 +52,7 @@ func EnsureClusterBaseline(ctx context.Context, run cli.Runner, kubeconfig, valu
 			return checks, err
 		}
 		if values.Persistence.StorageClassName == "local-path" {
-			provisionerCheck, err := waitDeploymentAvailable(ctx, run, kubeconfig, "kube-system", "local-path-provisioner", "k3s-local-path-provisioner-ready")
+			provisionerCheck, err := WaitDeploymentAvailable(ctx, run, kubeconfig, "kube-system", "local-path-provisioner", "k3s-local-path-provisioner-ready")
 			checks = append(checks, provisionerCheck)
 			if err != nil {
 				return checks, err
@@ -178,6 +178,13 @@ func waitStorageClassReady(ctx context.Context, run cli.Runner, kubeconfig, stor
 			return check, err
 		}
 	}
+}
+
+// WaitDeploymentAvailable polls until the named Deployment has at least one
+// available replica. Used for K3s baseline components and appliance-dns so
+// later steps (for example management Wi-Fi AP) see host :53 already owned.
+func WaitDeploymentAvailable(ctx context.Context, run cli.Runner, kubeconfig, namespace, deployment, checkID string) (evidence.Check, error) {
+	return waitDeploymentAvailable(ctx, run, kubeconfig, namespace, deployment, checkID)
 }
 
 func waitDeploymentAvailable(ctx context.Context, run cli.Runner, kubeconfig, namespace, deployment, checkID string) (evidence.Check, error) {

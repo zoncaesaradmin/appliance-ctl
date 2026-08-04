@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -604,43 +603,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
-		if opts.HostWifiAPEnabled {
-			applyWifi := opts.ApplyWifiAP
-			if applyWifi == nil {
-				client := hostagent.NewClient(opts.HostAgentSocketPath)
-				if err := client.WaitReady(ctx, 30*time.Second); err != nil {
-					rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: host agent not ready for wifi-ap apply: %w", err), rollback)
-					checks = append(checks, rollbackChecks...)
-					return nil, checks, failErr
-				}
-				applyWifi = client.ApplyWifiAP
-			}
-			ssidBase := strings.TrimSpace(opts.NodeName)
-			if ssidBase == "" {
-				ssidBase = identity.Name
-			}
-			wifiStatus, err := applyWifi(ctx, hostagent.WifiAPApplyRequest{
-				Desired:  true,
-				PSK:      opts.HostWifiAPPSK,
-				SSIDBase: ssidBase,
-			})
-			if err != nil {
-				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: apply host wifi-ap via host agent: %w", err), rollback)
-				checks = append(checks, rollbackChecks...)
-				return nil, checks, failErr
-			}
-			msg := fmt.Sprintf("wifi-ap desired=true actual=%s", wifiStatus.Actual)
-			if wifiStatus.SSID != "" {
-				msg += " ssid=" + wifiStatus.SSID
-			}
-			if wifiStatus.Reason != "" {
-				msg += " reason=" + wifiStatus.Reason
-			}
-			checks = append(checks, evidence.Check{
-				ID: "host-wifi-ap-applied", Category: "host", Status: evidence.StatusPass,
-				Message: msg, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-			})
-		}
+		// Wi-Fi AP apply is deferred until after appliance-dns (when the landns
+		// capability is on the profile) so CoreDNS owns host :53 first and the
+		// AP bind-probe falls back to DHCP-only DNS mode for manage.ap.
 	}
 	if targetArtifact {
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
@@ -732,6 +697,30 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				}
 				return rollback()
 			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		// Wait until appliance CoreDNS is available so host :53 is claimed
+		// before management Wi-Fi AP starts (DHCP-only bind-probe path).
+		dnsWaitRun := o.HelmRun
+		if dnsWaitRun == nil {
+			dnsWaitRun = cli.Exec
+		}
+		dnsReadyCheck, readyErr := helm.WaitDeploymentAvailable(ctx, dnsWaitRun, opts.KubeconfigPath, dnsNamespace, "dns-server", "appliance-dns-ready")
+		checks = append(checks, dnsReadyCheck)
+		if readyErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: wait for appliance-dns: %w", readyErr), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+	// Management Wi-Fi AP after host-agentd and, when present, appliance-dns.
+	// Order: landns installs CoreDNS first → AP enable probes :53 busy → DHCP-only.
+	if targetHost && opts.HostWifiAPEnabled {
+		wifiChecks, wifiErr := applyUpgradeHostWifiAP(ctx, o, opts, identity)
+		checks = append(checks, wifiChecks...)
+		if wifiErr != nil {
+			rollbackChecks, failErr := failUpgrade(wifiErr, rollback)
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
@@ -875,29 +864,7 @@ func withApplianceFQDN(fqdn string, sans ...string) []string {
 }
 
 func preferredUpgradeLocalIPv4(candidates ...string) string {
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			continue
-		}
-		if ip := net.ParseIP(candidate); ip != nil && ip.To4() != nil {
-			return candidate
-		}
-	}
-	ifaces, err := net.InterfaceAddrs()
-	if err != nil {
-		return ""
-	}
-	for _, addr := range ifaces {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok || ipNet.IP == nil || ipNet.IP.IsLoopback() {
-			continue
-		}
-		if v4 := ipNet.IP.To4(); v4 != nil {
-			return v4.String()
-		}
-	}
-	return ""
+	return hostdns.PreferredLocalIPv4(candidates...)
 }
 
 func firstUpgradeString(values []string) string {
@@ -960,4 +927,52 @@ func revertFile(path string) error {
 
 	_, err = io.Copy(dst, src)
 	return err
+}
+
+// applyUpgradeHostWifiAP enables the management Wi-Fi AP after host-agentd and,
+// when the profile includes appliance-dns, after that deployment is ready.
+func applyUpgradeHostWifiAP(ctx context.Context, o *Orchestrator, opts Options, identity productconfig.ApplianceIdentity) ([]evidence.Check, error) {
+	var checks []evidence.Check
+	applyWifi := opts.ApplyWifiAP
+	if applyWifi == nil {
+		client := hostagent.NewClient(opts.HostAgentSocketPath)
+		if err := client.WaitReady(ctx, 30*time.Second); err != nil {
+			return checks, fmt.Errorf("upgrade: host agent not ready for wifi-ap apply: %w", err)
+		}
+		applyWifi = client.ApplyWifiAP
+	}
+	ssidBase := strings.TrimSpace(opts.NodeName)
+	if ssidBase == "" {
+		ssidBase = identity.Name
+	}
+	wifiStatus, err := applyWifi(ctx, hostagent.WifiAPApplyRequest{
+		Desired:  true,
+		PSK:      opts.HostWifiAPPSK,
+		SSIDBase: ssidBase,
+	})
+	if err != nil {
+		return checks, fmt.Errorf("upgrade: apply host wifi-ap via host agent: %w", err)
+	}
+	msg := fmt.Sprintf("wifi-ap desired=true actual=%s", wifiStatus.Actual)
+	if wifiStatus.SSID != "" {
+		msg += " ssid=" + wifiStatus.SSID
+	}
+	if wifiStatus.Reason != "" {
+		msg += " reason=" + wifiStatus.Reason
+	}
+	if wifiStatus.Message != "" {
+		msg += " (" + wifiStatus.Message + ")"
+	}
+	if wifiStatus.LocalDNSServing != nil {
+		if *wifiStatus.LocalDNSServing {
+			msg += " localDNS=true"
+		} else {
+			msg += " localDNS=false"
+		}
+	}
+	checks = append(checks, evidence.Check{
+		ID: "host-wifi-ap-applied", Category: "host", Status: evidence.StatusPass,
+		Message: msg, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+	return checks, nil
 }

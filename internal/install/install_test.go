@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
@@ -414,10 +415,8 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	if name == "kubectl" && contains(args, "storageclass") {
 		return "storageclass.storage.k8s.io/local-path", nil
 	}
-	if name == "kubectl" && contains(args, "deployment") && contains(args, "coredns") {
-		return "1", nil
-	}
-	if name == "kubectl" && contains(args, "deployment") && contains(args, "local-path-provisioner") {
+	// available/ready/replicas jsonpath polls (coredns, local-path, appliance-dns, …)
+	if name == "kubectl" && contains(args, "get") && contains(args, "deployment") {
 		return "1", nil
 	}
 	if name == "kubectl" && contains(args, "get") && contains(args, "svc") && contains(args, "traefik") {
@@ -695,6 +694,101 @@ func TestInstall_AppliesWifiAPViaHostAgent(t *testing.T) {
 	}
 	if !sawApply {
 		t.Fatal("expected host-wifi-ap-applied evidence")
+	}
+	// core has no landns capability; AP still runs after the DNS phase is skipped.
+	for _, check := range checks {
+		if check.ID == "appliance-dns-ready" {
+			t.Fatalf("core profile must not report appliance-dns-ready")
+		}
+	}
+}
+
+func TestInstall_LandnsInstallsDNSBeforeWifiAP(t *testing.T) {
+	dir, pub := buildFixtureBundleWithOptions(t, false, true)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "landns"
+	opts.HostWifiAPEnabled = true
+	opts.HostWifiAPPSK = "long-enough-secret"
+	opts.NodeName = "kitchen"
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	var applyCall int
+	opts.ApplyWifiAP = func(_ context.Context, req hostagent.WifiAPApplyRequest) (hostagent.WifiAPStatus, error) {
+		applyCall++
+		if !req.Desired || req.PSK != "long-enough-secret" || req.SSIDBase != "kitchen" {
+			t.Fatalf("unexpected apply request: %+v", req)
+		}
+		localDNS := false // CoreDNS holds host :53; AP uses DHCP-only fallback.
+		return hostagent.WifiAPStatus{
+			Desired: true, Actual: "enabled", SSID: "Zon-kitchen",
+			ManagementAddress: hostagent.WifiAPManagementAddress, Security: "wpa2-psk",
+			LocalDNSServing: &localDNS,
+		}, nil
+	}
+	orch := &install.Orchestrator{
+		K3s:        fk3s.ops(),
+		ImagesRun:  fcli.Run,
+		HelmRun:    fcli.Run,
+		ClusterRun: fcli.Run,
+		DetectHost: healthyHostFacts,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			return nil
+		},
+		InstallHostPackages: func(hostpackages.InstallSpec) (func() error, error) {
+			return func() error { return nil }, nil
+		},
+		InstallHostAgent: func(hostagent.InstallSpec) (func() error, error) {
+			return func() error { return nil }, nil
+		},
+	}
+
+	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("landns+wifi install: %v", err)
+	}
+	if applyCall != 1 {
+		t.Fatalf("expected one wifi-ap apply, got %d", applyCall)
+	}
+	dnsHelmIdx, dnsReadyIdx, wifiIdx := -1, -1, -1
+	for i, check := range checks {
+		switch check.ID {
+		case "helm-release-appliance-dns":
+			if check.Status == evidence.StatusPass {
+				dnsHelmIdx = i
+			}
+		case "appliance-dns-ready":
+			if check.Status == evidence.StatusPass {
+				dnsReadyIdx = i
+			}
+		case "host-wifi-ap-applied":
+			if check.Status == evidence.StatusPass {
+				wifiIdx = i
+			}
+		}
+	}
+	if dnsHelmIdx < 0 {
+		t.Fatalf("missing helm-release-appliance-dns pass: %+v", checks)
+	}
+	if dnsReadyIdx < 0 {
+		t.Fatalf("missing appliance-dns-ready pass: %+v", checks)
+	}
+	if wifiIdx < 0 {
+		t.Fatalf("missing host-wifi-ap-applied pass: %+v", checks)
+	}
+	if !(dnsHelmIdx < dnsReadyIdx && dnsReadyIdx < wifiIdx) {
+		t.Fatalf("expected DNS helm → dns ready → wifi apply order, got helm=%d ready=%d wifi=%d", dnsHelmIdx, dnsReadyIdx, wifiIdx)
+	}
+	// dns-server Available wait must appear in kubectl calls before install ends.
+	var sawDNSDeploy bool
+	for _, call := range fcli.calls {
+		if strings.Contains(call, "get deployment dns-server") || (strings.Contains(call, "deployment") && strings.Contains(call, "dns-server")) {
+			sawDNSDeploy = true
+			break
+		}
+	}
+	if !sawDNSDeploy {
+		t.Fatalf("expected kubectl get deployment dns-server wait; calls=%v", fcli.calls)
 	}
 }
 

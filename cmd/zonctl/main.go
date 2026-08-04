@@ -248,9 +248,13 @@ func installTLSSANs(opts cliOptions) []string {
 		fqdn = identity.FQDN
 	}
 	extra := append([]string(nil), opts.tlsSANs...)
-	// Always include the fixed management AP address so later activation works
-	// with the install-time certificate without depending on mDNS or the AP flag.
-	extra = append([]string{productconfig.WifiAPManagementAddress}, extra...)
+	// Always include the fixed management AP address and hostname so later
+	// activation works with the install-time certificate without depending on
+	// mDNS or the AP flag (https://manage.ap/ and https://10.42.0.1/).
+	extra = append([]string{
+		productconfig.WifiAPManagementHostname,
+		productconfig.WifiAPManagementAddress,
+	}, extra...)
 	if opts.hostMDNSEnabled {
 		if san := hostMDNSTLSSAN(opts.nodeName); san != "" {
 			extra = append([]string{san}, extra...)

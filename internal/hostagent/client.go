@@ -18,17 +18,24 @@ import (
 // the AP is enabled.
 const WifiAPManagementAddress = "10.42.0.1"
 
+// WifiAPManagementHostname is the fixed management DNS name TLS SAN
+// (https://manage.ap/) always issued with WifiAPManagementAddress.
+const WifiAPManagementHostname = "manage.ap"
+
 // WifiAPStatus mirrors the host-agentd wifi-ap status JSON (no secrets).
 type WifiAPStatus struct {
-	Desired           bool   `json:"desired"`
-	Actual            string `json:"actual"`
-	Reason            string `json:"reason,omitempty"`
-	SSID              string `json:"ssid,omitempty"`
-	Iface             string `json:"iface,omitempty"`
-	ManagementAddress string `json:"managementAddress"`
-	Security          string `json:"security"`
-	SupportedCapable  bool   `json:"supportedCapable"`
-	Message           string `json:"message,omitempty"`
+	Desired            bool   `json:"desired"`
+	Actual             string `json:"actual"`
+	Reason             string `json:"reason,omitempty"`
+	SSID               string `json:"ssid,omitempty"`
+	Iface              string `json:"iface,omitempty"`
+	ManagementAddress  string `json:"managementAddress"`
+	ManagementHostname string `json:"managementHostname,omitempty"`
+	ManagementURL      string `json:"managementURL,omitempty"`
+	LocalDNSServing    *bool  `json:"localDNSServing,omitempty"`
+	Security           string `json:"security"`
+	SupportedCapable   bool   `json:"supportedCapable"`
+	Message            string `json:"message,omitempty"`
 }
 
 // WifiAPApplyRequest is the shared body for install and API apply.

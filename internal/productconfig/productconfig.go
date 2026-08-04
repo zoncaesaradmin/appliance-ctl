@@ -79,6 +79,9 @@ const (
 	DefaultHostWifiAPEnabled       = false
 	// WifiAPManagementAddress is always injected as a TLS SAN.
 	WifiAPManagementAddress = "10.42.0.1"
+	// WifiAPManagementHostname is always injected as a TLS SAN for
+	// https://manage.ap/ on the management Wi-Fi access point.
+	WifiAPManagementHostname = "manage.ap"
 	// DefaultDNSReadyURL is the CoreDNS health-plugin readiness endpoint
 	// the control plane polls to gate any dns-capability-dependent
 	// behavior on the LAN DNS release actually being up, mirroring how

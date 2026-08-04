@@ -93,6 +93,15 @@ func TestPreferredLocalIPv4_LiteralWins(t *testing.T) {
 	}
 }
 
+func TestPreferredLocalIPv4_SkipsWifiAPManagementRange(t *testing.T) {
+	if got := PreferredLocalIPv4("10.42.0.1", "hostname.example", "192.168.1.151"); got != "192.168.1.151" {
+		t.Fatalf("PreferredLocalIPv4 = %q, want 192.168.1.151 (skip AP management address)", got)
+	}
+	if got := PreferredLocalIPv4("10.42.0.25", "10.0.0.8"); got != "10.0.0.8" {
+		t.Fatalf("PreferredLocalIPv4 = %q, want 10.0.0.8 (skip AP DHCP range)", got)
+	}
+}
+
 func TestRemoveHostsEntry_StillAvailableForOps(t *testing.T) {
 	dir := t.TempDir()
 	hosts := filepath.Join(dir, "hosts")

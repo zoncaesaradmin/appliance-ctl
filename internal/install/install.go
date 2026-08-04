@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -654,44 +653,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
-		if opts.HostWifiAPEnabled {
-			applyWifi := opts.ApplyWifiAP
-			if applyWifi == nil {
-				client := hostagent.NewClient(opts.HostAgentSocketPath)
-				if err := client.WaitReady(ctx, 30*time.Second); err != nil {
-					return nil, checks, failInstall(fmt.Errorf("install: host agent not ready for wifi-ap apply: %w", err), runRollbacks())
-				}
-				applyWifi = client.ApplyWifiAP
-			}
-			ssidBase := strings.TrimSpace(opts.NodeName)
-			if ssidBase == "" {
-				ssidBase = identity.Name
-			}
-			wifiStatus, err := applyWifi(ctx, hostagent.WifiAPApplyRequest{
-				Desired:  true,
-				PSK:      opts.HostWifiAPPSK,
-				SSIDBase: ssidBase,
-			})
-			if err != nil {
-				return nil, checks, failInstall(fmt.Errorf("install: apply host wifi-ap via host agent: %w", err), runRollbacks())
-			}
-			// Soft outcomes (no hardware, radio in use, missing psk) do not fail install.
-			status := evidence.StatusPass
-			msg := fmt.Sprintf("wifi-ap desired=true actual=%s", wifiStatus.Actual)
-			if wifiStatus.SSID != "" {
-				msg += " ssid=" + wifiStatus.SSID
-			}
-			if wifiStatus.Reason != "" {
-				msg += " reason=" + wifiStatus.Reason
-			}
-			if wifiStatus.Message != "" {
-				msg += " (" + wifiStatus.Message + ")"
-			}
-			checks = append(checks, evidence.Check{
-				ID: "host-wifi-ap-applied", Category: "host", Status: status,
-				Message: msg, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-			})
-		}
+		// Wi-Fi AP apply is deferred until after appliance-dns (when the landns
+		// capability is on the profile) so CoreDNS owns host :53 first and the
+		// AP bind-probe falls back to DHCP-only DNS mode for manage.ap.
 	}
 
 	if resolved.ArtifactEnabled {
@@ -750,6 +714,30 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
 		}
 		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, dnsReleaseName) })
+		// Wait until appliance CoreDNS is available so host :53 is claimed
+		// before management Wi-Fi AP starts (DHCP-only bind-probe path).
+		dnsWaitRun := o.ClusterRun
+		if dnsWaitRun == nil {
+			dnsWaitRun = o.HelmRun
+		}
+		if dnsWaitRun == nil {
+			dnsWaitRun = cli.Exec
+		}
+		dnsReadyCheck, readyErr := helm.WaitDeploymentAvailable(ctx, dnsWaitRun, opts.KubeconfigPath, dnsNamespace, "dns-server", "appliance-dns-ready")
+		checks = append(checks, dnsReadyCheck)
+		if readyErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: wait for appliance-dns: %w", readyErr), runRollbacks())
+		}
+	}
+
+	// Management Wi-Fi AP after host-agentd and, when present, appliance-dns.
+	// Order: landns capability installs CoreDNS first → AP enable probes :53 busy → DHCP-only.
+	if resolved.HostEnabled && opts.HostWifiAPEnabled {
+		wifiChecks, wifiErr := applyInstallHostWifiAP(ctx, o, opts, identity)
+		checks = append(checks, wifiChecks...)
+		if wifiErr != nil {
+			return nil, checks, failInstall(wifiErr, runRollbacks())
+		}
 	}
 
 	clusterRun := o.ClusterRun
@@ -878,6 +866,55 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	return installed, checks, nil
 }
 
+// applyInstallHostWifiAP enables the management Wi-Fi AP via host-agentd after
+// host-agent install and, when applicable, after appliance-dns is ready.
+func applyInstallHostWifiAP(ctx context.Context, o *Orchestrator, opts Options, identity productconfig.ApplianceIdentity) ([]evidence.Check, error) {
+	var checks []evidence.Check
+	applyWifi := opts.ApplyWifiAP
+	if applyWifi == nil {
+		client := hostagent.NewClient(opts.HostAgentSocketPath)
+		if err := client.WaitReady(ctx, 30*time.Second); err != nil {
+			return checks, fmt.Errorf("install: host agent not ready for wifi-ap apply: %w", err)
+		}
+		applyWifi = client.ApplyWifiAP
+	}
+	ssidBase := strings.TrimSpace(opts.NodeName)
+	if ssidBase == "" {
+		ssidBase = identity.Name
+	}
+	wifiStatus, err := applyWifi(ctx, hostagent.WifiAPApplyRequest{
+		Desired:  true,
+		PSK:      opts.HostWifiAPPSK,
+		SSIDBase: ssidBase,
+	})
+	if err != nil {
+		return checks, fmt.Errorf("install: apply host wifi-ap via host agent: %w", err)
+	}
+	// Soft outcomes (no hardware, radio in use, missing psk) do not fail install.
+	msg := fmt.Sprintf("wifi-ap desired=true actual=%s", wifiStatus.Actual)
+	if wifiStatus.SSID != "" {
+		msg += " ssid=" + wifiStatus.SSID
+	}
+	if wifiStatus.Reason != "" {
+		msg += " reason=" + wifiStatus.Reason
+	}
+	if wifiStatus.Message != "" {
+		msg += " (" + wifiStatus.Message + ")"
+	}
+	if wifiStatus.LocalDNSServing != nil {
+		if *wifiStatus.LocalDNSServing {
+			msg += " localDNS=true"
+		} else {
+			msg += " localDNS=false"
+		}
+	}
+	checks = append(checks, evidence.Check{
+		ID: "host-wifi-ap-applied", Category: "host", Status: evidence.StatusPass,
+		Message: msg, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+	return checks, nil
+}
+
 // preferredLocalIPv4 returns the first candidate that parses as a literal
 // IPv4 address, used for host DNS prepare and CoreDNS NS glue. Hostnames and
 // IPv6 literals are skipped.
@@ -901,29 +938,7 @@ func hostDNSPrepareConfig(opts Options) hostdns.PrepareConfig {
 }
 
 func preferredLocalIPv4(candidates ...string) string {
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			continue
-		}
-		if ip := net.ParseIP(candidate); ip != nil && ip.To4() != nil {
-			return candidate
-		}
-	}
-	ifaces, err := net.InterfaceAddrs()
-	if err != nil {
-		return ""
-	}
-	for _, addr := range ifaces {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok || ipNet.IP == nil || ipNet.IP.IsLoopback() {
-			continue
-		}
-		if v4 := ipNet.IP.To4(); v4 != nil {
-			return v4.String()
-		}
-	}
-	return ""
+	return hostdns.PreferredLocalIPv4(candidates...)
 }
 
 func firstString(values []string) string {
