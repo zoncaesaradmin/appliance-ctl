@@ -24,7 +24,7 @@ func statusOf(t *testing.T, checks []evidence.Check, id string) evidence.Status 
 
 func TestEvaluate_HealthyInstall(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
-		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
+		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0", Components: state.Components{MetadataVersion: "2.4.0.0", MetadataDigest: "sha256:deadbeef"}},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
 	})
 	if got := statusOf(t, checks, "installed-state-present"); got != evidence.StatusPass {
@@ -42,7 +42,7 @@ func TestEvaluate_HealthyInstall(t *testing.T) {
 // is recorded as installed.
 func TestEvaluate_K3sUnhealthy(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
-		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
+		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0", Components: state.Components{MetadataVersion: "2.4.0.0", MetadataDigest: "sha256:deadbeef"}},
 		K3sHealth:      k3s.HealthStatus{Healthy: false, Reasons: []string{"k3s service is not active"}},
 	})
 	if got := statusOf(t, checks, "k3s-health"); got != evidence.StatusFail {
@@ -77,7 +77,7 @@ func TestEvaluate_CorruptInstalledState(t *testing.T) {
 // pass here.
 func TestEvaluate_HealthyInstallButNoIngressRoute(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
-		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
+		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0", Components: state.Components{MetadataVersion: "2.4.0.0", MetadataDigest: "sha256:deadbeef"}},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
 		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance is deployed"},
 		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace control"},
@@ -95,7 +95,7 @@ func TestEvaluate_HealthyInstallButNoIngressRoute(t *testing.T) {
 
 func TestEvaluate_ChartUnhealthy(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
-		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
+		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0", Components: state.Components{MetadataVersion: "2.4.0.0", MetadataDigest: "sha256:deadbeef"}},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
 		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: false, Message: `release appliance status is "failed", want "deployed"`},
 	})
@@ -116,7 +116,7 @@ func TestEvaluate_ChartUnhealthy(t *testing.T) {
 // just a compile check.
 func TestEvaluate_ChartAndIngressChecksSatisfyEvidenceSchema(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
-		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0"},
+		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0", Components: state.Components{MetadataVersion: "2.4.0.0", MetadataDigest: "sha256:deadbeef"}},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
 		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance is deployed"},
 		RegistryHealth: diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance-registry is deployed"},

@@ -364,6 +364,12 @@
                     "builder-landns",
                     "builder-storage-landns"
                   ]
+                },
+                "metadataVersion": {
+                  "type": "string"
+                },
+                "metadataDigest": {
+                  "type": "string"
                 }
               }
             }
@@ -393,6 +399,12 @@
               ],
               "properties": {
                 "installedVersion": {
+                  "type": "string"
+                },
+                "metadataVersion": {
+                  "type": "string"
+                },
+                "metadataDigest": {
                   "type": "string"
                 },
                 "k3sHealthy": {
@@ -460,6 +472,12 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "metadataVersion": {
+                  "type": "string"
+                },
+                "metadataDigest": {
+                  "type": "string"
                 }
               }
             }
@@ -543,6 +561,12 @@
                 "sizeBytes": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "metadataVersion": {
+                  "type": "string"
+                },
+                "metadataDigest": {
+                  "type": "string"
                 }
               }
             }
@@ -577,6 +601,12 @@
                 "restoredVersion": {
                   "type": "string",
                   "minLength": 1
+                },
+                "metadataVersion": {
+                  "type": "string"
+                },
+                "metadataDigest": {
+                  "type": "string"
                 }
               }
             }
@@ -627,6 +657,12 @@
                     "builder-landns",
                     "builder-storage-landns"
                   ]
+                },
+                "metadataVersion": {
+                  "type": "string"
+                },
+                "metadataDigest": {
+                  "type": "string"
                 }
               }
             }

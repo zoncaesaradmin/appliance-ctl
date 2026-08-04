@@ -13,6 +13,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/diagnostics"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/redact"
@@ -110,8 +111,12 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	}
 
 	installedVersion := ""
+	metadataVersion := ""
+	metadataDigest := ""
 	if sig.InstalledState != nil {
 		installedVersion = sig.InstalledState.InstalledVersion
+		metadataVersion = sig.InstalledState.Components.MetadataVersion
+		metadataDigest = sig.InstalledState.Components.MetadataDigest
 	}
 	componentHealth := []map[string]any{{"name": "k3s", "healthy": sig.K3sHealth.Healthy}}
 	if !sig.K3sHealth.Healthy {
@@ -154,6 +159,8 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	}
 	data, _ := json.Marshal(map[string]any{
 		"installedVersion": installedVersion,
+		"metadataVersion":  metadataVersion,
+		"metadataDigest":   metadataDigest,
 		"k3sHealthy":       sig.K3sHealth.Healthy,
 		"componentHealth":  componentHealth,
 	})
@@ -194,8 +201,12 @@ func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	manifestValid := sig.InstalledStateErr == nil && sig.InstalledState != nil
 	entriesVerified := 0
 	entriesFailed := []string{}
+	metadataVersion := ""
+	metadataDigest := ""
 	if manifestValid {
 		entriesVerified = 1
+		metadataVersion = sig.InstalledState.Components.MetadataVersion
+		metadataDigest = sig.InstalledState.Components.MetadataDigest
 	} else {
 		entriesFailed = append(entriesFailed, "installed-state.json")
 	}
@@ -203,6 +214,8 @@ func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		"manifestValid":   manifestValid,
 		"entriesVerified": entriesVerified,
 		"entriesFailed":   entriesFailed,
+		"metadataVersion": metadataVersion,
+		"metadataDigest":  metadataDigest,
 	})
 
 	overall := evidence.OverallStatus(checks)
@@ -258,6 +271,18 @@ func runSupportBundle(ctx context.Context, opts cliOptions, logger *slog.Logger,
 	var sources []support.Source
 	if installedStateBytes, err := os.ReadFile(installedStatePath(opts.stateDir)); err == nil {
 		sources = append(sources, support.Source{Name: "installed-state.json", Content: installedStateBytes})
+	}
+
+	if entries, err := os.ReadDir(hostdirs.MetadataBundlesDir); err == nil {
+		listing := map[string]any{"path": hostdirs.MetadataBundlesDir, "entries": []string{}}
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		listing["entries"] = names
+		if raw, marshalErr := json.MarshalIndent(listing, "", "  "); marshalErr == nil {
+			sources = append(sources, support.Source{Name: "metadata-bundles-listing.json", Content: raw})
+		}
 	}
 
 	diagnosticsReport, err := evidence.BuildReport("support-bundle", version, "diagnostics", checks, time.Now())

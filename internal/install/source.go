@@ -45,6 +45,8 @@ type Resolved struct {
 	ConfigurationPath   string
 	HostAgentBinaryPath string
 	HostPackagesRootDir string
+	// MetadataBundleArchivePath is the signed base appliance metadata-bundle archive.
+	MetadataBundleArchivePath string
 	// WorkspaceProvisionerImageReference is the appliance-owned generic
 	// image used by builder workspace provisioning workflows.
 	WorkspaceProvisionerImageReference string
@@ -161,6 +163,10 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		}
 	}
 	hostPackagesRootDir := componentRootDir(b, "host-packages")
+	metadataBundleArchivePath, err := requiredMetadataBundleArchivePath(b)
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: %w", err)
+	}
 
 	var k3sImages, ociImages []images.Image
 	for _, e := range b.Entries("k3s-images") {
@@ -222,6 +228,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ConfigurationPath:                  configurationPath,
 		HostAgentBinaryPath:                hostAgentBinaryPath,
 		HostPackagesRootDir:                hostPackagesRootDir,
+		MetadataBundleArchivePath:          metadataBundleArchivePath,
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
 		BuilderImageReference:              builderImageReference,
 		HostAgentImageReference:            hostAgentImageReference,
@@ -402,6 +409,24 @@ func crdPaths(b *bundle.Bundle) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+func requiredMetadataBundleArchivePath(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("artifacts") {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if !strings.HasPrefix(base, "appliance-metadata-bundle-") || !strings.HasSuffix(base, ".tar.zst") {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple appliance metadata-bundle archives")
+		}
+		found = e.Path
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no appliance-metadata-bundle-*.tar.zst artifact")
+	}
+	return found, nil
 }
 
 func configurationPath(b *bundle.Bundle) (string, error) {

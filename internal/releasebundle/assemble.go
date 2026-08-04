@@ -205,6 +205,15 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			Component:  "chart",
 		}
 	}
+	metadataBundleBase := filepath.Base(input.Artifacts.MetadataBundle.Path)
+	metadataBundleTarget := "artifacts/" + metadataBundleBase
+	if _, exists := entryByTarget[metadataBundleTarget]; !exists {
+		entryByTarget[metadataBundleTarget] = EntryConfig{
+			SourcePath: input.Artifacts.MetadataBundle.Path,
+			TargetPath: metadataBundleTarget,
+			Component:  "artifacts",
+		}
+	}
 
 	configSchemaTarget := "configuration/configuration.schema.json"
 	if _, exists := entryByTarget[configSchemaTarget]; !exists {
@@ -412,7 +421,7 @@ func validateConfiguredEntry(entry EntryConfig) error {
 		return fmt.Errorf("releasebundle: every entry requires sourcePath, targetPath, and component")
 	}
 	switch entry.Component {
-	case "appliance", "k3s-binary", "k3s-install", "k3s-images", "oci-images", "chart", "kubernetes-crds", "configuration", "scanner-data", "sbom", "provenance", "notices", "public-keys", "tests", "host-packages":
+	case "appliance", "k3s-binary", "k3s-install", "k3s-images", "oci-images", "chart", "kubernetes-crds", "configuration", "scanner-data", "sbom", "provenance", "notices", "public-keys", "tests", "host-packages", "artifacts":
 	default:
 		return fmt.Errorf("releasebundle: unsupported component %q", entry.Component)
 	}

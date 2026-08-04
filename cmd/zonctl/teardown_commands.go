@@ -11,6 +11,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/teardown"
 )
@@ -75,7 +76,7 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	}
 
 	ops := k3s.DefaultOps()
-	checks, err := teardown.FactoryReset(ctx, ops, defaultK3sUnitName, opts.stateDir, defaultK3sBinaryDestPath, defaultK3sConfigPath, defaultK3sRegistriesPath, defaultK3sUnitPath, defaultKubectlSymlinkPath, defaultK3sCNINetworkDir, append([]string(nil), defaultK3sCNIInterfaces...), defaultK3sDataDir, defaultWorkspaceRootDir, defaultZonctlRealPath, defaultZonctlLauncherPath, backupVerified, opts.forceDataLoss, opts.wipeWorkspaces)
+	checks, err := teardown.FactoryReset(ctx, ops, defaultK3sUnitName, opts.stateDir, defaultK3sBinaryDestPath, defaultK3sConfigPath, defaultK3sRegistriesPath, defaultK3sUnitPath, defaultKubectlSymlinkPath, defaultK3sCNINetworkDir, append([]string(nil), defaultK3sCNIInterfaces...), defaultK3sDataDir, hostdirs.MetadataBundlesDir, defaultWorkspaceRootDir, defaultZonctlRealPath, defaultZonctlLauncherPath, backupVerified, opts.forceDataLoss, opts.wipeWorkspaces)
 
 	reportID := "evidence-" + time.Now().UTC().Format("20060102T150405Z0700")
 	if report, buildErr := evidence.BuildReport("factory-reset", version, reportID, checks, time.Now()); buildErr == nil {

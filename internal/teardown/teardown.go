@@ -142,7 +142,7 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 // unless recentBackupVerified or dataLossOverride is true:
 // "factory-reset requires a recent verified backup or a separately
 // confirmed data-loss override," never both silently assumed.
-func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
+func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, metadataBundlesDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
 	if !recentBackupVerified && !dataLossOverride {
 		return nil, fmt.Errorf("teardown: factory-reset requires a recent verified backup or an explicit data-loss override")
 	}
@@ -164,6 +164,18 @@ func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPa
 	checks = append(checks, evidence.Check{
 		ID: "teardown-wipe-data", Category: "backup-restore", Status: evidence.StatusPass,
 		Message: "appliance data directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+
+	metadataBundlesDir = strings.TrimSpace(metadataBundlesDir)
+	if metadataBundlesDir == "" {
+		metadataBundlesDir = "/data/zon/metadata-bundles"
+	}
+	if err := os.RemoveAll(metadataBundlesDir); err != nil {
+		return checks, fmt.Errorf("teardown: remove metadata-bundles directory: %w", err)
+	}
+	checks = append(checks, evidence.Check{
+		ID: "teardown-wipe-metadata-bundles", Category: "backup-restore", Status: evidence.StatusPass,
+		Message: "metadata-bundles host directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
 
 	if wipeWorkspaces {

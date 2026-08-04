@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -89,6 +90,7 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ApplianceProfile:        opts.applianceProfile,
 		BuildCatalogPath:        opts.buildCatalogPath,
 		WorkspaceRootDir:        defaultWorkspaceRootDir,
+		MetadataBundlesDir:      hostdirs.MetadataBundlesDir,
 		NodeName:                opts.nodeName,
 		ApplianceName:           applianceName,
 		DNSZone:                 dnsZone,
@@ -139,7 +141,9 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		"sourceVersion":     updated.LastOperation.SourceVersion,
 		"targetVersion":     updated.LastOperation.TargetVersion,
 		"applianceProfile":  updated.ApplianceProfile,
+		"metadataVersion":   updated.Components.MetadataVersion,
+		"metadataDigest":    updated.Components.MetadataDigest,
 		"rollbackPerformed": false,
 	})
-	return finish(result, "succeeded", 0, fmt.Sprintf("upgraded to %s with appliance profile %s", updated.InstalledVersion, updated.ApplianceProfile), data)
+	return finish(result, "succeeded", 0, fmt.Sprintf("upgraded to %s with appliance profile %s; Metadata bundle: %s", updated.InstalledVersion, updated.ApplianceProfile, updated.Components.MetadataVersion), data)
 }

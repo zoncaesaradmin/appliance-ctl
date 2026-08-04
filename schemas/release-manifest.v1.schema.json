@@ -78,7 +78,8 @@
         "notices",
         "public-keys",
         "tests",
-        "host-packages"
+        "host-packages",
+        "artifacts"
       ]
     },
     "entry": {

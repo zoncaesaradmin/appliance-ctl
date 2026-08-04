@@ -22,6 +22,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -80,7 +81,11 @@ type Options struct {
 	// storage hostPath PersistentVolume (builder profile only). Prepared
 	// with the correct owner before the chart is applied; see
 	// internal/hostdirs.
-	WorkspaceRootDir       string
+	WorkspaceRootDir string
+	// MetadataBundlesDir is the host directory for extracted metadata bundles
+	// mounted into the control plane. Empty defaults to
+	// hostdirs.MetadataBundlesDir.
+	MetadataBundlesDir     string
 	NodeName               string
 	ApplianceName          string
 	DNSZone                string
@@ -258,6 +263,37 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
+
+	// Host-visible metadata-bundle tree: extract before Helm so the control
+	// plane mounts a real initial active policy (not only the embedded
+	// fallback) and so the selected appliance profile is validated against
+	// the policy catalog fail-closed.
+	metadataBundlesDir := strings.TrimSpace(opts.MetadataBundlesDir)
+	if metadataBundlesDir == "" {
+		metadataBundlesDir = hostdirs.MetadataBundlesDir
+	}
+	if err := o.EnsureOwnedDir(metadataBundlesDir, hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
+		return nil, checks, fmt.Errorf("install: prepare metadata-bundles directory: %w", err)
+	}
+	checks = append(checks, evidence.Check{
+		ID: "metadata-bundles-directory-owned", Category: "host", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("%s owned by %d:%d", metadataBundlesDir, hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+	metadataVersion, metadataDigest, err := stageMetadataBundle(
+		resolved.MetadataBundleArchivePath,
+		filepath.Join(filepath.Dir(opts.InstalledStatePath), "metadata-bundles"),
+		metadataBundlesDir,
+		effectiveProfile,
+	)
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: stage metadata bundle: %w", err)
+	}
+	checks = append(checks, evidence.Check{
+		ID: "metadata-bundle-staged", Category: "manifest", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("staged and extracted metadata bundle %s (profile %s validated)", metadataVersion, effectiveProfile),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
 
 	signal, err := o.K3s.DetectService(opts.K3sUnitName)
 	if err != nil {
@@ -719,10 +755,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		DNSZone:             identity.Zone,
 		HostMDNSEnabled:     opts.HostMDNSEnabled,
 		Components: state.Components{
-			K3sVersion:   resolved.Compatibility.K3sVersion,
-			ChartVersion: resolved.Compatibility.ChartVersion,
-			ZotVersion:   resolved.ZotComponentVersion(resolved.Compatibility.ZotVersion),
-			DNSVersion:   resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
+			K3sVersion:      resolved.Compatibility.K3sVersion,
+			ChartVersion:    resolved.Compatibility.ChartVersion,
+			ZotVersion:      resolved.ZotComponentVersion(resolved.Compatibility.ZotVersion),
+			DNSVersion:      resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
+			MetadataVersion: metadataVersion,
+			MetadataDigest:  metadataDigest,
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{
@@ -869,6 +907,25 @@ func applyManifestFiles(ctx context.Context, run cli.Runner, kubeconfig string, 
 		checks = append(checks, check)
 	}
 	return checks, nil
+}
+
+// StageMetadataBundle copies the signed metadata-bundle archive into archiveDestDir
+// for audit, extracts it under hostExtractDir for the control-plane hostPath
+// mount, and validates profileID against the policy profiles catalog.
+func StageMetadataBundle(archivePath, archiveDestDir, hostExtractDir, profileID string) (metadataVersion, digest string, err error) {
+	archivePath = strings.TrimSpace(archivePath)
+	if archivePath == "" {
+		return "", "", fmt.Errorf("metadata bundle archive path is empty")
+	}
+	seeded, err := metadatabundle.SeedHost(archivePath, archiveDestDir, hostExtractDir, profileID)
+	if err != nil {
+		return "", "", err
+	}
+	return seeded.MetadataVersion, seeded.Digest, nil
+}
+
+func stageMetadataBundle(archivePath, archiveDestDir, hostExtractDir, profileID string) (metadataVersion, digest string, err error) {
+	return StageMetadataBundle(archivePath, archiveDestDir, hostExtractDir, profileID)
 }
 
 func joinCleanupError(primary, cleanup error) error {

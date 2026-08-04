@@ -85,6 +85,16 @@
           "type": "string",
           "minLength": 1,
           "description": "Installed CoreDNS version when the dns capability is enabled."
+        },
+        "metadataVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Installed base appliance metadata-bundle version (X.Y.Z.N)."
+        },
+        "metadataDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Digest of the staged appliance metadata-bundle archive."
         }
       }
     },

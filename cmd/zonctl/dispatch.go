@@ -12,6 +12,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
@@ -298,6 +299,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ApplianceProfile:        opts.applianceProfile,
 		BuildCatalogPath:        opts.buildCatalogPath,
 		WorkspaceRootDir:        defaultWorkspaceRootDir,
+		MetadataBundlesDir:      hostdirs.MetadataBundlesDir,
 		NodeName:                opts.nodeName,
 		ApplianceName:           opts.applianceName,
 		DNSZone:                 opts.dnsZone,
@@ -347,8 +349,10 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		"releaseId":        installed.InstalledReleaseID,
 		"transactionId":    txn.ID,
 		"applianceProfile": installed.ApplianceProfile,
+		"metadataVersion":  installed.Components.MetadataVersion,
+		"metadataDigest":   installed.Components.MetadataDigest,
 	})
-	return finish(result, "succeeded", 0, fmt.Sprintf("installed version %s with appliance profile %s", installed.InstalledVersion, installed.ApplianceProfile), data)
+	return finish(result, "succeeded", 0, fmt.Sprintf("installed version %s with appliance profile %s; Metadata bundle: %s; Licensing: not configured; complete licensing setup after first login", installed.InstalledVersion, installed.ApplianceProfile, installed.Components.MetadataVersion), data)
 }
 
 func persistEvidence(stateDir, reportID string, report []byte) error {

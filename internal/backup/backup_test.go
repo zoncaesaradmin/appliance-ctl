@@ -86,7 +86,7 @@ func TestBackupRestore_RPO_RTO_Drill(t *testing.T) {
 	original := readAll(t, dataDir)
 
 	fake := &fakeK3s{}
-	manifest, createChecks, err := backup.Create(context.Background(), fake.ops(), "k3s.service", dataDir, backupRoot, "2.4.0")
+	manifest, createChecks, err := backup.Create(context.Background(), fake.ops(), "k3s.service", dataDir, backupRoot, "2.4.0", "", "", "")
 	if err != nil {
 		t.Fatalf("backup.Create failed: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestBackupRestore_RPO_RTO_Drill(t *testing.T) {
 	writeFile(t, filepath.Join(dataDir, "state.db"), "corrupted garbage")
 
 	backupDir := filepath.Join(backupRoot, manifest.BackupID)
-	restoreChecks, err := backup.Restore(context.Background(), fake.ops(), "k3s.service", backupDir, dataDir)
+	restoreChecks, err := backup.Restore(context.Background(), fake.ops(), "k3s.service", backupDir, dataDir, "")
 	if err != nil {
 		t.Fatalf("backup.Restore failed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestRestore_RefusesTamperedBackup(t *testing.T) {
 	writeFile(t, filepath.Join(dataDir, "state.db"), "original contents")
 
 	fake := &fakeK3s{}
-	manifest, _, err := backup.Create(context.Background(), fake.ops(), "k3s.service", dataDir, backupRoot, "2.4.0")
+	manifest, _, err := backup.Create(context.Background(), fake.ops(), "k3s.service", dataDir, backupRoot, "2.4.0", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestRestore_RefusesTamperedBackup(t *testing.T) {
 	}
 
 	fake.stopCalls, fake.startCalls = 0, 0 // reset after Create's own stop/start
-	if _, err := backup.Restore(context.Background(), fake.ops(), "k3s.service", backupDir, dataDir); err == nil {
+	if _, err := backup.Restore(context.Background(), fake.ops(), "k3s.service", backupDir, dataDir, ""); err == nil {
 		t.Fatal("expected restore to refuse a tampered backup")
 	}
 	if fake.stopCalls != 0 {
@@ -190,7 +190,7 @@ func TestVerify_MissingFileFailsClosed(t *testing.T) {
 	writeFile(t, filepath.Join(dataDir, "state.db"), "contents")
 
 	fake := &fakeK3s{}
-	manifest, _, err := backup.Create(context.Background(), fake.ops(), "k3s.service", dataDir, backupRoot, "2.4.0")
+	manifest, _, err := backup.Create(context.Background(), fake.ops(), "k3s.service", dataDir, backupRoot, "2.4.0", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestCreate_RestartsK3sEvenWhenCopyFails(t *testing.T) {
 	missingDataDir := filepath.Join(root, "does-not-exist")
 
 	fake := &fakeK3s{}
-	if _, _, err := backup.Create(context.Background(), fake.ops(), "k3s.service", missingDataDir, backupRoot, "2.4.0"); err == nil {
+	if _, _, err := backup.Create(context.Background(), fake.ops(), "k3s.service", missingDataDir, backupRoot, "2.4.0", "", "", ""); err == nil {
 		t.Fatal("expected backup of a missing data directory to fail")
 	}
 	if fake.startCalls != 1 {

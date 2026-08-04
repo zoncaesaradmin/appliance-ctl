@@ -58,6 +58,11 @@
       "digest": "sha256:ec57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
       "sizeBytes": 16384
     },
+    "metadataBundle": {
+      "path": "appliance-metadata-bundle-2.4.0.0.tar.zst",
+      "digest": "sha256:ee165ffe5b174c9ba1756b3eca14abdb87a8df4e93aef2f1c61aa76590b50cdd",
+      "sizeBytes": 1370
+    },
     "configurationSchema": {
       "path": "configuration.schema.json",
       "digest": "sha256:cbe0d029431ea4c792ecc23daf793f18bd5b57eed6c8419ac5a89b1cdf40c25c",

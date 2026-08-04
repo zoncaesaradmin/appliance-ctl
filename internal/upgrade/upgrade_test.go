@@ -17,6 +17,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/upgrade"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
@@ -66,6 +67,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion, ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart", ""},
 		{"charts/appliance-dns-1.14.4.tgz", "chart", "fake dns chart", ""},
+		{"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst", "artifacts", "", ""},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image " + spec.bundleVersion, "internal/control-plane:" + spec.bundleVersion},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image " + spec.bundleVersion, "internal/appliance-ui:" + spec.bundleVersion},
@@ -90,7 +92,19 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, []byte(e.content), 0o640); err != nil {
+		content := []byte(e.content)
+		if e.relPath == "artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst" {
+			if err := metadatabundle.WriteMinimalArchive(full, "2.4.0.0",
+				"core", "builder", "storage", "landns", "storage-landns", "builder-landns", "builder-storage-landns",
+			); err != nil {
+				t.Fatal(err)
+			}
+			var readErr error
+			content, readErr = os.ReadFile(full)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+		} else if err := os.WriteFile(full, content, 0o640); err != nil {
 			t.Fatal(err)
 		}
 		digest, err := verify.Digest(full)
@@ -98,7 +112,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 			t.Fatal(err)
 		}
 		manifestEntries = append(manifestEntries, map[string]any{
-			"path": e.relPath, "component": e.component, "digest": digest, "sizeBytes": len(e.content),
+			"path": e.relPath, "component": e.component, "digest": digest, "sizeBytes": len(content),
 		})
 		if e.imageReference != "" {
 			manifestEntries[len(manifestEntries)-1]["imageReference"] = e.imageReference
@@ -283,6 +297,7 @@ func (env environment) options(targetVersion string) upgrade.Options {
 		ApplianceName:           "testapp",
 		DNSZone:                 "appliance.internal",
 		HostMDNSEnabled:         false,
+		MetadataBundlesDir:      filepath.Join(env.stateDir, "metadata-bundles"),
 		ZonctlRealDestPath:      filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath:  filepath.Join(env.stateDir, "usr-local-bin", "zonctl"),
 		HostAgentBinaryDestPath: filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "appliance-host-agentd"),
@@ -818,6 +833,7 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 				hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.FileserverDir:        {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				opts.MetadataBundlesDir:       {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 			}
 			if profile == "storage-landns" {
 				wantOwnedPaths[hostdirs.DNSLogDir] = [2]int{hostdirs.DNSDirOwnerUID, hostdirs.ApplianceSharedFSGID}
@@ -945,7 +961,8 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 	}
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
-	if _, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0")); err != nil {
+	opts := env.options("2.4.0")
+	if _, _, err := orch.Upgrade(context.Background(), offlineSource, opts); err != nil {
 		t.Fatalf("expected core-profile upgrade to succeed, got: %v", err)
 	}
 
@@ -954,6 +971,7 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:       {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only core-profile log directory prep %v, got %v", wantOwnedPaths, ownedPaths)

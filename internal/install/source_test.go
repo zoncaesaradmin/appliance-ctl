@@ -16,16 +16,17 @@ import (
 func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                   "fake zonctl binary",
-		"bin/helm":                                          "fake helm binary",
-		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                    "fake k3s binary",
-		"charts/appliance-chart-2.4.0.tgz":                  "fake chart",
-		"configuration/appliance-catalog.json":              `{"version":"appliance.catalog/v1alpha1","profiles":[{"name":"core","capabilities":["base","host","workflows"]}],"modules":[{"name":"host-agent","kind":"platform","requiredCapabilities":["host"],"executionMode":"host-agent","entitlementKey":"host-agent","baseURL":"http://host-agent.control.svc.cluster.local:8080","securityClass":"host-privileged"}]}`,
-		"configuration/configuration.schema.json":           `{"type":"object"}`,
-		"configuration/values.yaml":                         "replicaCount: 1\n",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
-		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"bin/zonctl-real":                                     "fake zonctl binary",
+		"bin/helm":                                            "fake helm binary",
+		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                      "fake k3s binary",
+		"charts/appliance-chart-2.4.0.tgz":                    "fake chart",
+		"configuration/appliance-catalog.json":                `{"version":"appliance.catalog/v1alpha1","profiles":[{"name":"core","capabilities":["base","host","workflows"]}],"modules":[{"name":"host-agent","kind":"platform","requiredCapabilities":["host"],"executionMode":"host-agent","entitlementKey":"host-agent","baseURL":"http://host-agent.control.svc.cluster.local:8080","securityClass":"host-privileged"}]}`,
+		"configuration/configuration.schema.json":             `{"type":"object"}`,
+		"configuration/values.yaml":                           "replicaCount: 1\n",
+		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
+		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -51,6 +52,8 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 			component = "chart"
 		case strings.HasPrefix(rel, "host-packages/"):
 			component = "host-packages"
+		case strings.HasPrefix(rel, "artifacts/"):
+			component = "artifacts"
 		case rel == "oci-images/appliance-host-agent.tar":
 			component = "oci-images"
 		}
@@ -124,16 +127,17 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                   "fake zonctl binary",
-		"bin/helm":                                          "fake helm binary",
-		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                    "fake k3s binary",
-		"charts/argo-workflows-chart-3.5.10.tgz":            "fake argo chart",
-		"charts/appliance-chart-2.4.0.tgz":                  "fake appliance chart",
-		"configuration/values.yaml":                         "replicaCount: 1\n",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
-		"kubernetes/crds/workflows.argoproj.io.yaml":        "kind: CustomResourceDefinition\n",
-		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"bin/zonctl-real":                                     "fake zonctl binary",
+		"bin/helm":                                            "fake helm binary",
+		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                      "fake k3s binary",
+		"charts/argo-workflows-chart-3.5.10.tgz":              "fake argo chart",
+		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
+		"configuration/values.yaml":                           "replicaCount: 1\n",
+		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
+		"kubernetes/crds/workflows.argoproj.io.yaml":          "kind: CustomResourceDefinition\n",
+		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -159,6 +163,8 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 			component = "chart"
 		case strings.HasPrefix(rel, "host-packages/"):
 			component = "host-packages"
+		case strings.HasPrefix(rel, "artifacts/"):
+			component = "artifacts"
 		case filepath.Dir(rel) == "kubernetes/crds":
 			component = "kubernetes-crds"
 		case rel == "oci-images/appliance-host-agent.tar":
@@ -231,10 +237,11 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 		"k3s/binary/k3s":                   "fake k3s binary",
 		"charts/appliance-chart-2.4.0.tgz": "fake appliance chart",
 		"configuration/values.yaml":        "replicaCount: 1\n",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
-		"oci-images/control-plane.tar":                      "fake control plane image",
-		"oci-images/appliance-ui.tar":                       "fake appliance ui image",
-		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
+		"oci-images/control-plane.tar":                        "fake control plane image",
+		"oci-images/appliance-ui.tar":                         "fake appliance ui image",
+		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -264,6 +271,8 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 			entry["component"] = "configuration"
 		case strings.HasPrefix(rel, "host-packages/"):
 			entry["component"] = "host-packages"
+		case strings.HasPrefix(rel, "artifacts/"):
+			entry["component"] = "artifacts"
 		default:
 			entry["component"] = "oci-images"
 		}
@@ -342,15 +351,16 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                   "fake zonctl binary",
-		"bin/helm":                                          "fake helm binary",
-		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                    "fake k3s binary",
-		"charts/argo-workflows-chart-3.5.10.tgz":            "fake argo chart",
-		"charts/appliance-chart-2.4.0.tgz":                  "fake appliance chart",
-		"configuration/values.yaml":                         "replicaCount: 1\n",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
-		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"bin/zonctl-real":                                     "fake zonctl binary",
+		"bin/helm":                                            "fake helm binary",
+		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                      "fake k3s binary",
+		"charts/argo-workflows-chart-3.5.10.tgz":              "fake argo chart",
+		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
+		"configuration/values.yaml":                           "replicaCount: 1\n",
+		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
+		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -376,6 +386,8 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 			component = "chart"
 		case strings.HasPrefix(rel, "host-packages/"):
 			component = "host-packages"
+		case strings.HasPrefix(rel, "artifacts/"):
+			component = "artifacts"
 		}
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
@@ -433,15 +445,16 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                   "fake zonctl binary",
-		"bin/helm":                                          "fake helm binary",
-		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                    "fake k3s binary",
-		"charts/argo-workflows-chart-3.5.10.tgz":            "fake argo chart",
-		"charts/appliance-chart-2.4.0.tgz":                  "fake appliance chart",
-		"configuration/values.yaml":                         "replicaCount: 1\n",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
-		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"bin/zonctl-real":                                     "fake zonctl binary",
+		"bin/helm":                                            "fake helm binary",
+		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                      "fake k3s binary",
+		"charts/argo-workflows-chart-3.5.10.tgz":              "fake argo chart",
+		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
+		"configuration/values.yaml":                           "replicaCount: 1\n",
+		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
+		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -467,6 +480,8 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 			component = "chart"
 		case strings.HasPrefix(rel, "host-packages/"):
 			component = "host-packages"
+		case strings.HasPrefix(rel, "artifacts/"):
+			component = "artifacts"
 		}
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
@@ -529,14 +544,15 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                   "fake zonctl binary",
-		"bin/helm":                                          "fake helm binary",
-		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                    "fake k3s binary",
-		"charts/appliance-chart-2.4.0.tgz":                  "fake appliance chart",
-		"configuration/values.yaml":                         "replicaCount: 1\n",
-		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
+		"bin/zonctl-real":                  "fake zonctl binary",
+		"bin/helm":                         "fake helm binary",
+		"bin/appliance-host-agentd":        "fake appliance host agent daemon",
+		"k3s/binary/k3s":                   "fake k3s binary",
+		"charts/appliance-chart-2.4.0.tgz": "fake appliance chart",
+		"configuration/values.yaml":        "replicaCount: 1\n",
+		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
+		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
 	}
 
 	var manifestEntries []map[string]any
@@ -564,6 +580,8 @@ func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 			component = "oci-images"
 		case strings.HasPrefix(rel, "host-packages/"):
 			component = "host-packages"
+		case strings.HasPrefix(rel, "artifacts/"):
+			component = "artifacts"
 		}
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
@@ -621,13 +639,14 @@ func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 func TestOfflineSource_AllowsMissingHostPackages(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                     "fake zonctl binary",
-		"bin/helm":                            "fake helm binary",
-		"bin/appliance-host-agentd":           "fake appliance host agent daemon",
-		"k3s/binary/k3s":                      "fake k3s binary",
-		"charts/appliance-chart-2.4.0.tgz":    "fake appliance chart",
-		"configuration/values.yaml":           "replicaCount: 1\n",
-		"oci-images/appliance-host-agent.tar": "fake appliance host agent image",
+		"bin/zonctl-real":                  "fake zonctl binary",
+		"bin/helm":                         "fake helm binary",
+		"bin/appliance-host-agentd":        "fake appliance host agent daemon",
+		"k3s/binary/k3s":                   "fake k3s binary",
+		"charts/appliance-chart-2.4.0.tgz": "fake appliance chart",
+		"configuration/values.yaml":        "replicaCount: 1\n",
+		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
+		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
 	}
 
 	var manifestEntries []map[string]any
@@ -651,6 +670,8 @@ func TestOfflineSource_AllowsMissingHostPackages(t *testing.T) {
 			component = "k3s-binary"
 		case rel == "charts/appliance-chart-2.4.0.tgz":
 			component = "chart"
+		case strings.HasPrefix(rel, "artifacts/"):
+			component = "artifacts"
 		case rel == "oci-images/appliance-host-agent.tar":
 			component = "oci-images"
 		}

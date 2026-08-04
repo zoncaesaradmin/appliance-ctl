@@ -31,7 +31,10 @@ type Manifest struct {
 	BackupID         string      `json:"backupId"`
 	CreatedAt        time.Time   `json:"createdAt"`
 	ApplianceVersion string      `json:"applianceVersion"`
+	MetadataVersion  string      `json:"metadataVersion,omitempty"`
+	MetadataDigest   string      `json:"metadataDigest,omitempty"`
 	Files            []FileEntry `json:"files"`
+	PolicyFiles      []FileEntry `json:"policyFiles,omitempty"`
 }
 
 func newBackupID() string {

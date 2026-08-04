@@ -75,6 +75,19 @@ func Evaluate(sig Signals) []evidence.Check {
 			Message:   "installed-state present: version " + sig.InstalledState.InstalledVersion,
 			Timestamp: now, Idempotent: true, SecretsRedacted: true,
 		})
+		if pv := strings.TrimSpace(sig.InstalledState.Components.MetadataVersion); pv != "" {
+			checks = append(checks, evidence.Check{
+				ID: "metadata-bundle-recorded", Category: "manifest", Status: evidence.StatusPass,
+				Message:   "metadata bundle version " + pv,
+				Timestamp: now, Idempotent: true, SecretsRedacted: true,
+			})
+		} else {
+			checks = append(checks, evidence.Check{
+				ID: "metadata-bundle-recorded", Category: "manifest", Status: evidence.StatusFail,
+				Message:   "installed-state is missing metadataVersion",
+				Timestamp: now, Idempotent: true, SecretsRedacted: true,
+			})
+		}
 	}
 
 	k3sStatus := evidence.StatusPass

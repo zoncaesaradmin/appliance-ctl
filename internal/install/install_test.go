@@ -19,6 +19,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
@@ -107,6 +108,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackage
 		{"charts/appliance-chart-2.4.0.tgz", "chart", "fake chart bytes", ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart bytes", ""},
 		{"charts/appliance-dns-1.14.4.tgz", "chart", "fake dns chart bytes", ""},
+		{"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst", "artifacts", "", ""},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"k3s/images/coredns.tar", "k3s-images", "fake coredns image tar", "docker.io/rancher/mirrored-coredns-coredns:1.11.3"},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
@@ -137,7 +139,19 @@ func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackage
 		if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, []byte(e.content), 0o640); err != nil {
+		content := []byte(e.content)
+		if e.relPath == "artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst" {
+			if err := metadatabundle.WriteMinimalArchive(full, "2.4.0.0",
+				"core", "builder", "storage", "landns", "storage-landns", "builder-landns", "builder-storage-landns",
+			); err != nil {
+				t.Fatal(err)
+			}
+			var readErr error
+			content, readErr = os.ReadFile(full)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+		} else if err := os.WriteFile(full, content, 0o640); err != nil {
 			t.Fatal(err)
 		}
 		digest, err := verify.Digest(full)
@@ -148,7 +162,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackage
 			"path":      e.relPath,
 			"component": e.component,
 			"digest":    digest,
-			"sizeBytes": len(e.content),
+			"sizeBytes": len(content),
 		}
 		if e.imageReference != "" {
 			me["imageReference"] = e.imageReference
@@ -504,6 +518,7 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		ApplianceName:           "testapp",
 		DNSZone:                 "appliance.internal",
 		HostMDNSEnabled:         false,
+		MetadataBundlesDir:      filepath.Join(stateDir, "metadata-bundles"),
 		ZonctlRealDestPath:      filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath:  filepath.Join(stateDir, "usr-local-bin", "zonctl"),
 		HostAgentBinaryDestPath: filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "appliance-host-agentd"),
@@ -866,6 +881,7 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.FileserverDir:        {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:       {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected service log ownership for %v, got %v", wantOwnedPaths, ownedPaths)
@@ -930,6 +946,7 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:       {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only core service log ownership %v, got %v", wantOwnedPaths, ownedPaths)
@@ -970,6 +987,7 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.FileserverDir:        {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:       {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only storage service log ownership %v, got %v", wantOwnedPaths, ownedPaths)

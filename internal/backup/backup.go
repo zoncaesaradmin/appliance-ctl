@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
@@ -16,10 +17,11 @@ import (
 
 // Create takes a coordinated backup: stop K3s for a consistent snapshot,
 // copy dataDir into a new timestamped directory under backupRoot,
-// digest every file, write the manifest, then restart K3s. It always
-// attempts to restart K3s, even when the copy fails, so a failed backup
-// does not leave the appliance down.
-func Create(ctx context.Context, ops k3s.Ops, unitName, dataDir, backupRoot, applianceVersion string) (*Manifest, []evidence.Check, error) {
+// optionally snapshot the host-visible metadata-bundles tree, digest every
+// file, write the manifest, then restart K3s. It always attempts to restart
+// K3s, even when the copy fails, so a failed backup does not leave the
+// appliance down.
+func Create(ctx context.Context, ops k3s.Ops, unitName, dataDir, backupRoot, applianceVersion, metadataBundlesDir, metadataVersion, metadataDigest string) (*Manifest, []evidence.Check, error) {
 	var checks []evidence.Check
 	createdAt := time.Now().UTC()
 
@@ -53,7 +55,41 @@ func Create(ctx context.Context, ops k3s.Ops, unitName, dataDir, backupRoot, app
 	copyCheck.Message = fmt.Sprintf("copied %d file(s) from %s", len(files), dataDir)
 	checks = append(checks, copyCheck)
 
-	manifest := &Manifest{BackupID: backupID, CreatedAt: createdAt, ApplianceVersion: applianceVersion, Files: files}
+	var policyFiles []FileEntry
+	metadataBundlesDir = strings.TrimSpace(metadataBundlesDir)
+	if metadataBundlesDir != "" {
+		if _, err := os.Stat(metadataBundlesDir); err == nil {
+			policyStart := time.Now()
+			policyFiles, copyErr = copyDir(metadataBundlesDir, filepath.Join(backupDir, "metadata-bundles"))
+			policyCheck := evidence.Check{
+				ID: "backup-copy-metadata-bundles", Category: "backup-restore", Timestamp: policyStart.UTC(),
+				DurationMs: time.Since(policyStart).Milliseconds(), Idempotent: true, SecretsRedacted: true,
+			}
+			if copyErr != nil {
+				policyCheck.Status = evidence.StatusFail
+				policyCheck.Message = copyErr.Error()
+				checks = append(checks, policyCheck)
+				_ = ops.EnableAndStart(unitName)
+				return nil, checks, fmt.Errorf("backup: metadata bundles: %w", copyErr)
+			}
+			policyCheck.Status = evidence.StatusPass
+			policyCheck.Message = fmt.Sprintf("copied %d metadata-bundle file(s) from %s", len(policyFiles), metadataBundlesDir)
+			checks = append(checks, policyCheck)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			_ = ops.EnableAndStart(unitName)
+			return nil, checks, fmt.Errorf("backup: stat metadata bundles: %w", err)
+		}
+	}
+
+	manifest := &Manifest{
+		BackupID:         backupID,
+		CreatedAt:        createdAt,
+		ApplianceVersion: applianceVersion,
+		MetadataVersion:  strings.TrimSpace(metadataVersion),
+		MetadataDigest:   strings.TrimSpace(metadataDigest),
+		Files:            files,
+		PolicyFiles:      policyFiles,
+	}
 	if err := SaveManifest(backupDir, manifest); err != nil {
 		_ = ops.EnableAndStart(unitName)
 		return nil, checks, fmt.Errorf("backup: %w", err)
@@ -89,25 +125,30 @@ func Verify(backupDir string) ([]evidence.Check, error) {
 	}
 
 	dataDir := filepath.Join(backupDir, "data")
+	policyDir := filepath.Join(backupDir, "metadata-bundles")
 	var checks []evidence.Check
 	var failures []error
 
-	for _, f := range manifest.Files {
-		path := filepath.Join(dataDir, f.Path)
-		check := evidence.Check{
-			ID: "backup-verify-" + evidence.SanitizeIDSegment(f.Path), Category: "backup-restore",
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	verifyEntries := func(root string, entries []FileEntry) {
+		for _, f := range entries {
+			path := filepath.Join(root, f.Path)
+			check := evidence.Check{
+				ID: "backup-verify-" + evidence.SanitizeIDSegment(f.Path), Category: "backup-restore",
+				Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+			}
+			if err := verify.VerifyDigest(path, f.Digest); err != nil {
+				check.Status = evidence.StatusFail
+				check.Message = err.Error()
+				failures = append(failures, fmt.Errorf("%s: %w", f.Path, err))
+			} else {
+				check.Status = evidence.StatusPass
+				check.Message = f.Path + " digest matches"
+			}
+			checks = append(checks, check)
 		}
-		if err := verify.VerifyDigest(path, f.Digest); err != nil {
-			check.Status = evidence.StatusFail
-			check.Message = err.Error()
-			failures = append(failures, fmt.Errorf("%s: %w", f.Path, err))
-		} else {
-			check.Status = evidence.StatusPass
-			check.Message = f.Path + " digest matches"
-		}
-		checks = append(checks, check)
 	}
+	verifyEntries(dataDir, manifest.Files)
+	verifyEntries(policyDir, manifest.PolicyFiles)
 
 	if len(failures) > 0 {
 		return checks, fmt.Errorf("backup: %d file(s) failed integrity verification: %w", len(failures), errors.Join(failures...))
@@ -117,9 +158,10 @@ func Verify(backupDir string) ([]evidence.Check, error) {
 
 // Restore verifies the backup's integrity first and refuses to proceed
 // if it fails, then stops K3s, replaces dataDir with the verified
-// snapshot, and restarts K3s. This is a clean-node restore: dataDir is
-// fully replaced, not merged.
-func Restore(ctx context.Context, ops k3s.Ops, unitName, backupDir, dataDir string) ([]evidence.Check, error) {
+// snapshot, optionally restores the host-visible metadata-bundles tree, and
+// restarts K3s. This is a clean-node restore: dataDir is fully replaced,
+// not merged.
+func Restore(ctx context.Context, ops k3s.Ops, unitName, backupDir, dataDir, metadataBundlesDir string) ([]evidence.Check, error) {
 	checks, err := Verify(backupDir)
 	if err != nil {
 		return checks, fmt.Errorf("backup: refusing to restore from a backup that failed integrity verification: %w", err)
@@ -157,6 +199,41 @@ func Restore(ctx context.Context, ops k3s.Ops, unitName, backupDir, dataDir stri
 	restoreCheck.Message = "data restored from backup"
 	restoreCheck.DurationMs = time.Since(restoreStart).Milliseconds()
 	checks = append(checks, restoreCheck)
+
+	metadataBundlesDir = strings.TrimSpace(metadataBundlesDir)
+	policySrc := filepath.Join(backupDir, "metadata-bundles")
+	if metadataBundlesDir != "" {
+		if _, err := os.Stat(policySrc); err == nil {
+			policyStart := time.Now()
+			policyCheck := evidence.Check{
+				ID: "restore-copy-metadata-bundles", Category: "backup-restore", Timestamp: policyStart.UTC(),
+				Idempotent: true, SecretsRedacted: true,
+			}
+			if err := os.RemoveAll(metadataBundlesDir); err != nil {
+				policyCheck.Status = evidence.StatusFail
+				policyCheck.Message = err.Error()
+				policyCheck.DurationMs = time.Since(policyStart).Milliseconds()
+				checks = append(checks, policyCheck)
+				_ = ops.EnableAndStart(unitName)
+				return checks, fmt.Errorf("backup: clear metadata bundles: %w", err)
+			}
+			if _, err := copyDir(policySrc, metadataBundlesDir); err != nil {
+				policyCheck.Status = evidence.StatusFail
+				policyCheck.Message = err.Error()
+				policyCheck.DurationMs = time.Since(policyStart).Milliseconds()
+				checks = append(checks, policyCheck)
+				_ = ops.EnableAndStart(unitName)
+				return checks, fmt.Errorf("backup: restore metadata bundles: %w", err)
+			}
+			policyCheck.Status = evidence.StatusPass
+			policyCheck.Message = "metadata bundles restored from backup"
+			policyCheck.DurationMs = time.Since(policyStart).Milliseconds()
+			checks = append(checks, policyCheck)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			_ = ops.EnableAndStart(unitName)
+			return checks, fmt.Errorf("backup: stat metadata bundles snapshot: %w", err)
+		}
+	}
 
 	startStart := time.Now()
 	startCheck := evidence.Check{

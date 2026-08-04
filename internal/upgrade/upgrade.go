@@ -53,7 +53,10 @@ type Options struct {
 	// storage hostPath PersistentVolume (builder profile only). See
 	// internal/hostdirs — re-applied on every upgrade so a host whose
 	// directory was created before this fix shipped self-heals.
-	WorkspaceRootDir       string
+	WorkspaceRootDir string
+	// MetadataBundlesDir is the host directory for extracted metadata bundles.
+	// Empty defaults to hostdirs.MetadataBundlesDir.
+	MetadataBundlesDir     string
 	NodeName               string
 	ApplianceName          string
 	DNSZone                string
@@ -254,6 +257,33 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		})
 	}
 
+	metadataBundlesDir := strings.TrimSpace(opts.MetadataBundlesDir)
+	if metadataBundlesDir == "" {
+		metadataBundlesDir = hostdirs.MetadataBundlesDir
+	}
+	if err := o.EnsureOwnedDir(metadataBundlesDir, hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
+		return nil, checks, fmt.Errorf("upgrade: prepare metadata-bundles directory: %w", err)
+	}
+	checks = append(checks, evidence.Check{
+		ID: "metadata-bundles-directory-owned", Category: "host", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("%s owned by %d:%d", metadataBundlesDir, hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+	metadataVersion, metadataDigest, err := install.StageMetadataBundle(
+		resolved.MetadataBundleArchivePath,
+		filepath.Join(filepath.Dir(opts.InstalledStatePath), "metadata-bundles"),
+		metadataBundlesDir,
+		effectiveProfile,
+	)
+	if err != nil {
+		return nil, checks, fmt.Errorf("upgrade: stage metadata bundle: %w", err)
+	}
+	checks = append(checks, evidence.Check{
+		ID: "metadata-bundle-staged", Category: "manifest", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("staged and extracted metadata bundle %s (profile %s validated)", metadataVersion, effectiveProfile),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+
 	if !sameVersionRefresh && !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
 		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, targetVersion, resolved.Compatibility.SupportedUpgradeSources)
 	}
@@ -261,7 +291,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	chartPath := resolved.ChartPath
 
 	// Mandatory pre-upgrade recovery set.
-	backupManifest, backupChecks, err := backup.Create(ctx, o.K3s, opts.K3sUnitName, opts.K3sDataDir, opts.BackupRoot, installed.InstalledVersion)
+	backupManifest, backupChecks, err := backup.Create(ctx, o.K3s, opts.K3sUnitName, opts.K3sDataDir, opts.BackupRoot, installed.InstalledVersion, metadataBundlesDir, installed.Components.MetadataVersion, installed.Components.MetadataDigest)
 	checks = append(checks, backupChecks...)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: pre-upgrade backup failed: %w", err)
@@ -308,7 +338,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				rollbackErrs = append(rollbackErrs, err)
 			}
 		}
-		restoreChecks, restoreErr := backup.Restore(ctx, o.K3s, opts.K3sUnitName, backupDir, opts.K3sDataDir)
+		restoreChecks, restoreErr := backup.Restore(ctx, o.K3s, opts.K3sUnitName, backupDir, opts.K3sDataDir, metadataBundlesDir)
 		rc = append(rc, restoreChecks...)
 		if restoreErr != nil {
 			rollbackErrs = append(rollbackErrs, restoreErr)
@@ -710,10 +740,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		DNSZone:             identity.Zone,
 		HostMDNSEnabled:     opts.HostMDNSEnabled,
 		Components: state.Components{
-			K3sVersion:   resolved.Compatibility.K3sVersion,
-			ChartVersion: resolved.Compatibility.ChartVersion,
-			ZotVersion:   resolved.ZotComponentVersion(resolved.Compatibility.ZotVersion),
-			DNSVersion:   resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
+			K3sVersion:      resolved.Compatibility.K3sVersion,
+			ChartVersion:    resolved.Compatibility.ChartVersion,
+			ZotVersion:      resolved.ZotComponentVersion(resolved.Compatibility.ZotVersion),
+			DNSVersion:      resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
+			MetadataVersion: metadataVersion,
+			MetadataDigest:  metadataDigest,
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{

@@ -9,6 +9,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
@@ -28,7 +29,7 @@ func runBackup(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	}
 
 	ops := k3s.DefaultOps()
-	manifest, checks, err := backup.Create(ctx, ops, defaultK3sUnitName, defaultK3sDataDir, backupRootDir(opts.stateDir), version)
+	manifest, checks, err := backup.Create(ctx, ops, defaultK3sUnitName, defaultK3sDataDir, backupRootDir(opts.stateDir), version, hostdirs.MetadataBundlesDir, installed.Components.MetadataVersion, installed.Components.MetadataDigest)
 
 	reportID := "evidence-" + time.Now().UTC().Format("20060102T150405Z0700")
 	if report, buildErr := evidence.BuildReport("backup", version, reportID, checks, time.Now()); buildErr == nil {
@@ -50,9 +51,17 @@ func runBackup(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	for _, f := range manifest.Files {
 		sizeBytes += f.SizeBytes
 	}
+	for _, f := range manifest.PolicyFiles {
+		sizeBytes += f.SizeBytes
+	}
 	logger.Info("backup complete", "backupId", manifest.BackupID, "sizeBytes", sizeBytes)
 
-	data, _ := json.Marshal(map[string]any{"backupId": manifest.BackupID, "sizeBytes": sizeBytes})
+	data, _ := json.Marshal(map[string]any{
+		"backupId":        manifest.BackupID,
+		"sizeBytes":       sizeBytes,
+		"metadataVersion": manifest.MetadataVersion,
+		"metadataDigest":  manifest.MetadataDigest,
+	})
 	return finish(result, "succeeded", 0, "backup "+manifest.BackupID+" created", data)
 }
 
@@ -69,7 +78,7 @@ func runRestore(ctx context.Context, opts cliOptions, logger *slog.Logger, resul
 	}
 
 	ops := k3s.DefaultOps()
-	checks, err := backup.Restore(ctx, ops, defaultK3sUnitName, backupDir, defaultK3sDataDir)
+	checks, err := backup.Restore(ctx, ops, defaultK3sUnitName, backupDir, defaultK3sDataDir, hostdirs.MetadataBundlesDir)
 
 	reportID := "evidence-" + time.Now().UTC().Format("20060102T150405Z0700")
 	if report, buildErr := evidence.BuildReport("restore", version, reportID, checks, time.Now()); buildErr == nil {
@@ -88,6 +97,11 @@ func runRestore(ctx context.Context, opts cliOptions, logger *slog.Logger, resul
 	}
 
 	logger.Info("restore complete", "backupId", manifest.BackupID)
-	data, _ := json.Marshal(map[string]any{"backupId": manifest.BackupID, "restoredVersion": manifest.ApplianceVersion})
+	data, _ := json.Marshal(map[string]any{
+		"backupId":        manifest.BackupID,
+		"restoredVersion": manifest.ApplianceVersion,
+		"metadataVersion": manifest.MetadataVersion,
+		"metadataDigest":  manifest.MetadataDigest,
+	})
 	return finish(result, "succeeded", 0, "restored from backup "+manifest.BackupID, data)
 }

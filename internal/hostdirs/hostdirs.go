@@ -100,6 +100,10 @@ const (
 	// with the shared fsGroup so the API pod can write and host users can
 	// inspect. There is no Traefik /files nginx surface.
 	FileserverDir = "/data/zon/files"
+	// MetadataBundlesDir is the host-visible tree of extracted appliance policy
+	// bundles mounted into the control-plane pod at
+	// {persistence.dataDir}/metadata-bundles.
+	MetadataBundlesDir = "/data/zon/metadata-bundles"
 )
 
 // OwnedDir describes one appliance-managed host directory whose ownership and

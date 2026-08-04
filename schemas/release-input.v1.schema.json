@@ -44,6 +44,7 @@
         "zotChart",
         "dnsImage",
         "dnsChart",
+        "metadataBundle",
         "configurationSchema",
         "compatibility",
         "checksums",
@@ -66,6 +67,10 @@
         "zotChart": { "$ref": "#/$defs/artifact" },
         "dnsImage": { "$ref": "#/$defs/artifact" },
         "dnsChart": { "$ref": "#/$defs/artifact" },
+        "metadataBundle": {
+          "$ref": "#/$defs/artifact",
+          "description": "Signed appliance metadata-bundle archive (appliance-metadata-bundle-X.Y.Z.N.tar.zst)."
+        },
         "configurationSchema": { "$ref": "#/$defs/artifact" },
         "compatibility": { "$ref": "#/$defs/artifact" },
         "checksums": { "$ref": "#/$defs/artifact" },
