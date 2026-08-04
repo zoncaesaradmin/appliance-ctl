@@ -62,8 +62,8 @@ func TestServiceRegistryConfigBuildsHostAgentRoutes(t *testing.T) {
 	if !ok {
 		t.Fatalf("routes = %#v, want []map[string]any", service["routes"])
 	}
-	if len(routes) != 3 {
-		t.Fatalf("len(routes) = %d, want 3", len(routes))
+	if len(routes) != 5 {
+		t.Fatalf("len(routes) = %d, want 5", len(routes))
 	}
 }
 

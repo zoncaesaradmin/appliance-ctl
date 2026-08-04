@@ -61,6 +61,9 @@ type Options struct {
 	ApplianceName          string
 	DNSZone                string
 	HostMDNSEnabled        bool
+	HostWifiAPEnabled      bool
+	HostWifiAPPSK          string
+	ApplyWifiAP            func(context.Context, hostagent.WifiAPApplyRequest) (hostagent.WifiAPStatus, error)
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -214,7 +217,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, opts.HostMDNSEnabled, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, opts.HostMDNSEnabled, opts.HostWifiAPEnabled, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -442,9 +445,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	checks = append(checks, binaryCheck)
-	if opts.HostMDNSEnabled {
+	if opts.HostMDNSEnabled || opts.HostWifiAPEnabled {
 		if resolved.HostPackagesRootDir == "" {
-			return nil, checks, fmt.Errorf("upgrade: bundle has no host-packages artifact but host mDNS is enabled")
+			return nil, checks, fmt.Errorf("upgrade: bundle has no host-packages artifact but host mDNS or WiFi AP is enabled")
 		}
 		installHostPackages := o.InstallHostPackages
 		if installHostPackages == nil {
@@ -452,22 +455,37 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				return func() error { return nil }, nil
 			}
 		}
+		serviceName := ""
+		if opts.HostMDNSEnabled {
+			serviceName = hostpackages.MDNSServiceName
+		}
 		hostPackagesRollback, err = installHostPackages(hostpackages.InstallSpec{
-			RootDir:   resolved.HostPackagesRootDir,
-			OS:        facts.OS,
-			OSVersion: facts.OSVersion,
-			Arch:      facts.Arch,
+			RootDir:     resolved.HostPackagesRootDir,
+			OS:          facts.OS,
+			OSVersion:   facts.OSVersion,
+			Arch:        facts.Arch,
+			ServiceName: serviceName,
 		})
 		if err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host packages: %w", err), rollback)
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
+		msg := fmt.Sprintf("installed bundled host packages from %s", resolved.HostPackagesRootDir)
+		if opts.HostMDNSEnabled {
+			msg += " and enabled avahi-daemon"
+		}
 		checks = append(checks, evidence.Check{
-			ID: "host-mdns-installed", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("installed bundled host mDNS packages from %s and enabled avahi-daemon", resolved.HostPackagesRootDir),
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+			ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
+			Message: msg, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
+		if opts.HostMDNSEnabled {
+			checks = append(checks, evidence.Check{
+				ID: "host-mdns-installed", Category: "host", Status: evidence.StatusPass,
+				Message:   "host mDNS packages installed and avahi-daemon enabled",
+				Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+			})
+		}
 	}
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
@@ -576,6 +594,43 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
+		if opts.HostWifiAPEnabled {
+			applyWifi := opts.ApplyWifiAP
+			if applyWifi == nil {
+				client := hostagent.NewClient(opts.HostAgentSocketPath)
+				if err := client.WaitReady(ctx, 30*time.Second); err != nil {
+					rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: host agent not ready for wifi-ap apply: %w", err), rollback)
+					checks = append(checks, rollbackChecks...)
+					return nil, checks, failErr
+				}
+				applyWifi = client.ApplyWifiAP
+			}
+			ssidBase := strings.TrimSpace(opts.NodeName)
+			if ssidBase == "" {
+				ssidBase = identity.Name
+			}
+			wifiStatus, err := applyWifi(ctx, hostagent.WifiAPApplyRequest{
+				Desired:  true,
+				PSK:      opts.HostWifiAPPSK,
+				SSIDBase: ssidBase,
+			})
+			if err != nil {
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: apply host wifi-ap via host agent: %w", err), rollback)
+				checks = append(checks, rollbackChecks...)
+				return nil, checks, failErr
+			}
+			msg := fmt.Sprintf("wifi-ap desired=true actual=%s", wifiStatus.Actual)
+			if wifiStatus.SSID != "" {
+				msg += " ssid=" + wifiStatus.SSID
+			}
+			if wifiStatus.Reason != "" {
+				msg += " reason=" + wifiStatus.Reason
+			}
+			checks = append(checks, evidence.Check{
+				ID: "host-wifi-ap-applied", Category: "host", Status: evidence.StatusPass,
+				Message: msg, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+			})
+		}
 	}
 	if targetArtifact {
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
@@ -739,6 +794,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
 		HostMDNSEnabled:     opts.HostMDNSEnabled,
+		HostWifiAPEnabled:   opts.HostWifiAPEnabled,
 		Components: state.Components{
 			K3sVersion:      resolved.Compatibility.K3sVersion,
 			ChartVersion:    resolved.Compatibility.ChartVersion,

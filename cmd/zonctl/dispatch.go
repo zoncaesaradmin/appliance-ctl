@@ -304,6 +304,8 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ApplianceName:           opts.applianceName,
 		DNSZone:                 opts.dnsZone,
 		HostMDNSEnabled:         opts.hostMDNSEnabled,
+		HostWifiAPEnabled:       opts.hostWifiAPEnabled,
+		HostWifiAPPSK:           opts.hostWifiAPPSK,
 		TLSSANs:                 installTLSSANs(opts),
 		ZonctlRealDestPath:      defaultZonctlRealPath,
 		ZonctlLauncherDestPath:  defaultZonctlLauncherPath,

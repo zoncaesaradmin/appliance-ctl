@@ -52,27 +52,30 @@ var defaultK3sCNIInterfaces = []string{"cni0", "flannel.1"}
 // publicKeyPath are install-specific; the rest are shared or unused by
 // most commands (unused flags are harmless).
 type cliOptions struct {
-	dryRun              bool
-	output              string
-	stateDir            string
-	configPath          string
-	bundleDir           string
-	publicKey           string
-	applianceProfile    string
-	buildCatalogPath    string
-	nodeName            string
-	applianceName       string
-	dnsZone             string
-	hostMDNSEnabled     bool
-	hostMDNSEnabledSet  bool
-	tlsSANs             []string
-	preserveFailedState bool
-	backupID            string
-	confirm             string
-	acknowledgeDataLoss bool
-	forceDataLoss       bool
-	wipeWorkspaces      bool
-	forceAdopt          bool
+	dryRun               bool
+	output               string
+	stateDir             string
+	configPath           string
+	bundleDir            string
+	publicKey            string
+	applianceProfile     string
+	buildCatalogPath     string
+	nodeName             string
+	applianceName        string
+	dnsZone              string
+	hostMDNSEnabled      bool
+	hostMDNSEnabledSet   bool
+	hostWifiAPEnabled    bool
+	hostWifiAPEnabledSet bool
+	hostWifiAPPSK        string
+	tlsSANs              []string
+	preserveFailedState  bool
+	backupID             string
+	confirm              string
+	acknowledgeDataLoss  bool
+	forceDataLoss        bool
+	wipeWorkspaces       bool
+	forceAdopt           bool
 	// Optional image-pull registry (K3s registries.yaml). Host empty = omit.
 	imagePullRegistry             string
 	imagePullRegistryUsernameEnv  string
@@ -166,6 +169,7 @@ func run(args []string) int {
 	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN becomes <name>.<dns-zone> for TLS and canonical origin (required for install; upgrade preserves installed value when omitted)")
 	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")
 	hostMDNSEnabled := fs.String("host-mdns-enabled", "", "enable host-level mDNS support and the derived hostname.local TLS SAN; accepts true|false; install defaults false and upgrade preserves the installed value when omitted")
+	hostWifiAPEnabled := fs.String("host-wifi-ap-enabled", "", "enable host-level management WiFi access point (packages + host-agent apply); accepts true|false; install defaults false and upgrade preserves the installed value when omitted; PSK from env HOST_WIFI_AP_PSK")
 	var tlsSANs stringListFlag
 	fs.Var(&tlsSANs, "tls-san", "additional TLS subjectAltName to include on the appliance certificate; repeatable (for example a raw IP)")
 	preserveFailedState := fs.Bool("preserve-failed-state", false, "debug mode: do not roll back a failed install or upgrade; preserve the partial target state for investigation")
@@ -191,6 +195,11 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "zonctl: invalid --host-mdns-enabled %q: %v\n", *hostMDNSEnabled, err)
 		return 2
 	}
+	parsedHostWifiAPEnabled, hostWifiAPEnabledSet, err := parseOptionalBool(*hostWifiAPEnabled)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "zonctl: invalid --host-wifi-ap-enabled %q: %v\n", *hostWifiAPEnabled, err)
+		return 2
+	}
 	if *nodeName == "" {
 		if h, err := os.Hostname(); err == nil {
 			*nodeName = h
@@ -211,6 +220,9 @@ func run(args []string) int {
 		dnsZone:                       *dnsZone,
 		hostMDNSEnabled:               parsedHostMDNSEnabled,
 		hostMDNSEnabledSet:            hostMDNSEnabledSet,
+		hostWifiAPEnabled:             parsedHostWifiAPEnabled,
+		hostWifiAPEnabledSet:          hostWifiAPEnabledSet,
+		hostWifiAPPSK:                 strings.TrimSpace(os.Getenv("HOST_WIFI_AP_PSK")),
 		tlsSANs:                       append([]string(nil), tlsSANs...),
 		preserveFailedState:           *preserveFailedState,
 		backupID:                      *backupID,
@@ -236,6 +248,9 @@ func installTLSSANs(opts cliOptions) []string {
 		fqdn = identity.FQDN
 	}
 	extra := append([]string(nil), opts.tlsSANs...)
+	// Always include the fixed management AP address so later activation works
+	// with the install-time certificate without depending on mDNS or the AP flag.
+	extra = append([]string{productconfig.WifiAPManagementAddress}, extra...)
 	if opts.hostMDNSEnabled {
 		if san := hostMDNSTLSSAN(opts.nodeName); san != "" {
 			extra = append([]string{san}, extra...)

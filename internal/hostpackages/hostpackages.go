@@ -61,13 +61,10 @@ func ResolvePackageDir(rootDir, osName, osVersion, arch string) (string, error) 
 }
 
 // InstallRequiredPackages installs installer-owned offline host packages
-// (currently Avahi for mDNS), enables the service, and returns a
-// best-effort rollback closure.
+// and optionally enables/restarts a systemd service (for example Avahi for
+// mDNS). When ServiceName is empty, only packages are installed.
 func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	serviceName := strings.TrimSpace(spec.ServiceName)
-	if serviceName == "" {
-		serviceName = mdnsServiceName
-	}
 	packageDir, err := ResolvePackageDir(spec.RootDir, spec.OS, spec.OSVersion, spec.Arch)
 	if err != nil {
 		return nil, err
@@ -93,33 +90,38 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	if err != nil {
 		return nil, err
 	}
-	enabledBefore, err := serviceEnabled(serviceName)
-	if err != nil {
-		return nil, err
-	}
-	activeBefore, err := serviceActive(serviceName)
-	if err != nil {
-		return nil, err
+	var enabledBefore, activeBefore bool
+	if serviceName != "" {
+		enabledBefore, err = serviceEnabled(serviceName)
+		if err != nil {
+			return nil, err
+		}
+		activeBefore, err = serviceActive(serviceName)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	rollback := func() error {
 		var errs []error
-		if activeBefore {
-			if err := startService(serviceName); err != nil {
-				errs = append(errs, err)
+		if serviceName != "" {
+			if activeBefore {
+				if err := startService(serviceName); err != nil {
+					errs = append(errs, err)
+				}
+			} else {
+				if err := stopService(serviceName); err != nil {
+					errs = append(errs, err)
+				}
 			}
-		} else {
-			if err := stopService(serviceName); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if enabledBefore {
-			if err := enableService(serviceName); err != nil {
-				errs = append(errs, err)
-			}
-		} else {
-			if err := disableService(serviceName); err != nil {
-				errs = append(errs, err)
+			if enabledBefore {
+				if err := enableService(serviceName); err != nil {
+					errs = append(errs, err)
+				}
+			} else {
+				if err := disableService(serviceName); err != nil {
+					errs = append(errs, err)
+				}
 			}
 		}
 
@@ -141,16 +143,21 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	if err := installDebArchives(debs); err != nil {
 		return nil, err
 	}
-	if err := enableService(serviceName); err != nil {
-		_ = rollback()
-		return nil, err
-	}
-	if err := restartService(serviceName); err != nil {
-		_ = rollback()
-		return nil, err
+	if serviceName != "" {
+		if err := enableService(serviceName); err != nil {
+			_ = rollback()
+			return nil, err
+		}
+		if err := restartService(serviceName); err != nil {
+			_ = rollback()
+			return nil, err
+		}
 	}
 	return rollback, nil
 }
+
+// MDNSServiceName is the systemd unit enabled when host mDNS is selected.
+const MDNSServiceName = mdnsServiceName
 
 func debArchives(packageDir string) ([]string, error) {
 	entries, err := os.ReadDir(packageDir)

@@ -59,6 +59,7 @@ type InstalledState struct {
 	ApplianceName       string       `json:"applianceName,omitempty"`
 	DNSZone             string       `json:"dnsZone,omitempty"`
 	HostMDNSEnabled     bool         `json:"hostMDNSEnabled,omitempty"`
+	HostWifiAPEnabled   bool         `json:"hostWifiAPEnabled,omitempty"`
 	Components          Components   `json:"components"`
 	K3sOwnership        K3sOwnership `json:"k3sOwnership"`
 	LastOperation       Operation    `json:"lastOperation"`

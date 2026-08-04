@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
@@ -625,6 +626,72 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 }
 
+func TestInstall_AppliesWifiAPViaHostAgent(t *testing.T) {
+	dir, pub := buildFixtureBundleWithOptions(t, false, true)
+	opts := baseOptions(t, dir, pub)
+	opts.HostWifiAPEnabled = true
+	opts.HostWifiAPPSK = "long-enough-secret"
+	opts.NodeName = "kitchen"
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	var packagesCalled bool
+	var applyCalled bool
+	opts.ApplyWifiAP = func(_ context.Context, req hostagent.WifiAPApplyRequest) (hostagent.WifiAPStatus, error) {
+		applyCalled = true
+		if !req.Desired || req.PSK != "long-enough-secret" || req.SSIDBase != "kitchen" {
+			t.Fatalf("unexpected apply request: %+v", req)
+		}
+		return hostagent.WifiAPStatus{
+			Desired: true, Actual: "inactive", Reason: "no_capable_hardware",
+			SSID: "kitchen-AP", ManagementAddress: hostagent.WifiAPManagementAddress, Security: "wpa2-psk",
+		}, nil
+	}
+	orch := &install.Orchestrator{
+		K3s:        fk3s.ops(),
+		ImagesRun:  fcli.Run,
+		HelmRun:    fcli.Run,
+		ClusterRun: fcli.Run,
+		DetectHost: healthyHostFacts,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			return nil
+		},
+		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
+			packagesCalled = true
+			if spec.ServiceName != "" {
+				t.Fatalf("wifi-only package install should not enable a service, got %q", spec.ServiceName)
+			}
+			return func() error { return nil }, nil
+		},
+		InstallHostAgent: func(hostagent.InstallSpec) (func() error, error) {
+			return func() error { return nil }, nil
+		},
+	}
+
+	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("expected wifi-ap install to succeed, got: %v", err)
+	}
+	if !packagesCalled {
+		t.Fatal("expected host packages install")
+	}
+	if !applyCalled {
+		t.Fatal("expected wifi-ap apply via host agent")
+	}
+	var sawApply bool
+	for _, check := range checks {
+		if check.ID == "host-wifi-ap-applied" {
+			sawApply = true
+			if !strings.Contains(check.Message, "no_capable_hardware") {
+				t.Fatalf("expected soft hardware reason in evidence, got %q", check.Message)
+			}
+		}
+	}
+	if !sawApply {
+		t.Fatal("expected host-wifi-ap-applied evidence")
+	}
+}
+
 func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
@@ -648,6 +715,9 @@ func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 			gotSpecRoot = spec.RootDir
 			if spec.OS != "ubuntu" || spec.OSVersion != "24.04" || spec.Arch != "amd64" {
 				t.Fatalf("unexpected host package spec: %+v", spec)
+			}
+			if spec.ServiceName != hostpackages.MDNSServiceName {
+				t.Fatalf("ServiceName = %q, want %q", spec.ServiceName, hostpackages.MDNSServiceName)
 			}
 			return func() error { return nil }, nil
 		},

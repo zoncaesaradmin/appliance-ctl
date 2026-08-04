@@ -60,6 +60,10 @@
       "type": "boolean",
       "description": "Whether this installation manages host-level mDNS discovery and the hostname.local TLS SAN."
     },
+    "hostWifiAPEnabled": {
+      "type": "boolean",
+      "description": "Whether this installation selected host-level management WiFi AP (actual state is reported by host-agent)."
+    },
     "components": {
       "type": "object",
       "additionalProperties": false,

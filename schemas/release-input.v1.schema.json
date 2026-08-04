@@ -60,7 +60,7 @@
         "hostAgentBinary": { "$ref": "#/$defs/artifact" },
         "hostPackages": {
           "$ref": "#/$defs/artifactDirectory",
-          "description": "Offline host package directory carrying bundled operating-system packages required by installer-owned host capabilities such as mDNS."
+          "description": "Offline host package directory carrying bundled operating-system packages required by installer-owned host capabilities such as mDNS and management WiFi AP."
         },
         "applianceChart": { "$ref": "#/$defs/artifact" },
         "zotImage": { "$ref": "#/$defs/artifact" },
