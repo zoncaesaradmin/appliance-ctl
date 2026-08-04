@@ -702,6 +702,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// above: the control plane readiness probe polls dnsReadyURL and
 	// assumes the release already exists by the time CP pods start.
 	if resolved.DNSEnabled {
+		// Re-assert after any host-package dpkg postinst may have started
+		// stock dnsmasq. Safe if packages were not installed.
+		if err := hostpackages.QuiesceStockDaemonUnits(); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: free port 53 from stock DNS packages: %w", err), runRollbacks())
+		}
 		dnsCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
 			NamespaceLabels: helm.PrivilegedNamespaceLabels(),

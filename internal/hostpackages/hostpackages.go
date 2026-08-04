@@ -60,6 +60,15 @@ func ResolvePackageDir(rootDir, osName, osVersion, arch string) (string, error) 
 	return dir, nil
 }
 
+// Stock daemon units that must not auto-claim host ports after dpkg
+// install. appliance-host-agentd owns hostapd/dnsmasq for the management
+// WiFi AP with appliance-written configs; Debian stock units bind :53 and
+// fight appliance-dns (hostNetwork CoreDNS).
+var stockDaemonUnitsToQuiesce = []string{
+	"dnsmasq.service",
+	"hostapd.service",
+}
+
 // InstallRequiredPackages installs installer-owned offline host packages
 // and optionally enables/restarts a systemd service (for example Avahi for
 // mDNS). When ServiceName is empty, only packages are installed.
@@ -143,6 +152,13 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	if err := installDebArchives(debs); err != nil {
 		return nil, err
 	}
+	// dpkg postinst for dnsmasq/hostapd may enable and start stock units
+	// that steal exclusivity of :53 / wireless control from appliance
+	// services. Quiesce them after every host-package install.
+	if err := QuiesceStockDaemonUnits(); err != nil {
+		_ = rollback()
+		return nil, err
+	}
 	if serviceName != "" {
 		if err := enableService(serviceName); err != nil {
 			_ = rollback()
@@ -154,6 +170,26 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 		}
 	}
 	return rollback, nil
+}
+
+// QuiesceStockDaemonUnits stops and disables stock hostapd/dnsmasq units
+// so they cannot block appliance-dns or agent-managed AP mode. Missing
+// units are ignored. Best-effort mask keeps postinst from re-enabling on
+// later package repairs.
+func QuiesceStockDaemonUnits() error {
+	var errs []error
+	for _, unit := range stockDaemonUnitsToQuiesce {
+		if err := stopService(unit); err != nil && !missingUnitError(err) {
+			errs = append(errs, err)
+		}
+		if err := disableService(unit); err != nil && !missingUnitError(err) {
+			errs = append(errs, err)
+		}
+		if err := maskService(unit); err != nil && !missingUnitError(err) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // MDNSServiceName is the systemd unit enabled when host mDNS is selected.
@@ -295,12 +331,26 @@ func systemctlRestart(name string) error {
 	return nil
 }
 
+func systemctlMask(name string) error {
+	_, err := runCommand("systemctl", "mask", name)
+	if err != nil && !missingUnitError(err) {
+		return fmt.Errorf("hostpackages: mask %s: %w", name, err)
+	}
+	return nil
+}
+
+var maskService = systemctlMask
+
 func missingUnitError(err error) bool {
 	if err == nil {
 		return false
 	}
 	text := err.Error()
-	return strings.Contains(text, "not found") || strings.Contains(text, "not loaded") || strings.Contains(text, "No such file")
+	return strings.Contains(text, "not found") ||
+		strings.Contains(text, "could not be found") ||
+		strings.Contains(text, "not loaded") ||
+		strings.Contains(text, "No such file") ||
+		strings.Contains(text, "does not exist")
 }
 
 func runCommand(name string, args ...string) (string, error) {

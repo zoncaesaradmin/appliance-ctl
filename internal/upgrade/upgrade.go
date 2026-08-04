@@ -696,6 +696,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				})
 			}
 		}
+		if err := hostpackages.QuiesceStockDaemonUnits(); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: free port 53 from stock DNS packages: %w", err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
 		dnsCheck, dnsErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
 			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
 			NamespaceLabels: helm.PrivilegedNamespaceLabels(),
