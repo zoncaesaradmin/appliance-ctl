@@ -62,8 +62,24 @@ func TestServiceRegistryConfigBuildsHostAgentRoutes(t *testing.T) {
 	if !ok {
 		t.Fatalf("routes = %#v, want []map[string]any", service["routes"])
 	}
-	if len(routes) != 5 {
-		t.Fatalf("len(routes) = %d, want 5", len(routes))
+	if len(routes) != 7 {
+		t.Fatalf("len(routes) = %d, want 7", len(routes))
+	}
+	pathSet := map[string]bool{}
+	for _, route := range routes {
+		method, _ := route["method"].(string)
+		path, _ := route["externalPath"].(string)
+		pathSet[method+" "+path] = true
+	}
+	for _, want := range []string{
+		"GET /api/v1/host/wifi-ap",
+		"PUT /api/v1/host/wifi-ap",
+		"GET /api/v1/host/mdns",
+		"PUT /api/v1/host/mdns",
+	} {
+		if !pathSet[want] {
+			t.Fatalf("service routes missing %s", want)
+		}
 	}
 }
 

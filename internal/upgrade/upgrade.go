@@ -533,6 +533,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
 	}
+	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath)
+	checks = append(checks, traefikLBCheck)
+	if traefikLBErr != nil {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", traefikLBErr), func() []evidence.Check {
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
+	}
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	if hadWorkflowsBefore && !targetWorkflows {

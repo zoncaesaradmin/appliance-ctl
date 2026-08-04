@@ -1135,6 +1135,10 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		return "1", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "deployment") && contains(args, "local-path-provisioner"):
 		return "1", nil
+	case name == "kubectl" && contains(args, "get") && contains(args, "svc") && contains(args, "traefik"):
+		return `{"spec":{"externalIPs":["10.42.0.1"]}}`, nil
+	case name == "kubectl" && contains(args, "patch") && contains(args, "svc") && contains(args, "traefik"):
+		return "service/traefik patched", nil
 	}
 	return "", nil
 }

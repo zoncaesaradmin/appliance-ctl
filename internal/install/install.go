@@ -564,6 +564,13 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
+	// Publish https://10.42.0.1/ as a Traefik externalIP so WiFi AP clients
+	// reach the UI; ServiceLB alone only binds the ethernet node VIP.
+	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath)
+	checks = append(checks, traefikLBCheck)
+	if traefikLBErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikLBErr), runRollbacks())
+	}
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{

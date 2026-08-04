@@ -89,6 +89,8 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 				{Method: "GET", ExternalPath: "/api/v1/host/health", UpstreamPath: "/internal/v1/host/health", Permission: "host.read"},
 				{Method: "GET", ExternalPath: "/api/v1/host/wifi-ap", UpstreamPath: "/internal/v1/host/wifi-ap", Permission: "host.read"},
 				{Method: "PUT", ExternalPath: "/api/v1/host/wifi-ap", UpstreamPath: "/internal/v1/host/wifi-ap", Permission: "host.write"},
+				{Method: "GET", ExternalPath: "/api/v1/host/mdns", UpstreamPath: "/internal/v1/host/mdns", Permission: "host.read"},
+				{Method: "PUT", ExternalPath: "/api/v1/host/mdns", UpstreamPath: "/internal/v1/host/mdns", Permission: "host.write"},
 			},
 		},
 		{
