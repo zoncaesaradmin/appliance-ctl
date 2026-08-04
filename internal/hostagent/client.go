@@ -12,8 +12,10 @@ import (
 	"time"
 )
 
-// WifiAPManagementAddress is always included in install TLS SANs so the
-// management AP URL https://10.42.0.1/ works when the feature is activated.
+// WifiAPManagementAddress is the fixed IPv4 for the optional management WiFi
+// AP and a permanent TLS SAN (https://10.42.0.1/). That /24 is kept out of the
+// K3s pod CIDR (see k3s.DefaultClusterCIDR) so Flannel cannot reuse it when
+// the AP is enabled.
 const WifiAPManagementAddress = "10.42.0.1"
 
 // WifiAPStatus mirrors the host-agentd wifi-ap status JSON (no secrets).

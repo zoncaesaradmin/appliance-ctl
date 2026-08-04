@@ -17,6 +17,8 @@ func TestConfig_Render(t *testing.T) {
 	rendered := cfg.Render()
 
 	for _, want := range []string{
+		`cluster-cidr: "10.44.0.0/16"`,
+		`service-cidr: "10.43.0.0/16"`,
 		`node-name: "appliance-node"`,
 		`data-dir: "/var/lib/appliance/k3s"`,
 		`write-kubeconfig-mode: "0640"`,
@@ -28,6 +30,9 @@ func TestConfig_Render(t *testing.T) {
 			t.Errorf("expected rendered config to contain %q, got:\n%s", want, rendered)
 		}
 	}
+	if strings.Contains(rendered, "10.42.0.0/16") {
+		t.Error("must not use upstream pod CIDR 10.42.0.0/16 (reserved for management WiFi AP)")
+	}
 }
 
 func TestConfig_Render_OmitsTLSSANWhenEmpty(t *testing.T) {
@@ -37,6 +42,23 @@ func TestConfig_Render_OmitsTLSSANWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestConfig_Render_AllowsCIDROverrides(t *testing.T) {
+	cfg := k3s.Config{
+		NodeName:    "n",
+		DataDir:     "/d",
+		ClusterCIDR: "10.50.0.0/16",
+		ServiceCIDR: "10.51.0.0/16",
+	}
+	rendered := cfg.Render()
+	for _, want := range []string{
+		`cluster-cidr: "10.50.0.0/16"`,
+		`service-cidr: "10.51.0.0/16"`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("expected %q in:\n%s", want, rendered)
+		}
+	}
+}
 func TestUnitConfig_Render(t *testing.T) {
 	u := k3s.UnitConfig{BinaryPath: "/opt/appliance/bin/k3s", ConfigPath: "/etc/rancher/k3s/config.yaml"}
 	rendered := u.Render()
