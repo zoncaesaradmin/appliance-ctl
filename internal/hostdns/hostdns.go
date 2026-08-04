@@ -189,6 +189,12 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 	}
 
 	if needStubWork {
+		// Clear leftover stock package daemons from a previous install attempt
+		// before we touch resolved, so :53 does not stay owned by dnsmasq.
+		if err := releaseStockDNSListeners(); err != nil {
+			return result, fmt.Errorf("hostdns: release stock DNS services: %w", err)
+		}
+
 		if err := os.MkdirAll(filepath.Dir(DropInPath), 0o755); err != nil {
 			return result, fmt.Errorf("hostdns: create resolved drop-in dir: %w", err)
 		}
@@ -216,9 +222,15 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 				_ = Restore()
 				return result, fmt.Errorf("hostdns: release leftover appliance CoreDNS on port 53: %w", releaseErr)
 			}
+			// A prior host-packages install of the full Debian dnsmasq package
+			// often leaves dnsmasq.service on *:53 after resolved is freed.
+			if releaseErr := releaseStockDNSListeners(); releaseErr != nil {
+				_ = Restore()
+				return result, fmt.Errorf("hostdns: release stock DNS services on port 53: %w", releaseErr)
+			}
 			if !waitUntilWildcard53Free(port53ReadyTimeout, port53ReadyPoll) {
 				_ = Restore()
-				return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub; stop the conflicting DNS service before installing a dns-capable profile")
+				return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub and stopping stock dnsmasq/hostapd; stop the conflicting DNS service before installing a dns-capable profile")
 			}
 		}
 	}
