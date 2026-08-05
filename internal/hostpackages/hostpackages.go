@@ -70,10 +70,13 @@ var stockDaemonUnitsToQuiesce = []string{
 	"hostapd.service",
 }
 
-// InstallRequiredPackages installs every offline .deb under the bundle
+// InstallRequiredPackages installs missing offline .deb files under the bundle
 // host-packages tree for this OS/arch (mdns + wifi-ap closures in the
-// complete product super-set). Packages are installed at product install /
-// upgrade time so day-2 Enable can start services without dpkg/apt.
+// complete product super-set). Packages already install-ok on the host are
+// skipped so reinstall/e2e cycles do not re-run dpkg over libc/apt and similar
+// transitive closures (slow, and previously hit a short command timeout).
+// Packages are installed at product install / upgrade time so day-2 Enable can
+// start services without dpkg/apt.
 //
 // When ServiceName is empty (normal install path), no feature service is
 // enabled or started — only packages land and stock postinst-started units
@@ -118,6 +121,14 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 		}
 	}
 
+	var toInstall []string
+	for i, deb := range debs {
+		if _, ok := installedBefore[packageNames[i]]; ok {
+			continue
+		}
+		toInstall = append(toInstall, deb)
+	}
+
 	rollback := func() error {
 		var errs []error
 		if serviceName != "" {
@@ -156,7 +167,7 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 		return errors.Join(errs...)
 	}
 
-	if err := installDebArchives(debs); err != nil {
+	if err := installDebArchives(toInstall); err != nil {
 		return nil, err
 	}
 	// dpkg postinst for dnsmasq/hostapd may enable and start stock units
@@ -257,7 +268,9 @@ func installPackages(paths []string) error {
 		return nil
 	}
 	args := append([]string{"--install"}, paths...)
-	if _, err := runCommand("dpkg", args...); err != nil {
+	// Full first-time host-package closures can take several minutes (and used to
+	// hit a global 30s exec kill with "signal: killed").
+	if _, err := runCommandWithTimeout(15*time.Minute, "dpkg", args...); err != nil {
 		return fmt.Errorf("hostpackages: install packages: %w", err)
 	}
 	return nil
@@ -268,7 +281,7 @@ func removePackages(names []string) error {
 		return nil
 	}
 	args := append([]string{"--remove"}, names...)
-	if _, err := runCommand("dpkg", args...); err != nil {
+	if _, err := runCommandWithTimeout(5*time.Minute, "dpkg", args...); err != nil {
 		return fmt.Errorf("hostpackages: remove packages: %w", err)
 	}
 	return nil
@@ -361,10 +374,23 @@ func missingUnitError(err error) bool {
 }
 
 func runCommand(name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	return runCommandWithTimeout(30*time.Second, name, args...)
+}
+
+func runCommandWithTimeout(timeout time.Duration, name string, args ...string) (string, error) {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, name, args...)
+	// Avoid interactive debconf on constrained CI / package reinstalls.
+	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("%s %s: timed out after %s: %s", name, strings.Join(args, " "), timeout, strings.TrimSpace(string(out)))
+		}
 		return "", fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
