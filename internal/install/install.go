@@ -88,13 +88,8 @@ type Options struct {
 	NodeName           string
 	ApplianceName      string
 	DNSZone            string
-	HostMDNSEnabled    bool
-	HostWifiAPEnabled  bool
-	// HostWifiAPPSK is read from HOST_WIFI_AP_PSK env by the CLI; never logged.
-	HostWifiAPPSK string
-	// ApplyWifiAP, when set, replaces the default host-agentd Unix socket client.
-	// Used for tests. Production uses hostagent.Client against HostAgentSocketPath.
-	ApplyWifiAP            func(context.Context, hostagent.WifiAPApplyRequest) (hostagent.WifiAPStatus, error)
+	// Host packages from the super-set bundle are always staged when present so
+	// day-2 host APIs can enable mDNS / Wi-Fi AP. Services are not enabled here.
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -225,7 +220,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	nodeIPv4 := preferredLocalIPv4(opts.TLSSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, opts.HostMDNSEnabled, opts.HostWifiAPEnabled, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -354,50 +349,32 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if baselineCheck.Status != evidence.StatusPass {
 		return nil, checks, failInstall(fmt.Errorf("install: target host does not match the signed bundle baseline"), runRollbacks())
 	}
-	if opts.HostMDNSEnabled || opts.HostWifiAPEnabled {
-		if resolved.HostPackagesRootDir == "" {
-			return nil, checks, fmt.Errorf("install: bundle has no host-packages artifact but host mDNS or WiFi AP is enabled")
-		}
+	// Stage offline host packages (mdns + wifi-ap debs) from the super-set
+	// bundle so day-2 control-plane/host-agent APIs can enable features. Do not
+	// enable avahi or apply Wi-Fi AP here — that is post-install operator action.
+	if resolved.HostPackagesRootDir != "" {
 		installHostPackages := o.InstallHostPackages
 		if installHostPackages == nil {
 			installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
 				return func() error { return nil }, nil
 			}
 		}
-		serviceName := ""
-		if opts.HostMDNSEnabled {
-			serviceName = hostpackages.MDNSServiceName
-		}
 		hostPackagesRollback, err := installHostPackages(hostpackages.InstallSpec{
-			RootDir:     resolved.HostPackagesRootDir,
-			OS:          facts.OS,
-			OSVersion:   facts.OSVersion,
-			Arch:        facts.Arch,
-			ServiceName: serviceName,
+			RootDir:   resolved.HostPackagesRootDir,
+			OS:        facts.OS,
+			OSVersion: facts.OSVersion,
+			Arch:      facts.Arch,
+			// Empty ServiceName: install packages only; no service enable.
 		})
 		if err != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: install host packages: %w", err), runRollbacks())
 		}
 		rollbacks = append(rollbacks, hostPackagesRollback)
-		msg := fmt.Sprintf("installed bundled host packages from %s", resolved.HostPackagesRootDir)
-		if opts.HostMDNSEnabled {
-			msg += " and enabled avahi-daemon"
-		}
-		if opts.HostWifiAPEnabled {
-			msg += " (includes wifi-ap packages)"
-		}
 		checks = append(checks, evidence.Check{
 			ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
-			Message:   msg,
+			Message:   fmt.Sprintf("staged bundled host packages from %s (mDNS/Wi-Fi AP remain off until enabled via API)", resolved.HostPackagesRootDir),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
-		if opts.HostMDNSEnabled {
-			checks = append(checks, evidence.Check{
-				ID: "host-mdns-installed", Category: "host", Status: evidence.StatusPass,
-				Message:   "host mDNS packages installed and avahi-daemon enabled",
-				Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-			})
-		}
 	}
 
 	existing, err := state.Load(opts.InstalledStatePath)
@@ -730,16 +707,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 	}
 
-	// Management Wi-Fi AP after host-agentd and, when present, appliance-dns.
-	// Order: landns capability installs CoreDNS first → AP enable probes :53 busy → DHCP-only.
-	if resolved.HostEnabled && opts.HostWifiAPEnabled {
-		wifiChecks, wifiErr := applyInstallHostWifiAP(ctx, o, opts, identity)
-		checks = append(checks, wifiChecks...)
-		if wifiErr != nil {
-			return nil, checks, failInstall(wifiErr, runRollbacks())
-		}
-	}
-
 	clusterRun := o.ClusterRun
 	if clusterRun == nil {
 		clusterRun = cli.Exec
@@ -833,8 +800,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ApplianceProfile:    effectiveProfile,
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
-		HostMDNSEnabled:     opts.HostMDNSEnabled,
-		HostWifiAPEnabled:   opts.HostWifiAPEnabled,
 		Components: state.Components{
 			K3sVersion:      resolved.Compatibility.K3sVersion,
 			ChartVersion:    resolved.Compatibility.ChartVersion,
@@ -864,55 +829,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	return installed, checks, nil
-}
-
-// applyInstallHostWifiAP enables the management Wi-Fi AP via host-agentd after
-// host-agent install and, when applicable, after appliance-dns is ready.
-func applyInstallHostWifiAP(ctx context.Context, o *Orchestrator, opts Options, identity productconfig.ApplianceIdentity) ([]evidence.Check, error) {
-	var checks []evidence.Check
-	applyWifi := opts.ApplyWifiAP
-	if applyWifi == nil {
-		client := hostagent.NewClient(opts.HostAgentSocketPath)
-		if err := client.WaitReady(ctx, 30*time.Second); err != nil {
-			return checks, fmt.Errorf("install: host agent not ready for wifi-ap apply: %w", err)
-		}
-		applyWifi = client.ApplyWifiAP
-	}
-	ssidBase := strings.TrimSpace(opts.NodeName)
-	if ssidBase == "" {
-		ssidBase = identity.Name
-	}
-	wifiStatus, err := applyWifi(ctx, hostagent.WifiAPApplyRequest{
-		Desired:  true,
-		PSK:      opts.HostWifiAPPSK,
-		SSIDBase: ssidBase,
-	})
-	if err != nil {
-		return checks, fmt.Errorf("install: apply host wifi-ap via host agent: %w", err)
-	}
-	// Soft outcomes (no hardware, radio in use, missing psk) do not fail install.
-	msg := fmt.Sprintf("wifi-ap desired=true actual=%s", wifiStatus.Actual)
-	if wifiStatus.SSID != "" {
-		msg += " ssid=" + wifiStatus.SSID
-	}
-	if wifiStatus.Reason != "" {
-		msg += " reason=" + wifiStatus.Reason
-	}
-	if wifiStatus.Message != "" {
-		msg += " (" + wifiStatus.Message + ")"
-	}
-	if wifiStatus.LocalDNSServing != nil {
-		if *wifiStatus.LocalDNSServing {
-			msg += " localDNS=true"
-		} else {
-			msg += " localDNS=false"
-		}
-	}
-	checks = append(checks, evidence.Check{
-		ID: "host-wifi-ap-applied", Category: "host", Status: evidence.StatusPass,
-		Message: msg, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-	})
-	return checks, nil
 }
 
 // preferredLocalIPv4 returns the first candidate that parses as a literal

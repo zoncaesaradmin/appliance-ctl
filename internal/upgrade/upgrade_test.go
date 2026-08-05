@@ -268,7 +268,6 @@ func setupEnvironment(t *testing.T, installedVersion, k3sVersion, chartVersion, 
 		ApplianceProfile:    applianceProfile,
 		ApplianceName:       "testapp",
 		DNSZone:             "appliance.internal",
-		HostMDNSEnabled:     false,
 		Components:          state.Components{K3sVersion: k3sVersion, ChartVersion: chartVersion},
 		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: installedVersion},
 		LastOperation: state.Operation{
@@ -296,7 +295,6 @@ func (env environment) options(targetVersion string) upgrade.Options {
 		NodeName:                "appliance-node",
 		ApplianceName:           "testapp",
 		DNSZone:                 "appliance.internal",
-		HostMDNSEnabled:         false,
 		MetadataBundlesDir:      filepath.Join(env.stateDir, "metadata-bundles"),
 		ZonctlRealDestPath:      filepath.Join(env.stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath:  filepath.Join(env.stateDir, "usr-local-bin", "zonctl"),
@@ -385,7 +383,6 @@ func TestUpgrade_InstallsBundledHostPackages(t *testing.T) {
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	opts := env.options("2.4.0")
-	opts.HostMDNSEnabled = true
 	_, checks, err := orch.Upgrade(context.Background(), offlineSource, opts)
 	if err != nil {
 		t.Fatalf("expected upgrade to succeed, got: %v", err)
@@ -399,13 +396,13 @@ func TestUpgrade_InstallsBundledHostPackages(t *testing.T) {
 	}
 	var sawEvidence bool
 	for _, check := range checks {
-		if check.ID == "host-mdns-installed" {
+		if check.ID == "host-packages-installed" {
 			sawEvidence = true
 			break
 		}
 	}
 	if !sawEvidence {
-		t.Fatal("expected host-mdns-installed evidence check")
+		t.Fatal("expected host-packages-installed evidence check")
 	}
 }
 
@@ -428,7 +425,6 @@ func TestUpgrade_RefusesHostWhenBundleBaselineDoesNotMatch(t *testing.T) {
 
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
 	opts := env.options("2.4.0")
-	opts.HostMDNSEnabled = true
 	_, checks, err := orch.Upgrade(context.Background(), offlineSource, opts)
 	if err == nil || !strings.Contains(err.Error(), "signed bundle baseline") {
 		t.Fatalf("expected exact bundle baseline mismatch failure, got: %v", err)

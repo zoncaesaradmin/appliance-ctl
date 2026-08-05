@@ -75,8 +75,6 @@ func BuiltInProfileCatalog() ProfileCatalog {
 const (
 	DefaultZotBaseURL              = "http://appliance-registry.artifacts.svc.cluster.local:5000"
 	DefaultRegistryPublicKeySecret = "appliance-registry-verification-key"
-	DefaultHostMDNSEnabled         = false
-	DefaultHostWifiAPEnabled       = false
 	// WifiAPManagementAddress is always injected as a TLS SAN.
 	WifiAPManagementAddress = "10.42.0.1"
 	// WifiAPManagementHostname is always injected as a TLS SAN for
@@ -217,7 +215,7 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 	}, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, hostMDNSEnabled bool, hostWifiAPEnabled bool, registry ...string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
 	catalog, err := LoadCatalog(applianceCatalogPath)
 	if err != nil {
 		return "", func() {}, err
@@ -279,8 +277,11 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 	config["applianceCatalog"] = catalog.Document
 	config["applianceName"] = identity.Name
 	config["dnsZoneName"] = identity.Zone
-	config["hostMDNSEnabled"] = hostMDNSEnabled
-	config["hostWifiAPEnabled"] = hostWifiAPEnabled
+	// host mDNS / Wi-Fi AP enablement is day-2 only (control-plane / host-agent
+	// APIs after admin login). Install stages offline host packages; services
+	// stay off until an operator enables them via the UI/API.
+	delete(config, "hostMDNSEnabled")
+	delete(config, "hostWifiAPEnabled")
 	config["canonicalOrigin"] = "https://" + identity.FQDN
 	if ip := strings.TrimSpace(nodeIPv4); ip != "" {
 		config["nodeIPv4"] = ip

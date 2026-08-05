@@ -523,7 +523,6 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		NodeName:                "appliance-node",
 		ApplianceName:           "testapp",
 		DNSZone:                 "appliance.internal",
-		HostMDNSEnabled:         false,
 		MetadataBundlesDir:      filepath.Join(stateDir, "metadata-bundles"),
 		ZonctlRealDestPath:      filepath.Join(stateDir, "usr-local-lib", "zon", "bin", "zonctl-real"),
 		ZonctlLauncherDestPath:  filepath.Join(stateDir, "usr-local-bin", "zonctl"),
@@ -549,7 +548,6 @@ func saveInstalledState(t *testing.T, path, installedVersion string) {
 		ApplianceProfile:    "core",
 		ApplianceName:       "testapp",
 		DNSZone:             "appliance.internal",
-		HostMDNSEnabled:     false,
 		Components:          state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: installedVersion},
 		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: installedVersion},
 		LastOperation: state.Operation{
@@ -631,27 +629,14 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 }
 
-func TestInstall_AppliesWifiAPViaHostAgent(t *testing.T) {
+func TestInstall_StagesHostPackagesWithoutEnablingServices(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
-	opts.HostWifiAPEnabled = true
-	opts.HostWifiAPPSK = "long-enough-secret"
-	opts.NodeName = "kitchen"
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
 	var packagesCalled bool
-	var applyCalled bool
-	opts.ApplyWifiAP = func(_ context.Context, req hostagent.WifiAPApplyRequest) (hostagent.WifiAPStatus, error) {
-		applyCalled = true
-		if !req.Desired || req.PSK != "long-enough-secret" || req.SSIDBase != "kitchen" {
-			t.Fatalf("unexpected apply request: %+v", req)
-		}
-		return hostagent.WifiAPStatus{
-			Desired: true, Actual: "inactive", Reason: "no_capable_hardware",
-			SSID: "kitchen-AP", ManagementAddress: hostagent.WifiAPManagementAddress, Security: "wpa2-psk",
-		}, nil
-	}
+	var gotSpec hostpackages.InstallSpec
 	orch := &install.Orchestrator{
 		K3s:        fk3s.ops(),
 		ImagesRun:  fcli.Run,
@@ -663,8 +648,9 @@ func TestInstall_AppliesWifiAPViaHostAgent(t *testing.T) {
 		},
 		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
 			packagesCalled = true
+			gotSpec = spec
 			if spec.ServiceName != "" {
-				t.Fatalf("wifi-only package install should not enable a service, got %q", spec.ServiceName)
+				t.Fatalf("package staging must not enable a service, got %q", spec.ServiceName)
 			}
 			return func() error { return nil }, nil
 		},
@@ -675,57 +661,47 @@ func TestInstall_AppliesWifiAPViaHostAgent(t *testing.T) {
 
 	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
-		t.Fatalf("expected wifi-ap install to succeed, got: %v", err)
+		t.Fatalf("expected install to stage host packages, got: %v", err)
 	}
 	if !packagesCalled {
 		t.Fatal("expected host packages install")
 	}
-	if !applyCalled {
-		t.Fatal("expected wifi-ap apply via host agent")
+	wantRoot := filepath.Join(dir, "host-packages")
+	if gotSpec.RootDir != wantRoot {
+		t.Fatalf("InstallHostPackages root = %q, want %q", gotSpec.RootDir, wantRoot)
 	}
-	var sawApply bool
+	var sawPackages, sawWifi, sawMDNS bool
 	for _, check := range checks {
-		if check.ID == "host-wifi-ap-applied" {
-			sawApply = true
-			if !strings.Contains(check.Message, "no_capable_hardware") {
-				t.Fatalf("expected soft hardware reason in evidence, got %q", check.Message)
+		switch check.ID {
+		case "host-packages-installed":
+			sawPackages = true
+			if strings.Contains(check.Message, "enabled avahi") {
+				t.Fatalf("install must not enable mDNS: %q", check.Message)
+			}
+		case "host-wifi-ap-applied", "host-mdns-installed":
+			if check.ID == "host-wifi-ap-applied" {
+				sawWifi = true
+			}
+			if check.ID == "host-mdns-installed" {
+				sawMDNS = true
 			}
 		}
 	}
-	if !sawApply {
-		t.Fatal("expected host-wifi-ap-applied evidence")
+	if !sawPackages {
+		t.Fatal("expected host-packages-installed evidence")
 	}
-	// core has no landns capability; AP still runs after the DNS phase is skipped.
-	for _, check := range checks {
-		if check.ID == "appliance-dns-ready" {
-			t.Fatalf("core profile must not report appliance-dns-ready")
-		}
+	if sawWifi || sawMDNS {
+		t.Fatal("install must not enable mDNS or Wi-Fi AP (day-2 API only)")
 	}
 }
 
-func TestInstall_LandnsInstallsDNSBeforeWifiAP(t *testing.T) {
+func TestInstall_LandnsAwaitsDNSWithoutWifiAP(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "landns"
-	opts.HostWifiAPEnabled = true
-	opts.HostWifiAPPSK = "long-enough-secret"
-	opts.NodeName = "kitchen"
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	var applyCall int
-	opts.ApplyWifiAP = func(_ context.Context, req hostagent.WifiAPApplyRequest) (hostagent.WifiAPStatus, error) {
-		applyCall++
-		if !req.Desired || req.PSK != "long-enough-secret" || req.SSIDBase != "kitchen" {
-			t.Fatalf("unexpected apply request: %+v", req)
-		}
-		localDNS := false // CoreDNS holds host :53; AP uses DHCP-only fallback.
-		return hostagent.WifiAPStatus{
-			Desired: true, Actual: "enabled", SSID: "Zon-kitchen",
-			ManagementAddress: hostagent.WifiAPManagementAddress, Security: "wpa2-psk",
-			LocalDNSServing: &localDNS,
-		}, nil
-	}
 	orch := &install.Orchestrator{
 		K3s:        fk3s.ops(),
 		ImagesRun:  fcli.Run,
@@ -745,12 +721,9 @@ func TestInstall_LandnsInstallsDNSBeforeWifiAP(t *testing.T) {
 
 	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
-		t.Fatalf("landns+wifi install: %v", err)
+		t.Fatalf("landns install: %v", err)
 	}
-	if applyCall != 1 {
-		t.Fatalf("expected one wifi-ap apply, got %d", applyCall)
-	}
-	dnsHelmIdx, dnsReadyIdx, wifiIdx := -1, -1, -1
+	dnsHelmIdx, dnsReadyIdx := -1, -1
 	for i, check := range checks {
 		switch check.ID {
 		case "helm-release-appliance-dns":
@@ -762,9 +735,7 @@ func TestInstall_LandnsInstallsDNSBeforeWifiAP(t *testing.T) {
 				dnsReadyIdx = i
 			}
 		case "host-wifi-ap-applied":
-			if check.Status == evidence.StatusPass {
-				wifiIdx = i
-			}
+			t.Fatalf("landns install must not apply wifi-ap: %+v", check)
 		}
 	}
 	if dnsHelmIdx < 0 {
@@ -773,13 +744,9 @@ func TestInstall_LandnsInstallsDNSBeforeWifiAP(t *testing.T) {
 	if dnsReadyIdx < 0 {
 		t.Fatalf("missing appliance-dns-ready pass: %+v", checks)
 	}
-	if wifiIdx < 0 {
-		t.Fatalf("missing host-wifi-ap-applied pass: %+v", checks)
+	if !(dnsHelmIdx < dnsReadyIdx) {
+		t.Fatalf("expected DNS helm before ready, got helm=%d ready=%d", dnsHelmIdx, dnsReadyIdx)
 	}
-	if !(dnsHelmIdx < dnsReadyIdx && dnsReadyIdx < wifiIdx) {
-		t.Fatalf("expected DNS helm → dns ready → wifi apply order, got helm=%d ready=%d wifi=%d", dnsHelmIdx, dnsReadyIdx, wifiIdx)
-	}
-	// dns-server Available wait must appear in kubectl calls before install ends.
 	var sawDNSDeploy bool
 	for _, call := range fcli.calls {
 		if strings.Contains(call, "get deployment dns-server") || (strings.Contains(call, "deployment") && strings.Contains(call, "dns-server")) {
@@ -795,7 +762,6 @@ func TestInstall_LandnsInstallsDNSBeforeWifiAP(t *testing.T) {
 func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
-	opts.HostMDNSEnabled = true
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -816,8 +782,8 @@ func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 			if spec.OS != "ubuntu" || spec.OSVersion != "24.04" || spec.Arch != "amd64" {
 				t.Fatalf("unexpected host package spec: %+v", spec)
 			}
-			if spec.ServiceName != hostpackages.MDNSServiceName {
-				t.Fatalf("ServiceName = %q, want %q", spec.ServiceName, hostpackages.MDNSServiceName)
+			if spec.ServiceName != "" {
+				t.Fatalf("ServiceName = %q, want empty (no enable at install)", spec.ServiceName)
 			}
 			return func() error { return nil }, nil
 		},
@@ -836,20 +802,19 @@ func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 	}
 	var sawEvidence bool
 	for _, check := range checks {
-		if check.ID == "host-mdns-installed" {
+		if check.ID == "host-packages-installed" {
 			sawEvidence = true
 			break
 		}
 	}
 	if !sawEvidence {
-		t.Fatal("expected host-mdns-installed evidence check")
+		t.Fatal("expected host-packages-installed evidence check")
 	}
 }
 
 func TestInstall_RefusesHostWhenBundleBaselineDoesNotMatch(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
-	opts.HostMDNSEnabled = true
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
