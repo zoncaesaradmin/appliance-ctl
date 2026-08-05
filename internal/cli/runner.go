@@ -18,7 +18,7 @@ import (
 type Runner func(ctx context.Context, name string, args ...string) (string, error)
 
 // InputRunner is the stdin-aware variant used when a command must read
-// protected input such as a first-admin bootstrap password.
+// protected input such as a credential file on stdin.
 type InputRunner func(ctx context.Context, stdin []byte, name string, args ...string) (string, error)
 
 // Exec is the default, real Runner: it runs the named binary via

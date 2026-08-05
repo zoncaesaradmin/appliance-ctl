@@ -110,10 +110,9 @@ func TestEvaluate_ChartUnhealthy(t *testing.T) {
 // When chart/ingress were never checked (e.g. the appliance is not
 // installed, or K3s is down), Evaluate must not emit misleading
 // chart/ingress findings on top of the real cause.
-// A schema category enum violation once broke the whole evidence report
-// (see bootstrapadmin's equivalent test), so the new chart/ingress
-// checks are verified against the real evidence.v1 schema validator, not
-// just a compile check.
+// A schema category enum violation once broke the whole evidence report,
+// so the new chart/ingress checks are verified against the real
+// evidence.v1 schema validator, not just a compile check.
 func TestEvaluate_ChartAndIngressChecksSatisfyEvidenceSchema(t *testing.T) {
 	checks := diagnostics.Evaluate(diagnostics.Signals{
 		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0", Components: state.Components{MetadataVersion: "2.4.0.0", MetadataDigest: "sha256:deadbeef"}},

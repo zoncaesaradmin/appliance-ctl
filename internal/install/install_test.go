@@ -427,9 +427,6 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	if name == "kubectl" && contains(args, "patch") && contains(args, "svc") && contains(args, "traefik") {
 		return "service/traefik patched", nil
 	}
-	if name == "kubectl" && contains(args, "exec") && contains(args, "bootstrap") {
-		return `bootstrap: created administrator "admin" (id user-admin)`, nil
-	}
 	return "", nil
 }
 

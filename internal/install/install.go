@@ -131,12 +131,11 @@ type Options struct {
 // Orchestrator holds the injectable adapters Install drives. Tests
 // construct one with fakes; production code uses NewOrchestrator.
 type Orchestrator struct {
-	K3s             k3s.Ops
-	ImagesRun       cli.Runner
-	HelmRun         cli.Runner
-	ClusterRun      cli.Runner      // kubectl calls used to inspect an existing cluster before adopting it
-	ClusterRunInput cli.InputRunner // kubectl calls that must pass protected stdin
-	DetectHost      func(host.Options) (host.Facts, error)
+	K3s        k3s.Ops
+	ImagesRun  cli.Runner
+	HelmRun    cli.Runner
+	ClusterRun cli.Runner // kubectl calls used to inspect an existing cluster before adopting it
+	DetectHost func(host.Options) (host.Facts, error)
 	// EnsureOwnedDir prepares a host directory backing a static hostPath
 	// PersistentVolume (currently just workspace storage) with the
 	// correct owner before the chart mounts it — see internal/hostdirs
@@ -165,7 +164,7 @@ type Orchestrator struct {
 // and host-detection adapters.
 func NewOrchestrator() *Orchestrator {
 	return &Orchestrator{
-		K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec, ClusterRun: cli.Exec, ClusterRunInput: cli.ExecInput, DetectHost: host.Detect,
+		K3s: k3s.DefaultOps(), ImagesRun: cli.Exec, HelmRun: cli.Exec, ClusterRun: cli.Exec, DetectHost: host.Detect,
 		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, os.Chown)
 		},
