@@ -303,6 +303,46 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: detect k3s service: %w", err)
 	}
 
+	// Ownership gate before host DNS prep and other host mutations: a live
+	// owned appliance holds product CoreDNS on :53. Refuse reuse/upgrade so
+	// callers uninstall first and reinstall cleanly (in-place public upgrade
+	// is not the supported reinstall path for now).
+	existing, err := state.Load(opts.InstalledStatePath)
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
+	if existing != nil && existing.K3sOwnership.Owned && !signal.Detected && k3sArtifactsAbsent(opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath) {
+		if err := os.Remove(opts.InstalledStatePath); err != nil && !os.IsNotExist(err) {
+			return nil, checks, fmt.Errorf("install: remove stale installed-state: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "k3s-stale-ownership-cleared", Category: "k3s", Status: evidence.StatusPass,
+			Message:   "installed-state recorded owned K3s, but the K3s service, unit, binary, and config are absent; stale ownership record removed before fresh install",
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+		existing = nil
+	}
+	if existing == nil && signal.Detected && signal.Active {
+		healthy, foreignNamespaces, inspectErr := k3s.InspectCluster(ctx, o.ClusterRun, opts.KubeconfigPath, opts.ChartNamespace)
+		if inspectErr != nil {
+			return nil, checks, fmt.Errorf("install: inspect existing cluster: %w", inspectErr)
+		}
+		signal.Healthy = healthy
+		signal.ForeignNamespaces = foreignNamespaces
+		if runningVersion, versionErr := o.K3s.Version(opts.K3sBinaryDestPath); versionErr == nil {
+			signal.RunningVersion = runningVersion
+		}
+	}
+	decision, reason := k3s.DecideOwnership(targetVersion, existing, signal, opts.PriorInstallAttempted, opts.ForceAdopt)
+	if decision != k3s.DecisionFreshInstall && decision != k3s.DecisionAdoptExisting {
+		return nil, checks, fmt.Errorf("install: refusing to install (%s): %s", decision, reason)
+	}
+	checks = append(checks, evidence.Check{
+		ID: "k3s-ownership-decision", Category: "k3s", Status: evidence.StatusPass,
+		Message: fmt.Sprintf("%s: %s", decision, reason), Timestamp: time.Now().UTC(),
+		Idempotent: true, SecretsRedacted: true,
+	})
+
 	requiredPorts := append([]int{}, preflight.RequiredPorts...)
 	if resolved.DNSEnabled {
 		// Ubuntu's systemd-resolved stub owns 127.0.0.53:53 and blocks any
@@ -380,42 +420,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
 		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
 		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-	})
-
-	existing, err := state.Load(opts.InstalledStatePath)
-	if err != nil {
-		return nil, checks, fmt.Errorf("install: %w", err)
-	}
-	if existing != nil && existing.K3sOwnership.Owned && !signal.Detected && k3sArtifactsAbsent(opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath) {
-		if err := os.Remove(opts.InstalledStatePath); err != nil && !os.IsNotExist(err) {
-			return nil, checks, fmt.Errorf("install: remove stale installed-state: %w", err)
-		}
-		checks = append(checks, evidence.Check{
-			ID: "k3s-stale-ownership-cleared", Category: "k3s", Status: evidence.StatusPass,
-			Message:   "installed-state recorded owned K3s, but the K3s service, unit, binary, and config are absent; stale ownership record removed before fresh install",
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
-		existing = nil
-	}
-	if existing == nil && signal.Detected && signal.Active {
-		healthy, foreignNamespaces, inspectErr := k3s.InspectCluster(ctx, o.ClusterRun, opts.KubeconfigPath, opts.ChartNamespace)
-		if inspectErr != nil {
-			return nil, checks, fmt.Errorf("install: inspect existing cluster: %w", inspectErr)
-		}
-		signal.Healthy = healthy
-		signal.ForeignNamespaces = foreignNamespaces
-		if runningVersion, versionErr := o.K3s.Version(opts.K3sBinaryDestPath); versionErr == nil {
-			signal.RunningVersion = runningVersion
-		}
-	}
-	decision, reason := k3s.DecideOwnership(targetVersion, existing, signal, opts.PriorInstallAttempted, opts.ForceAdopt)
-	if decision != k3s.DecisionFreshInstall && decision != k3s.DecisionAdoptExisting {
-		return nil, checks, fmt.Errorf("install: refusing to install (%s): %s", decision, reason)
-	}
-	checks = append(checks, evidence.Check{
-		ID: "k3s-ownership-decision", Category: "k3s", Status: evidence.StatusPass,
-		Message: fmt.Sprintf("%s: %s", decision, reason), Timestamp: time.Now().UTC(),
-		Idempotent: true, SecretsRedacted: true,
 	})
 
 	// A fresh install always installs K3s. Adopting an existing cluster

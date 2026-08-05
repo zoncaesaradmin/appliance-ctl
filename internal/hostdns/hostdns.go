@@ -215,22 +215,33 @@ func Prepare(cfg PrepareConfig) (PrepareResult, error) {
 		}
 
 		if !waitUntilWildcard53Free(port53ReadyTimeout, port53ReadyPoll) {
-			// Uninstall with KillMode=process can leave appliance-dns CoreDNS
-			// reparented to init while still bound to *:53. Reap that known
-			// orphan, then wait again for the bind to succeed.
-			if _, releaseErr := releaseOrphanCoreDNSListeners(); releaseErr != nil {
-				_ = Restore()
-				return result, fmt.Errorf("hostdns: release leftover appliance CoreDNS on port 53: %w", releaseErr)
-			}
-			// A prior host-packages install of the full Debian dnsmasq package
-			// often leaves dnsmasq.service on *:53 after resolved is freed.
-			if releaseErr := releaseStockDNSListeners(); releaseErr != nil {
-				_ = Restore()
-				return result, fmt.Errorf("hostdns: release stock DNS services on port 53: %w", releaseErr)
-			}
-			if !waitUntilWildcard53Free(port53ReadyTimeout, port53ReadyPoll) {
-				_ = Restore()
-				return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub and stopping stock dnsmasq/hostapd; stop the conflicting DNS service before installing a dns-capable profile")
+			// Upgrade/reconcile: product CoreDNS already owns *:53. Host prep
+			// (stub off, uplink resolv, sysctl, hosts) is still required, but
+			// :53 need not be free while LAN DNS remains running.
+			if applianceCoreDNSListening() {
+				// continue past free-port wait
+			} else {
+				// Uninstall with KillMode=process can leave appliance-dns CoreDNS
+				// reparented to init while still bound to *:53. Reap that known
+				// orphan, then wait again for the bind to succeed.
+				if _, releaseErr := releaseOrphanCoreDNSListeners(); releaseErr != nil {
+					_ = Restore()
+					return result, fmt.Errorf("hostdns: release leftover appliance CoreDNS on port 53: %w", releaseErr)
+				}
+				// A prior host-packages install of the full Debian dnsmasq package
+				// often leaves dnsmasq.service on *:53 after resolved is freed.
+				if releaseErr := releaseStockDNSListeners(); releaseErr != nil {
+					_ = Restore()
+					return result, fmt.Errorf("hostdns: release stock DNS services on port 53: %w", releaseErr)
+				}
+				if !waitUntilWildcard53Free(port53ReadyTimeout, port53ReadyPoll) {
+					// After orphan reap, live product DNS may still be present
+					// (e.g. container PID reparented but still matching).
+					if !applianceCoreDNSListening() {
+						_ = Restore()
+						return result, fmt.Errorf("hostdns: port 53 is still bound after disabling systemd-resolved stub and stopping stock dnsmasq/hostapd; stop the conflicting DNS service before installing a dns-capable profile")
+					}
+				}
 			}
 		}
 	}

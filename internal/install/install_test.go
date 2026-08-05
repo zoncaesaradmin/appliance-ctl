@@ -18,6 +18,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
@@ -904,6 +905,52 @@ func TestInstall_RefusesHostWhenBundleBaselineDoesNotMatch(t *testing.T) {
 	}
 	if len(fcli.calls) != 0 {
 		t.Fatalf("expected no CLI mutations before baseline refusal, got %v", fcli.calls)
+	}
+}
+
+func TestInstall_RefusesOwnedApplianceBeforeHostDNSPrep(t *testing.T) {
+	dir, pub := buildFixtureBundleWithOptions(t, false, true)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "landns"
+	// Same version → reuse-owned. Also exercise upgrade-owned via older version
+	// on a second case below.
+	saveInstalledState(t, opts.InstalledStatePath, "2.4.0")
+
+	prepareCalls := 0
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: true, Active: true}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{
+		K3s:        fk3s.ops(),
+		ImagesRun:  fcli.Run,
+		HelmRun:    fcli.Run,
+		ClusterRun: fcli.Run,
+		DetectHost: healthyHostFacts,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			return nil
+		},
+		PrepareHostDNS: func(hostdns.PrepareConfig) (hostdns.PrepareResult, error) {
+			prepareCalls++
+			return hostdns.PrepareResult{}, fmt.Errorf("must not prepare host DNS when owned appliance should refuse install")
+		},
+	}
+
+	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil || !strings.Contains(err.Error(), "refusing to install (reuse-owned)") {
+		t.Fatalf("expected reuse-owned refuse before host DNS prep, got: %v", err)
+	}
+	if prepareCalls != 0 {
+		t.Fatalf("PrepareHostDNS called %d times; want 0 so public install can switch to upgrade", prepareCalls)
+	}
+
+	// upgrade-owned: installed older than target package version 2.4.0 from fixture.
+	saveInstalledState(t, opts.InstalledStatePath, "2.3.0")
+	prepareCalls = 0
+	_, _, err = orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil || !strings.Contains(err.Error(), "refusing to install (upgrade-owned)") {
+		t.Fatalf("expected upgrade-owned refuse before host DNS prep, got: %v", err)
+	}
+	if prepareCalls != 0 {
+		t.Fatalf("PrepareHostDNS called %d times on upgrade-owned path; want 0", prepareCalls)
 	}
 }
 

@@ -18,6 +18,8 @@ import (
 // releaseOrphanCoreDNSListeners SIGKILLs leftover appliance-dns CoreDNS
 // processes that still hold *:53 after K3s uninstall. KillMode=process can
 // leave the container PID reparented to init with uid DNSDirOwnerUID.
+// Live pods match the same fingerprint; callers only invoke this when :
+// 53 must be free for a fresh CoreDNS bind (not when product DNS is OK).
 func releaseOrphanCoreDNSListeners() (bool, error) {
 	pids, err := listOrphanApplianceCoreDNSPIDS()
 	if err != nil {
@@ -36,6 +38,13 @@ func releaseOrphanCoreDNSListeners() (bool, error) {
 		return true, err
 	}
 	return true, nil
+}
+
+// applianceCoreDNSListening reports product CoreDNS (DNSDirOwnerUID + conf)
+// still present — typical on upgrade/reconcile when LAN DNS is already up.
+func applianceCoreDNSListening() bool {
+	pids, err := listOrphanApplianceCoreDNSPIDS()
+	return err == nil && len(pids) > 0
 }
 
 func listOrphanApplianceCoreDNSPIDS() ([]int, error) {

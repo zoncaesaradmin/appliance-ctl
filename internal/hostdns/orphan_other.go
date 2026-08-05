@@ -5,3 +5,7 @@ package hostdns
 func releaseOrphanCoreDNSListeners() (bool, error) {
 	return false, nil
 }
+
+func applianceCoreDNSListening() bool {
+	return false
+}
