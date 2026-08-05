@@ -71,6 +71,24 @@ func NewClient(socketPath string) *Client {
 	}
 }
 
+// ApplyMDNS calls PUT /internal/v1/host/mdns on host-agentd.
+func (c *Client) ApplyMDNS(ctx context.Context, req MDNSApplyRequest) (MDNSStatus, error) {
+	var status MDNSStatus
+	if err := c.do(ctx, http.MethodPut, "/internal/v1/host/mdns", req, &status); err != nil {
+		return MDNSStatus{}, err
+	}
+	return status, nil
+}
+
+// GetMDNS calls GET /internal/v1/host/mdns on host-agentd.
+func (c *Client) GetMDNS(ctx context.Context) (MDNSStatus, error) {
+	var status MDNSStatus
+	if err := c.do(ctx, http.MethodGet, "/internal/v1/host/mdns", nil, &status); err != nil {
+		return MDNSStatus{}, err
+	}
+	return status, nil
+}
+
 // ApplyWifiAP calls PUT /internal/v1/host/wifi-ap on host-agentd.
 func (c *Client) ApplyWifiAP(ctx context.Context, req WifiAPApplyRequest) (WifiAPStatus, error) {
 	var status WifiAPStatus
@@ -90,14 +108,24 @@ func (c *Client) GetWifiAP(ctx context.Context) (WifiAPStatus, error) {
 }
 
 // WaitReady polls the health endpoint until the daemon socket answers or timeout.
+// When timeout is zero or negative, a single probe is issued with no sleep.
 func (c *Client) WaitReady(ctx context.Context, timeout time.Duration) error {
+	if timeout <= 0 {
+		if err := c.do(ctx, http.MethodGet, "/healthz", nil, nil); err != nil {
+			return fmt.Errorf("hostagent: wait ready: %w", err)
+		}
+		return nil
+	}
 	deadline := time.Now().Add(timeout)
 	var last error
-	for time.Now().Before(deadline) {
+	for {
 		if err := c.do(ctx, http.MethodGet, "/healthz", nil, nil); err == nil {
 			return nil
 		} else {
 			last = err
+		}
+		if !time.Now().Before(deadline) {
+			break
 		}
 		select {
 		case <-ctx.Done():

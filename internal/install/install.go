@@ -155,6 +155,10 @@ type Orchestrator struct {
 	RestoreHostDNS      func() error
 	InstallHostAgent    func(hostagent.InstallSpec) (func() error, error)
 	InstallHostPackages func(hostpackages.InstallSpec) (func() error, error)
+	// EnsureDay2FeaturesDisabled resets mDNS/Wi-Fi AP desired=off and tears down
+	// residual host services after host-agent install. Nil uses
+	// hostagent.EnsureDay2FeaturesDisabled.
+	EnsureDay2FeaturesDisabled func(context.Context, string) error
 }
 
 // NewOrchestrator wires an Orchestrator to the real K3s, ctr, helm/kubectl,
@@ -349,33 +353,35 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if baselineCheck.Status != evidence.StatusPass {
 		return nil, checks, failInstall(fmt.Errorf("install: target host does not match the signed bundle baseline"), runRollbacks())
 	}
-	// Stage offline host packages (mdns + wifi-ap debs) from the super-set
-	// bundle so day-2 control-plane/host-agent APIs can enable features. Do not
-	// enable avahi or apply Wi-Fi AP here — that is post-install operator action.
-	if resolved.HostPackagesRootDir != "" {
-		installHostPackages := o.InstallHostPackages
-		if installHostPackages == nil {
-			installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
-				return func() error { return nil }, nil
-			}
-		}
-		hostPackagesRollback, err := installHostPackages(hostpackages.InstallSpec{
-			RootDir:   resolved.HostPackagesRootDir,
-			OS:        facts.OS,
-			OSVersion: facts.OSVersion,
-			Arch:      facts.Arch,
-			// Empty ServiceName: install packages only; no service enable.
-		})
-		if err != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: install host packages: %w", err), runRollbacks())
-		}
-		rollbacks = append(rollbacks, hostPackagesRollback)
-		checks = append(checks, evidence.Check{
-			ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("staged bundled host packages from %s (mDNS/Wi-Fi AP remain off until enabled via API)", resolved.HostPackagesRootDir),
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
+	// Install offline host packages (mdns + wifi-ap debs) for every profile.
+	// Core capability: package bits on disk so Admin/API day-2 enable never needs
+	// apt. Do not enable avahi or apply Wi-Fi AP here.
+	// NewOrchestrator wires InstallRequiredPackages; unit tests inject stubs.
+	if resolved.HostPackagesRootDir == "" {
+		return nil, checks, failInstall(fmt.Errorf("install: host-packages are required in the signed bundle (mdns + wifi-ap)"), runRollbacks())
 	}
+	installHostPackages := o.InstallHostPackages
+	if installHostPackages == nil {
+		installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
+			return func() error { return nil }, nil
+		}
+	}
+	hostPackagesRollback, err := installHostPackages(hostpackages.InstallSpec{
+		RootDir:   resolved.HostPackagesRootDir,
+		OS:        facts.OS,
+		OSVersion: facts.OSVersion,
+		Arch:      facts.Arch,
+		// Empty ServiceName: install packages only; no mDNS/Wi-Fi AP enable.
+	})
+	if err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: install host packages: %w", err), runRollbacks())
+	}
+	rollbacks = append(rollbacks, hostPackagesRollback)
+	checks = append(checks, evidence.Check{
+		ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
 
 	existing, err := state.Load(opts.InstalledStatePath)
 	if err != nil {
@@ -630,9 +636,21 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
-		// Wi-Fi AP apply is deferred until after appliance-dns (when the landns
-		// capability is on the profile) so CoreDNS owns host :53 first and the
-		// AP bind-probe falls back to DHCP-only DNS mode for manage.ap.
+		// Fresh install never enables mDNS / Wi-Fi AP. Apply desired=false (host
+		// teardown) and clear durable state left by a prior enable so Admin
+		// shows Off / Enable. Day-2 Admin UI enables features after first admin login.
+		ensureDay2Off := o.EnsureDay2FeaturesDisabled
+		if ensureDay2Off == nil {
+			ensureDay2Off = hostagent.EnsureDay2FeaturesDisabled
+		}
+		if err := ensureDay2Off(ctx, opts.HostAgentSocketPath); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: reset day-2 host features off: %w", err), runRollbacks())
+		}
+		checks = append(checks, evidence.Check{
+			ID: "host-day2-features-off", Category: "host", Status: evidence.StatusPass,
+			Message:   "host mDNS and Wi-Fi AP disabled (desired off; enable via Admin UI after first admin login)",
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
 	}
 
 	if resolved.ArtifactEnabled {

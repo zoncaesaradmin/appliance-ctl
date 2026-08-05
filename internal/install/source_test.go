@@ -636,7 +636,7 @@ func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 	}
 }
 
-func TestOfflineSource_AllowsMissingHostPackages(t *testing.T) {
+func TestOfflineSource_RequiresHostPackages(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                  "fake zonctl binary",
@@ -718,11 +718,11 @@ func TestOfflineSource_AllowsMissingHostPackages(t *testing.T) {
 		BundleDir: dir,
 		PublicKey: &verify.PublicKey{ID: "release-signing-key", Key: pub},
 	}
-	resolved, _, err := source.Resolve(context.Background(), "storage")
-	if err != nil {
-		t.Fatalf("expected bundle without host-packages to resolve, got: %v", err)
+	_, _, err = source.Resolve(context.Background(), "core")
+	if err == nil {
+		t.Fatal("expected resolve to reject bundle without host-packages")
 	}
-	if resolved.HostPackagesRootDir != "" {
-		t.Fatalf("HostPackagesRootDir = %q, want empty when the bundle omits host-packages", resolved.HostPackagesRootDir)
+	if !strings.Contains(err.Error(), "host-packages") {
+		t.Fatalf("expected host-packages error, got: %v", err)
 	}
 }

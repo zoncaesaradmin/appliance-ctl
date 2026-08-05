@@ -39,6 +39,11 @@ func runUninstall(ctx context.Context, opts cliOptions, logger *slog.Logger, res
 		logger.Error("uninstall failed", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
 	}
+	// Disable day-2 host features before removing host-agentd so apply(desired=false)
+	// can tear down avahi/hostapd; then wipe durable state so reinstall starts Off.
+	if err := hostagent.EnsureDay2FeaturesDisabled(ctx, defaultHostAgentSocketPath); err != nil {
+		logger.Warn("uninstall: disable/clear day-2 host features", "error", err)
+	}
 	if err := hostagent.Uninstall(hostagent.InstallSpec{
 		BinaryDestPath: defaultHostAgentBinaryPath,
 		UnitPath:       defaultHostAgentUnitPath,
@@ -92,6 +97,9 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	if err != nil {
 		logger.Error("factory-reset failed", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
+	}
+	if err := hostagent.EnsureDay2FeaturesDisabled(ctx, defaultHostAgentSocketPath); err != nil {
+		logger.Warn("factory-reset: disable/clear day-2 host features", "error", err)
 	}
 	if err := hostagent.Uninstall(hostagent.InstallSpec{
 		BinaryDestPath: defaultHostAgentBinaryPath,

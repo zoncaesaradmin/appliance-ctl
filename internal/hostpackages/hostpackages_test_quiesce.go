@@ -26,7 +26,20 @@ func TestQuiesceStockDaemonUnitsIgnoresMissing(t *testing.T) {
 	if err := QuiesceStockDaemonUnits(); err != nil {
 		t.Fatalf("expected missing units to be ignored, got: %v", err)
 	}
-	if len(actions) != 6 {
-		t.Fatalf("actions = %v, want stop/disable/mask for two units", actions)
+	// avahi-daemon + dnsmasq + hostapd × stop/disable/mask
+	if len(actions) != 9 {
+		t.Fatalf("actions = %v (len=%d), want stop/disable/mask for three units", actions, len(actions))
+	}
+	found := map[string]bool{}
+	for _, a := range actions {
+		found[a] = true
+	}
+	for _, unit := range []string{"avahi-daemon.service", "dnsmasq.service", "hostapd.service"} {
+		for _, op := range []string{"stop", "disable", "mask"} {
+			key := op + ":" + unit
+			if !found[key] {
+				t.Fatalf("missing action %s in %v", key, actions)
+			}
+		}
 	}
 }

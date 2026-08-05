@@ -60,18 +60,25 @@ func ResolvePackageDir(rootDir, osName, osVersion, arch string) (string, error) 
 	return dir, nil
 }
 
-// Stock daemon units that must not auto-claim host ports after dpkg
-// install. appliance-host-agentd owns hostapd/dnsmasq for the management
-// WiFi AP with appliance-written configs; Debian stock units bind :53 and
-// fight appliance-dns (hostNetwork CoreDNS).
+// Stock daemon units that must not auto-claim host ports or stay enabled after
+// dpkg install. appliance-host-agentd owns hostapd/dnsmasq for management Wi-Fi
+// AP and avahi for mDNS; day-2 Apply unmasks/starts them when the operator
+// enables the feature. Debian stock postinst must not leave them running.
 var stockDaemonUnitsToQuiesce = []string{
+	"avahi-daemon.service",
 	"dnsmasq.service",
 	"hostapd.service",
 }
 
-// InstallRequiredPackages installs installer-owned offline host packages
-// and optionally enables/restarts a systemd service (for example Avahi for
-// mDNS). When ServiceName is empty, only packages are installed.
+// InstallRequiredPackages installs every offline .deb under the bundle
+// host-packages tree for this OS/arch (mdns + wifi-ap closures in the
+// complete product super-set). Packages are installed at product install /
+// upgrade time so day-2 Enable can start services without dpkg/apt.
+//
+// When ServiceName is empty (normal install path), no feature service is
+// enabled or started — only packages land and stock postinst-started units
+// (avahi, hostapd, dnsmasq) are stopped/disabled/masked until Admin API
+// desired=true.
 func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	serviceName := strings.TrimSpace(spec.ServiceName)
 	packageDir, err := ResolvePackageDir(spec.RootDir, spec.OS, spec.OSVersion, spec.Arch)
@@ -172,10 +179,10 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	return rollback, nil
 }
 
-// QuiesceStockDaemonUnits stops and disables stock hostapd/dnsmasq units
-// so they cannot block appliance-dns or agent-managed AP mode. Missing
-// units are ignored. Best-effort mask keeps postinst from re-enabling on
-// later package repairs.
+// QuiesceStockDaemonUnits stops, disables, and masks stock avahi/hostapd/dnsmasq
+// units so package install does not leave mDNS or Wi-Fi AP "on", and stock
+// dnsmasq cannot block appliance-dns. Day-2 enable via host-agent unmasks and
+// starts the units it needs. Missing units are ignored.
 func QuiesceStockDaemonUnits() error {
 	var errs []error
 	for _, unit := range stockDaemonUnitsToQuiesce {

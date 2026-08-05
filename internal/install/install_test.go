@@ -132,6 +132,8 @@ func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackage
 	if includeHostPackages {
 		entries = append(entries,
 			fixtureEntry{"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", "host-packages", "fake avahi deb", ""},
+			fixtureEntry{"host-packages/ubuntu/24.04/amd64/hostapd.deb", "host-packages", "fake hostapd deb", ""},
+			fixtureEntry{"host-packages/ubuntu/24.04/amd64/dnsmasq.deb", "host-packages", "fake dnsmasq deb", ""},
 		)
 	}
 
@@ -756,6 +758,58 @@ func TestInstall_LandnsAwaitsDNSWithoutWifiAP(t *testing.T) {
 	}
 	if !sawDNSDeploy {
 		t.Fatalf("expected kubectl get deployment dns-server wait; calls=%v", fcli.calls)
+	}
+}
+
+func TestInstall_InstallsHostPackagesForCoreProfile(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "core"
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	var called bool
+	orch := &install.Orchestrator{
+		K3s:        fk3s.ops(),
+		ImagesRun:  fcli.Run,
+		HelmRun:    fcli.Run,
+		ClusterRun: fcli.Run,
+		DetectHost: healthyHostFacts,
+		EnsureOwnedDir: func(string, int, int, os.FileMode) error {
+			return nil
+		},
+		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
+			called = true
+			if spec.ServiceName != "" {
+				t.Fatalf("core profile install must not enable services, ServiceName=%q", spec.ServiceName)
+			}
+			if !strings.Contains(spec.RootDir, "host-packages") {
+				t.Fatalf("RootDir = %q", spec.RootDir)
+			}
+			return func() error { return nil }, nil
+		},
+		InstallHostAgent: func(hostagent.InstallSpec) (func() error, error) {
+			return func() error { return nil }, nil
+		},
+	}
+	_, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !called {
+		t.Fatal("core profile must install host packages (mdns+wifi-ap debs) without enabling services")
+	}
+	var saw bool
+	for _, check := range checks {
+		if check.ID == "host-packages-installed" {
+			saw = true
+			if !strings.Contains(check.Message, "day-2") {
+				t.Fatalf("unexpected evidence message: %q", check.Message)
+			}
+		}
+	}
+	if !saw {
+		t.Fatal("expected host-packages-installed evidence")
 	}
 }
 

@@ -442,32 +442,36 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	checks = append(checks, binaryCheck)
-	// Stage offline host packages from the super-set bundle; do not enable mDNS
-	// or apply Wi-Fi AP (day-2 API only).
-	if resolved.HostPackagesRootDir != "" {
-		installHostPackages := o.InstallHostPackages
-		if installHostPackages == nil {
-			installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
-				return func() error { return nil }, nil
-			}
-		}
-		hostPackagesRollback, err = installHostPackages(hostpackages.InstallSpec{
-			RootDir:   resolved.HostPackagesRootDir,
-			OS:        facts.OS,
-			OSVersion: facts.OSVersion,
-			Arch:      facts.Arch,
-		})
-		if err != nil {
-			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host packages: %w", err), rollback)
-			checks = append(checks, rollbackChecks...)
-			return nil, checks, failErr
-		}
-		checks = append(checks, evidence.Check{
-			ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("staged bundled host packages from %s (mDNS/Wi-Fi AP remain off until enabled via API)", resolved.HostPackagesRootDir),
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
+	// Install offline host packages for every profile (day-2 mDNS / Wi-Fi AP);
+	// do not enable those features here. NewOrchestrator wires the real dpkg
+	// installer; unit tests inject stubs.
+	if resolved.HostPackagesRootDir == "" {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: host-packages are required in the signed bundle (mdns + wifi-ap)"), rollback)
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
 	}
+	installHostPackages := o.InstallHostPackages
+	if installHostPackages == nil {
+		installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
+			return func() error { return nil }, nil
+		}
+	}
+	hostPackagesRollback, err = installHostPackages(hostpackages.InstallSpec{
+		RootDir:   resolved.HostPackagesRootDir,
+		OS:        facts.OS,
+		OSVersion: facts.OSVersion,
+		Arch:      facts.Arch,
+	})
+	if err != nil {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host packages: %w", err), rollback)
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
+	}
+	checks = append(checks, evidence.Check{
+		ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
