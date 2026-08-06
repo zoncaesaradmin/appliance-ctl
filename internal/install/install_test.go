@@ -1006,6 +1006,11 @@ func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "builder"
+	buildCatalogPath := filepath.Join(t.TempDir(), "build-catalog.yaml")
+	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts.BuildCatalogPath = buildCatalogPath
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -1068,6 +1073,11 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "builder"
+	buildCatalogPath := filepath.Join(t.TempDir(), "build-catalog.yaml")
+	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts.BuildCatalogPath = buildCatalogPath
 	workspaceDir := filepath.Join(t.TempDir(), "workspaces")
 	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
 		t.Fatal(err)

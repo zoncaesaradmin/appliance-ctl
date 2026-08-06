@@ -326,6 +326,9 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 		delete(config, "serviceRegistry")
 	}
 	delete(config, "allowedBuilderImageDigests")
+	if buildEnabled && strings.TrimSpace(buildCatalogPath) == "" {
+		return "", func() {}, fmt.Errorf("product config: build capability requires --build-catalog with workProfiles and repos (chart default buildCatalog:{} is not valid for profile %s)", effectiveProfile)
+	}
 	if strings.TrimSpace(buildCatalogPath) != "" {
 		catalog, err := loadBuildCatalog(buildCatalogPath)
 		if err != nil {

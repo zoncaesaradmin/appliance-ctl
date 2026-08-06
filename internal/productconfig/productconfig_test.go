@@ -261,12 +261,17 @@ func TestResolveApplianceProfile_RejectsUnknownProfile(t *testing.T) {
 }
 
 func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
-	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
+	dir := t.TempDir()
+	valuesPath := filepath.Join(dir, "values.yaml")
 	if err := os.WriteFile(valuesPath, []byte("replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
+	catalogPath := filepath.Join(dir, "build-catalog.yaml")
+	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -600,6 +605,22 @@ func TestPrepareValuesFile_RejectsEmptyBuildCatalog(t *testing.T) {
 	}
 	if _, _, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, ""); err == nil {
 		t.Fatal("expected empty build catalog to be rejected")
+	}
+}
+
+func TestPrepareValuesFile_RequiresBuildCatalogForBuildProfile(t *testing.T) {
+	dir := t.TempDir()
+	valuesPath := filepath.Join(dir, "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("config:\n  buildCatalog: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilderLANDNS, "", "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	defer cleanup()
+	if err == nil {
+		t.Fatal("expected missing --build-catalog to be rejected for builder-landns")
+	}
+	if !strings.Contains(err.Error(), "requires --build-catalog") {
+		t.Fatalf("error = %v, want missing build catalog failure", err)
 	}
 }
 

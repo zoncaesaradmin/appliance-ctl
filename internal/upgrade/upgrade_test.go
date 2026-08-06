@@ -478,13 +478,19 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
 	})
+	buildCatalogPath := filepath.Join(env.stateDir, "build-catalog.yaml")
+	if err := os.WriteFile(buildCatalogPath, []byte("workProfiles:\n  - name: platform-dev\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	fake := &fakeK3s{}
 	fcli := &fakeCLI{}
 	orch := newUpgradeOrchestrator(fake, fcli)
 
+	opts := env.options("2.4.0")
+	opts.BuildCatalogPath = buildCatalogPath
 	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
-	updated, _, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
+	updated, _, err := orch.Upgrade(context.Background(), offlineSource, opts)
 	if err != nil {
 		t.Fatalf("expected same-version refresh to succeed, got: %v", err)
 	}
