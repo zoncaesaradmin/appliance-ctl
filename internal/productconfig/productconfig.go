@@ -757,6 +757,13 @@ func validateBuildCatalog(catalog map[string]any, path string) error {
 			return fmt.Errorf("%s.execution must be make or script", prefix)
 		}
 
+		if workingDirectory, _ := target["workingDirectory"].(string); strings.TrimSpace(workingDirectory) != "" {
+			wd := strings.TrimSpace(workingDirectory)
+			if wd != "." && wd != "./" && !validRepoRelativePath(wd) {
+				return fmt.Errorf("%s.workingDirectory must be a relative path inside the repo", prefix)
+			}
+		}
+
 		if containerfilePath, _ := target["containerfilePath"].(string); strings.TrimSpace(containerfilePath) != "" && !validRepoRelativePath(containerfilePath) {
 			return fmt.Errorf("%s.containerfilePath must be a relative path inside the repo", prefix)
 		}
@@ -823,6 +830,14 @@ func normalizeTargetExecutionMap(target map[string]any) {
 	}
 	delete(target, "makeTarget")
 	delete(target, "scriptPath")
+	if wd, _ := target["workingDirectory"].(string); true {
+		wd = strings.TrimSpace(wd)
+		if wd == "" || wd == "." || wd == "./" {
+			delete(target, "workingDirectory")
+		} else {
+			target["workingDirectory"] = strings.TrimSuffix(wd, "/")
+		}
+	}
 }
 
 func stringList(v any) []string {
