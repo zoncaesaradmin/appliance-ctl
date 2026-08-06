@@ -269,7 +269,7 @@ func TestPreloadAll_MissingArtifactFailsClosed(t *testing.T) {
 
 	missing := filepath.Join(t.TempDir(), "never-delivered.tar")
 	_, err := imp.PreloadAll(context.Background(), []images.Image{
-		{Name: "argo-executor:v3", ArchivePath: missing, ExpectedDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000", Category: images.CategoryDependency},
+		{Name: "workflow-executor:v3", ArchivePath: missing, ExpectedDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000", Category: images.CategoryDependency},
 	})
 	if err == nil {
 		t.Fatal("expected a missing archive to fail")

@@ -8,7 +8,7 @@ import "sort"
 
 // Category fixes the required preload order: K3s's own platform images
 // first (CoreDNS, Traefik, ...), then this appliance's dependencies
-// (artifact server, Argo controller/executor), then the product's application
+// (artifact server, workflow controller/executor), then the product's application
 // images. Preloading platform images first means K3s never needs to
 // pull anything itself on first start.
 type Category int

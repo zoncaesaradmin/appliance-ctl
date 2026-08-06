@@ -83,12 +83,12 @@ type Options struct {
 }
 
 const (
-	registryReleaseName = "appliance-registry"
-	registryNamespace   = "artifacts"
-	argoReleaseName     = "argo-workflows"
-	argoNamespace       = "workflows"
-	dnsReleaseName      = "appliance-dns"
-	dnsNamespace        = "dns"
+	registryReleaseName  = "appliance-registry"
+	registryNamespace    = "artifacts"
+	workflowsReleaseName = "appliance-workflows"
+	workflowsNamespace   = "workflows"
+	dnsReleaseName       = "appliance-dns"
+	dnsNamespace         = "dns"
 )
 
 // Orchestrator holds the injectable adapters Upgrade drives.
@@ -531,7 +531,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	if hadWorkflowsBefore && !targetWorkflows {
-		if err := applier.Uninstall(ctx, argoReleaseName); err != nil {
+		if err := applier.Uninstall(ctx, workflowsReleaseName); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: remove workflows capability: %w", err), rollback)
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
@@ -700,21 +700,21 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	if targetWorkflows {
-		for _, crdPath := range resolved.ArgoCRDPaths {
+		for _, crdPath := range resolved.WorkflowsCRDPaths {
 			if _, applyErr := o.HelmRun(ctx, "kubectl", "--kubeconfig", opts.KubeconfigPath, "apply", "-f", crdPath); applyErr != nil {
-				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: apply Argo CRD %s: %w", crdPath, applyErr), rollback)
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: apply workflows CRD %s: %w", crdPath, applyErr), rollback)
 				checks = append(checks, rollbackChecks...)
 				return nil, checks, failErr
 			}
 		}
-		if resolved.ArgoChartPath != "" {
-			argoCheck, argoErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-				Name: argoReleaseName, ChartPath: resolved.ArgoChartPath, Namespace: argoNamespace,
+		if resolved.WorkflowsChartPath != "" {
+			workflowsCheck, workflowsErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+				Name: workflowsReleaseName, ChartPath: resolved.WorkflowsChartPath, Namespace: workflowsNamespace,
 			})
-			checks = append(checks, argoCheck)
-			if argoErr != nil {
-				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", argoErr), func() []evidence.Check {
-					_ = applier.Rollback(ctx, argoReleaseName, false)
+			checks = append(checks, workflowsCheck)
+			if workflowsErr != nil {
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", workflowsErr), func() []evidence.Check {
+					_ = applier.Rollback(ctx, workflowsReleaseName, false)
 					return rollback()
 				})
 				checks = append(checks, rollbackChecks...)

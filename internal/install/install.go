@@ -36,8 +36,8 @@ import (
 const (
 	containerdReadyTimeout      = 60 * time.Second
 	containerdReadyPollInterval = 1 * time.Second
-	argoReleaseName             = "argo-workflows"
-	argoNamespace               = "workflows"
+	workflowsReleaseName        = "appliance-workflows"
+	workflowsNamespace          = "workflows"
 	registryReleaseName         = "appliance-registry"
 	registryNamespace           = "artifacts"
 	dnsReleaseName              = "appliance-dns"
@@ -732,46 +732,46 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if clusterRun == nil {
 		clusterRun = cli.Exec
 	}
-	if resolved.WorkflowsEnabled && len(resolved.ArgoCRDPaths) > 0 {
-		argoCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.ArgoCRDPaths, "argo-crd")
-		checks = append(checks, argoCRDChecks...)
+	if resolved.WorkflowsEnabled && len(resolved.WorkflowsCRDPaths) > 0 {
+		workflowsCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.WorkflowsCRDPaths, "workflows-crd")
+		checks = append(checks, workflowsCRDChecks...)
 		if applyErr != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), runRollbacks())
 		}
 	}
 
-	if resolved.WorkflowsEnabled && resolved.ArgoChartPath != "" {
-		argoPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-			Name:      argoReleaseName,
-			ChartPath: resolved.ArgoChartPath,
-			Namespace: argoNamespace,
+	if resolved.WorkflowsEnabled && resolved.WorkflowsChartPath != "" {
+		workflowsPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+			Name:      workflowsReleaseName,
+			ChartPath: resolved.WorkflowsChartPath,
+			Namespace: workflowsNamespace,
 		})
-		checks = append(checks, argoPrepared.Checks...)
+		checks = append(checks, workflowsPrepared.Checks...)
 		if prepErr != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: %w", prepErr), runRollbacks())
 		}
-		rollbacks = append(rollbacks, argoPrepared.Cleanup)
+		rollbacks = append(rollbacks, workflowsPrepared.Cleanup)
 
-		argoChartCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-			Name:      argoReleaseName,
-			ChartPath: resolved.ArgoChartPath,
-			Namespace: argoNamespace,
+		workflowsChartCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+			Name:      workflowsReleaseName,
+			ChartPath: resolved.WorkflowsChartPath,
+			Namespace: workflowsNamespace,
 		})
-		checks = append(checks, argoChartCheck)
+		checks = append(checks, workflowsChartCheck)
 		if applyErr != nil {
 			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-				Name:      argoReleaseName,
-				ChartPath: resolved.ArgoChartPath,
-				Namespace: argoNamespace,
+				Name:      workflowsReleaseName,
+				ChartPath: resolved.WorkflowsChartPath,
+				Namespace: workflowsNamespace,
 			})...)
 			var cleanupErr error
 			if !opts.PreserveFailedState {
-				cleanupErr = errors.Join(applier.Rollback(ctx, argoReleaseName, true), runRollbacks())
+				cleanupErr = errors.Join(applier.Rollback(ctx, workflowsReleaseName, true), runRollbacks())
 			}
 			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
 		}
 		rollbacks = append(rollbacks, func() error {
-			return applier.Rollback(ctx, argoReleaseName, true)
+			return applier.Rollback(ctx, workflowsReleaseName, true)
 		})
 	}
 

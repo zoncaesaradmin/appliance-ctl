@@ -124,14 +124,14 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	}
 }
 
-func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T) {
+func TestOfflineSource_SelectsPrimaryChartAndOptionalWorkflowsArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                                     "fake zonctl binary",
 		"bin/helm":                                            "fake helm binary",
 		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
 		"k3s/binary/k3s":                                      "fake k3s binary",
-		"charts/argo-workflows-chart-3.5.10.tgz":              "fake argo chart",
+		"charts/workflows-chart-3.5.10.tgz":                   "fake workflows chart",
 		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
 		"configuration/values.yaml":                           "replicaCount: 1\n",
 		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
@@ -185,7 +185,7 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 		"releaseId":     "release-2.4.0",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-06T00:00:00Z",
-		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "argoVersion": "3.5.10"},
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "workflowsVersion": "3.5.10"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
 	}
@@ -220,11 +220,11 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalArgoArtifacts(t *testing.T)
 	if filepath.Base(resolved.ChartPath) != "appliance-chart-2.4.0.tgz" {
 		t.Fatalf("expected appliance chart to be selected, got %s", resolved.ChartPath)
 	}
-	if filepath.Base(resolved.ArgoChartPath) != "argo-workflows-chart-3.5.10.tgz" {
-		t.Fatalf("expected argo chart to be selected, got %s", resolved.ArgoChartPath)
+	if filepath.Base(resolved.WorkflowsChartPath) != "workflows-chart-3.5.10.tgz" {
+		t.Fatalf("expected workflows chart to be selected, got %s", resolved.WorkflowsChartPath)
 	}
-	if len(resolved.ArgoCRDPaths) != 1 || filepath.Base(resolved.ArgoCRDPaths[0]) != "workflows.argoproj.io.yaml" {
-		t.Fatalf("expected one argo CRD path, got %+v", resolved.ArgoCRDPaths)
+	if len(resolved.WorkflowsCRDPaths) != 1 || filepath.Base(resolved.WorkflowsCRDPaths[0]) != "workflows.argoproj.io.yaml" {
+		t.Fatalf("expected one workflows CRD path, got %+v", resolved.WorkflowsCRDPaths)
 	}
 }
 
@@ -342,20 +342,20 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 }
 
 // This is the exact bundle-packaging bug that caused a live incident: a
-// release-input archive built without --argo-crds-dir ships the Argo
+// release-input archive built without a CRDs directory ships the
 // Workflows chart but no CRDs, so the workflow controller crash-loops
 // forever (its very first API call, "get workflows.argoproj.io", 404s)
 // until the install's --wait timeout expires and the whole install rolls
 // back — a confusing ten-minute failure instead of an immediate, clear
 // one. Workflow-capable profiles must reject this combination outright.
-func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
+func TestOfflineSource_RejectsWorkflowsChartWithoutCRDs(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                                     "fake zonctl binary",
 		"bin/helm":                                            "fake helm binary",
 		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
 		"k3s/binary/k3s":                                      "fake k3s binary",
-		"charts/argo-workflows-chart-3.5.10.tgz":              "fake argo chart",
+		"charts/workflows-chart-3.5.10.tgz":                   "fake workflows chart",
 		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
 		"configuration/values.yaml":                           "replicaCount: 1\n",
 		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
@@ -405,7 +405,7 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 		"releaseId":     "release-2.4.0",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-06T00:00:00Z",
-		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "argoVersion": "3.5.10"},
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "workflowsVersion": "3.5.10"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
 	}
@@ -435,21 +435,21 @@ func TestOfflineSource_RejectsArgoChartWithoutCRDs(t *testing.T) {
 	}
 	_, _, err = source.Resolve(context.Background(), "core")
 	if err == nil {
-		t.Fatal("expected Resolve to reject an argo chart with no CRD artifact, got nil error")
+		t.Fatal("expected Resolve to reject a workflows chart with no CRD artifact, got nil error")
 	}
-	if !strings.Contains(err.Error(), "argo-crds") {
-		t.Errorf("expected error to mention the missing argo-crds artifact, got: %v", err)
+	if !strings.Contains(err.Error(), "workflows-crds") {
+		t.Errorf("expected error to mention the missing workflows-crds artifact, got: %v", err)
 	}
 }
 
-func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
+func TestOfflineSource_StorageProfileIgnoresWorkflowsChartWithoutCRDs(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"bin/zonctl-real":                                     "fake zonctl binary",
 		"bin/helm":                                            "fake helm binary",
 		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
 		"k3s/binary/k3s":                                      "fake k3s binary",
-		"charts/argo-workflows-chart-3.5.10.tgz":              "fake argo chart",
+		"charts/workflows-chart-3.5.10.tgz":                   "fake workflows chart",
 		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
 		"configuration/values.yaml":                           "replicaCount: 1\n",
 		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
@@ -499,7 +499,7 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 		"releaseId":     "release-2.4.0",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-06T00:00:00Z",
-		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "argoVersion": "3.5.10"},
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "workflowsVersion": "3.5.10"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
 	}
@@ -530,13 +530,13 @@ func TestOfflineSource_StorageProfileIgnoresArgoChartWithoutCRDs(t *testing.T) {
 	for _, profile := range []string{"storage", "storage-landns"} {
 		resolved, _, err := source.Resolve(context.Background(), profile)
 		if err != nil {
-			t.Fatalf("expected %s profile to ignore irrelevant Argo bundle artifacts, got: %v", profile, err)
+			t.Fatalf("expected %s profile to ignore irrelevant Workflows bundle artifacts, got: %v", profile, err)
 		}
-		if resolved.ArgoChartPath != "" {
-			t.Fatalf("expected %s profile to ignore bundled Argo chart, got %s", profile, resolved.ArgoChartPath)
+		if resolved.WorkflowsChartPath != "" {
+			t.Fatalf("expected %s profile to ignore bundled Workflows chart, got %s", profile, resolved.WorkflowsChartPath)
 		}
-		if len(resolved.ArgoCRDPaths) != 0 {
-			t.Fatalf("expected %s profile to ignore bundled Argo CRDs, got %v", profile, resolved.ArgoCRDPaths)
+		if len(resolved.WorkflowsCRDPaths) != 0 {
+			t.Fatalf("expected %s profile to ignore bundled Workflows CRDs, got %v", profile, resolved.WorkflowsCRDPaths)
 		}
 	}
 }

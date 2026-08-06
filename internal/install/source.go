@@ -40,8 +40,8 @@ type Resolved struct {
 	ChartPath           string
 	RegistryChartPath   string
 	DNSChartPath        string
-	ArgoChartPath       string
-	ArgoCRDPaths        []string
+	WorkflowsChartPath  string
+	WorkflowsCRDPaths   []string
 	ConfigurationPath   string
 	HostAgentBinaryPath string
 	HostPackagesRootDir string
@@ -51,7 +51,7 @@ type Resolved struct {
 	// image used by builder workspace provisioning workflows.
 	WorkspaceProvisionerImageReference string
 	// BuilderImageReference is the single bundled builder/dev-container image
-	// used by Argo build pods (dev-build).
+	// used by workflow build pods (dev-build).
 	BuilderImageReference string
 	// HostAgentImageReference is the bundled, digest-pinned appliance host
 	// agent image reference used by the host capability.
@@ -132,13 +132,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	buildEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameBuild)
 	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, catalog.Profiles)
 
-	argoChartPath := ""
-	argoCRDPaths := []string(nil)
+	workflowsChartPath := ""
+	workflowsCRDPaths := []string(nil)
 	if workflowsEnabled {
-		argoChartPath = optionalArgoChartPath(b)
-		argoCRDPaths = crdPaths(b)
-		if argoChartPath != "" && len(argoCRDPaths) == 0 {
-			return Resolved{}, checks, fmt.Errorf("install: bundle has an argo-workflows chart but no argo-crds artifact; the workflow controller cannot start without its CRDs")
+		workflowsChartPath = optionalWorkflowsChartPath(b)
+		workflowsCRDPaths = crdPaths(b)
+		if workflowsChartPath != "" && len(workflowsCRDPaths) == 0 {
+			return Resolved{}, checks, fmt.Errorf("install: bundle has a workflows chart but no workflows-crds artifact; the workflow controller cannot start without its CRDs")
 		}
 	}
 	registryChartPath := ""
@@ -226,8 +226,8 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ChartPath:                          chartPath,
 		RegistryChartPath:                  registryChartPath,
 		DNSChartPath:                       dnsChartPath,
-		ArgoChartPath:                      argoChartPath,
-		ArgoCRDPaths:                       argoCRDPaths,
+		WorkflowsChartPath:                 workflowsChartPath,
+		WorkflowsCRDPaths:                  workflowsCRDPaths,
 		ConfigurationPath:                  configurationPath,
 		HostAgentBinaryPath:                hostAgentBinaryPath,
 		HostPackagesRootDir:                hostPackagesRootDir,
@@ -253,6 +253,7 @@ func isDNSImageReference(ref string) bool {
 func isWorkflowDependencyReference(ref string) bool {
 	ref = strings.TrimSpace(ref)
 	return strings.Contains(ref, "/argoproj/workflow-controller:") ||
+		strings.Contains(ref, "/appliance-workflow-controller:") ||
 		strings.Contains(ref, "/argoproj/argoexec:")
 }
 
@@ -358,10 +359,10 @@ func applianceChartPath(b *bundle.Bundle) (string, error) {
 	return "", fmt.Errorf("bundle has multiple chart entries but none named appliance-chart-*")
 }
 
-func optionalArgoChartPath(b *bundle.Bundle) string {
+func optionalWorkflowsChartPath(b *bundle.Bundle) string {
 	for _, e := range b.Entries("chart") {
 		base := strings.ToLower(filepath.Base(e.Path))
-		if strings.HasPrefix(base, "argo-workflows") {
+		if strings.Contains(base, "workflows-chart") || strings.Contains(base, "appliance-workflows") {
 			return e.Path
 		}
 	}
@@ -491,7 +492,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 			if strings.HasPrefix(image.Name, "registry.local/artifact-server@") && !r.ArtifactEnabled {
 				continue
 			}
-			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
+			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") ||
+				strings.Contains(image.Name, "/appliance-workflow-controller:") ||
+				strings.Contains(image.Name, "/argoproj/argoexec:")) &&
 				!r.WorkflowsEnabled {
 				continue
 			}

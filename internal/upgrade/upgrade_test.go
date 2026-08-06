@@ -813,14 +813,14 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 				t.Fatalf("expected profile transition upgrade to succeed, got: %v", err)
 			}
 
-			var sawArgoUninstall bool
+			var sawWorkflowsUninstall bool
 			for _, call := range fcli.calls {
-				if strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall argo-workflows") {
-					sawArgoUninstall = true
+				if strings.Contains(call, "helm --kubeconfig") && strings.Contains(call, "uninstall appliance-workflows") {
+					sawWorkflowsUninstall = true
 					break
 				}
 			}
-			if !sawArgoUninstall {
+			if !sawWorkflowsUninstall {
 				t.Fatalf("expected workflows release removal when switching to %s profile, got calls: %v", profile, fcli.calls)
 			}
 			wantOwnedPaths := map[string][2]int{
@@ -842,8 +842,8 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 					t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
 				}
 			}
-			if _, ok := ownedPaths[hostdirs.ArgoControllerLogDir]; ok {
-				t.Fatalf("%s upgrade must not prepare %s: %v", profile, hostdirs.ArgoControllerLogDir, ownedPaths)
+			if _, ok := ownedPaths[hostdirs.WorkflowControllerLogDir]; ok {
+				t.Fatalf("%s upgrade must not prepare %s: %v", profile, hostdirs.WorkflowControllerLogDir, ownedPaths)
 			}
 		})
 	}
@@ -963,11 +963,11 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 	}
 
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:       {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir:          {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:                 {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:          {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only core-profile log directory prep %v, got %v", wantOwnedPaths, ownedPaths)

@@ -304,8 +304,8 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		"dnsVersion":              input.Compatibility.DnsVersion,
 		"supportedUpgradeSources": supportedUpgradeSources,
 	}
-	if strings.TrimSpace(input.Compatibility.ArgoVersion) != "" {
-		compatibility["argoVersion"] = input.Compatibility.ArgoVersion
+	if strings.TrimSpace(input.Compatibility.WorkflowsVersion) != "" {
+		compatibility["workflowsVersion"] = input.Compatibility.WorkflowsVersion
 	}
 
 	doc := manifestDoc{

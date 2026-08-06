@@ -35,7 +35,7 @@ type Entry struct {
 type Compatibility struct {
 	K3sVersion            string
 	ChartVersion          string
-	ArgoVersion           string
+	WorkflowsVersion      string
 	ArtifactServerVersion string
 	DNSVersion            string
 	// SupportedUpgradeSources lists appliance versions this release may
@@ -74,7 +74,7 @@ type manifestDoc struct {
 	Compatibility struct {
 		K3sVersion              string   `json:"k3sVersion"`
 		ChartVersion            string   `json:"chartVersion"`
-		ArgoVersion             string   `json:"argoVersion"`
+		WorkflowsVersion        string   `json:"workflowsVersion"`
 		ArtifactServerVersion   string   `json:"artifactServerVersion"`
 		DNSVersion              string   `json:"dnsVersion"`
 		SupportedUpgradeSources []string `json:"supportedUpgradeSources"`
@@ -134,7 +134,7 @@ func Load(rootDir string, pub *verify.PublicKey) (*Bundle, []evidence.Check, err
 		Compatibility: Compatibility{
 			K3sVersion:              doc.Compatibility.K3sVersion,
 			ChartVersion:            doc.Compatibility.ChartVersion,
-			ArgoVersion:             doc.Compatibility.ArgoVersion,
+			WorkflowsVersion:        doc.Compatibility.WorkflowsVersion,
 			ArtifactServerVersion:   doc.Compatibility.ArtifactServerVersion,
 			DNSVersion:              doc.Compatibility.DNSVersion,
 			SupportedUpgradeSources: doc.Compatibility.SupportedUpgradeSources,

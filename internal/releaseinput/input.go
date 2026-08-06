@@ -30,7 +30,7 @@ type Input struct {
 type Compatibility struct {
 	K3sVersion              string
 	ChartVersion            string
-	ArgoVersion             string
+	WorkflowsVersion        string
 	ArtifactServerVersion   string
 	DnsVersion              string
 	SupportedUpgradeSources []string
@@ -50,58 +50,58 @@ type DirArtifact struct {
 }
 
 type Artifacts struct {
-	ControlPlaneImage   FileArtifact
-	UIImage             FileArtifact
-	HostAgentImage      FileArtifact
-	HostAgentBinary     FileArtifact
-	HostPackages        DirArtifact
-	ApplianceChart      FileArtifact
-	ArtifactServerImage FileArtifact
-	ArtifactServerChart FileArtifact
-	DnsImage            FileArtifact
-	DnsChart            FileArtifact
-	MetadataBundle      FileArtifact
-	ArgoWorkflowsChart  FileArtifact
-	ArgoControllerImage FileArtifact
-	ArgoExecutorImage   FileArtifact
-	ExtraOCIImages      []FileArtifact
-	ConfigurationSchema FileArtifact
-	Compatibility       FileArtifact
-	Checksums           FileArtifact
-	ArgoCRDs            DirArtifact
-	SBOM                DirArtifact
-	Provenance          DirArtifact
-	Notices             DirArtifact
-	Tests               DirArtifact
+	ControlPlaneImage       FileArtifact
+	UIImage                 FileArtifact
+	HostAgentImage          FileArtifact
+	HostAgentBinary         FileArtifact
+	HostPackages            DirArtifact
+	ApplianceChart          FileArtifact
+	ArtifactServerImage     FileArtifact
+	ArtifactServerChart     FileArtifact
+	DnsImage                FileArtifact
+	DnsChart                FileArtifact
+	MetadataBundle          FileArtifact
+	WorkflowsChart          FileArtifact
+	WorkflowControllerImage FileArtifact
+	WorkflowExecutorImage   FileArtifact
+	ExtraOCIImages          []FileArtifact
+	ConfigurationSchema     FileArtifact
+	Compatibility           FileArtifact
+	Checksums               FileArtifact
+	WorkflowsCRDs           DirArtifact
+	SBOM                    DirArtifact
+	Provenance              DirArtifact
+	Notices                 DirArtifact
+	Tests                   DirArtifact
 }
 
 type doc struct {
 	CodeVersion string `json:"codeVersion"`
 	ReleaseID   string `json:"releaseId"`
 	Artifacts   struct {
-		ControlPlaneImage   fileArtifact   `json:"controlPlaneImage"`
-		UIImage             fileArtifact   `json:"uiImage"`
-		HostAgentImage      fileArtifact   `json:"hostAgentImage"`
-		HostAgentBinary     fileArtifact   `json:"hostAgentBinary"`
-		HostPackages        dirArtifact    `json:"hostPackages"`
-		ApplianceChart      fileArtifact   `json:"applianceChart"`
-		ArtifactServerImage fileArtifact   `json:"artifactServerImage"`
-		ArtifactServerChart fileArtifact   `json:"artifactServerChart"`
-		DnsImage            fileArtifact   `json:"dnsImage"`
-		DnsChart            fileArtifact   `json:"dnsChart"`
-		MetadataBundle      fileArtifact   `json:"metadataBundle"`
-		ArgoWorkflowsChart  fileArtifact   `json:"argoWorkflowsChart"`
-		ArgoControllerImage fileArtifact   `json:"argoControllerImage"`
-		ArgoExecutorImage   fileArtifact   `json:"argoExecutorImage"`
-		ExtraOCIImages      []fileArtifact `json:"extraOCIImages"`
-		ConfigurationSchema fileArtifact   `json:"configurationSchema"`
-		Compatibility       fileArtifact   `json:"compatibility"`
-		Checksums           fileArtifact   `json:"checksums"`
-		ArgoCRDs            dirArtifact    `json:"argoCRDs"`
-		SBOM                dirArtifact    `json:"sbom"`
-		Provenance          dirArtifact    `json:"provenance"`
-		Notices             dirArtifact    `json:"notices"`
-		Tests               dirArtifact    `json:"tests"`
+		ControlPlaneImage       fileArtifact   `json:"controlPlaneImage"`
+		UIImage                 fileArtifact   `json:"uiImage"`
+		HostAgentImage          fileArtifact   `json:"hostAgentImage"`
+		HostAgentBinary         fileArtifact   `json:"hostAgentBinary"`
+		HostPackages            dirArtifact    `json:"hostPackages"`
+		ApplianceChart          fileArtifact   `json:"applianceChart"`
+		ArtifactServerImage     fileArtifact   `json:"artifactServerImage"`
+		ArtifactServerChart     fileArtifact   `json:"artifactServerChart"`
+		DnsImage                fileArtifact   `json:"dnsImage"`
+		DnsChart                fileArtifact   `json:"dnsChart"`
+		MetadataBundle          fileArtifact   `json:"metadataBundle"`
+		WorkflowsChart          fileArtifact   `json:"workflowsChart"`
+		WorkflowControllerImage fileArtifact   `json:"workflowControllerImage"`
+		WorkflowExecutorImage   fileArtifact   `json:"workflowExecutorImage"`
+		ExtraOCIImages          []fileArtifact `json:"extraOCIImages"`
+		ConfigurationSchema     fileArtifact   `json:"configurationSchema"`
+		Compatibility           fileArtifact   `json:"compatibility"`
+		Checksums               fileArtifact   `json:"checksums"`
+		WorkflowsCRDs           dirArtifact    `json:"workflowsCRDs"`
+		SBOM                    dirArtifact    `json:"sbom"`
+		Provenance              dirArtifact    `json:"provenance"`
+		Notices                 dirArtifact    `json:"notices"`
+		Tests                   dirArtifact    `json:"tests"`
 	} `json:"artifacts"`
 	Compatibility Compatibility `json:"compatibility"`
 }
@@ -143,29 +143,29 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		ReleaseID:     parsed.ReleaseID,
 		Compatibility: parsed.Compatibility,
 		Artifacts: Artifacts{
-			ControlPlaneImage:   toFileArtifact(rootDir, parsed.Artifacts.ControlPlaneImage),
-			UIImage:             toFileArtifact(rootDir, parsed.Artifacts.UIImage),
-			HostAgentImage:      toFileArtifact(rootDir, parsed.Artifacts.HostAgentImage),
-			HostAgentBinary:     toFileArtifact(rootDir, parsed.Artifacts.HostAgentBinary),
-			HostPackages:        toDirArtifact(rootDir, parsed.Artifacts.HostPackages),
-			ApplianceChart:      toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
-			ArtifactServerImage: toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerImage),
-			ArtifactServerChart: toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerChart),
-			DnsImage:            toFileArtifact(rootDir, parsed.Artifacts.DnsImage),
-			DnsChart:            toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
-			MetadataBundle:      toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
-			ArgoWorkflowsChart:  toFileArtifact(rootDir, parsed.Artifacts.ArgoWorkflowsChart),
-			ArgoControllerImage: toFileArtifact(rootDir, parsed.Artifacts.ArgoControllerImage),
-			ArgoExecutorImage:   toFileArtifact(rootDir, parsed.Artifacts.ArgoExecutorImage),
-			ExtraOCIImages:      toFileArtifacts(rootDir, parsed.Artifacts.ExtraOCIImages),
-			ConfigurationSchema: toFileArtifact(rootDir, parsed.Artifacts.ConfigurationSchema),
-			Compatibility:       toFileArtifact(rootDir, parsed.Artifacts.Compatibility),
-			Checksums:           toFileArtifact(rootDir, parsed.Artifacts.Checksums),
-			ArgoCRDs:            toDirArtifact(rootDir, parsed.Artifacts.ArgoCRDs),
-			SBOM:                toDirArtifact(rootDir, parsed.Artifacts.SBOM),
-			Provenance:          toDirArtifact(rootDir, parsed.Artifacts.Provenance),
-			Notices:             toDirArtifact(rootDir, parsed.Artifacts.Notices),
-			Tests:               toDirArtifact(rootDir, parsed.Artifacts.Tests),
+			ControlPlaneImage:       toFileArtifact(rootDir, parsed.Artifacts.ControlPlaneImage),
+			UIImage:                 toFileArtifact(rootDir, parsed.Artifacts.UIImage),
+			HostAgentImage:          toFileArtifact(rootDir, parsed.Artifacts.HostAgentImage),
+			HostAgentBinary:         toFileArtifact(rootDir, parsed.Artifacts.HostAgentBinary),
+			HostPackages:            toDirArtifact(rootDir, parsed.Artifacts.HostPackages),
+			ApplianceChart:          toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
+			ArtifactServerImage:     toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerImage),
+			ArtifactServerChart:     toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerChart),
+			DnsImage:                toFileArtifact(rootDir, parsed.Artifacts.DnsImage),
+			DnsChart:                toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
+			MetadataBundle:          toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
+			WorkflowsChart:          toFileArtifact(rootDir, parsed.Artifacts.WorkflowsChart),
+			WorkflowControllerImage: toFileArtifact(rootDir, parsed.Artifacts.WorkflowControllerImage),
+			WorkflowExecutorImage:   toFileArtifact(rootDir, parsed.Artifacts.WorkflowExecutorImage),
+			ExtraOCIImages:          toFileArtifacts(rootDir, parsed.Artifacts.ExtraOCIImages),
+			ConfigurationSchema:     toFileArtifact(rootDir, parsed.Artifacts.ConfigurationSchema),
+			Compatibility:           toFileArtifact(rootDir, parsed.Artifacts.Compatibility),
+			Checksums:               toFileArtifact(rootDir, parsed.Artifacts.Checksums),
+			WorkflowsCRDs:           toDirArtifact(rootDir, parsed.Artifacts.WorkflowsCRDs),
+			SBOM:                    toDirArtifact(rootDir, parsed.Artifacts.SBOM),
+			Provenance:              toDirArtifact(rootDir, parsed.Artifacts.Provenance),
+			Notices:                 toDirArtifact(rootDir, parsed.Artifacts.Notices),
+			Tests:                   toDirArtifact(rootDir, parsed.Artifacts.Tests),
 		},
 	}
 
@@ -184,28 +184,28 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
 		{Name: "checksums", Path: input.Artifacts.Checksums.Path, ExpectedDigest: input.Artifacts.Checksums.Digest, ExpectedSizeBytes: input.Artifacts.Checksums.SizeBytes},
 	}
-	if input.Artifacts.ArgoWorkflowsChart.Path != "" {
+	if input.Artifacts.WorkflowsChart.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{
-			Name:              "argo-workflows-chart",
-			Path:              input.Artifacts.ArgoWorkflowsChart.Path,
-			ExpectedDigest:    input.Artifacts.ArgoWorkflowsChart.Digest,
-			ExpectedSizeBytes: input.Artifacts.ArgoWorkflowsChart.SizeBytes,
+			Name:              "workflows-chart",
+			Path:              input.Artifacts.WorkflowsChart.Path,
+			ExpectedDigest:    input.Artifacts.WorkflowsChart.Digest,
+			ExpectedSizeBytes: input.Artifacts.WorkflowsChart.SizeBytes,
 		})
 	}
-	if input.Artifacts.ArgoControllerImage.Path != "" {
+	if input.Artifacts.WorkflowControllerImage.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{
-			Name:              "argo-controller-image",
-			Path:              input.Artifacts.ArgoControllerImage.Path,
-			ExpectedDigest:    input.Artifacts.ArgoControllerImage.Digest,
-			ExpectedSizeBytes: input.Artifacts.ArgoControllerImage.SizeBytes,
+			Name:              "workflow-controller-image",
+			Path:              input.Artifacts.WorkflowControllerImage.Path,
+			ExpectedDigest:    input.Artifacts.WorkflowControllerImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.WorkflowControllerImage.SizeBytes,
 		})
 	}
-	if input.Artifacts.ArgoExecutorImage.Path != "" {
+	if input.Artifacts.WorkflowExecutorImage.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{
-			Name:              "argo-executor-image",
-			Path:              input.Artifacts.ArgoExecutorImage.Path,
-			ExpectedDigest:    input.Artifacts.ArgoExecutorImage.Digest,
-			ExpectedSizeBytes: input.Artifacts.ArgoExecutorImage.SizeBytes,
+			Name:              "workflow-executor-image",
+			Path:              input.Artifacts.WorkflowExecutorImage.Path,
+			ExpectedDigest:    input.Artifacts.WorkflowExecutorImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.WorkflowExecutorImage.SizeBytes,
 		})
 	}
 	for idx, image := range input.Artifacts.ExtraOCIImages {
@@ -237,12 +237,12 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			return nil, checks, fmt.Errorf("release-input: %w", err)
 		}
 	}
-	if input.Artifacts.ArgoCRDs.Path != "" {
-		var argoChecks []evidence.Check
-		argoChecks, err = verifyDirArtifacts([]namedDirArtifact{
-			{Name: "argo-crds", DirArtifact: input.Artifacts.ArgoCRDs},
+	if input.Artifacts.WorkflowsCRDs.Path != "" {
+		var workflowsChecks []evidence.Check
+		workflowsChecks, err = verifyDirArtifacts([]namedDirArtifact{
+			{Name: "workflows-crds", DirArtifact: input.Artifacts.WorkflowsCRDs},
 		})
-		checks = append(checks, argoChecks...)
+		checks = append(checks, workflowsChecks...)
 		if err != nil {
 			return nil, checks, fmt.Errorf("release-input: %w", err)
 		}

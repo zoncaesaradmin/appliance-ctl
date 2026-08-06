@@ -18,14 +18,14 @@ import (
 
 // ApplianceSharedFSGID is the one numeric group ID shared across every
 // appliance pod type that needs to read/write appliance-managed host
-// storage: the control-plane pod, the UI sidecar, and every Argo
+// storage: the control-plane pod, the UI sidecar, and every
 // workflow pod. Each of those runs as a *different* runAsUser (there is
 // deliberately no single "the appliance UID"), but all of them carry
 // this GID via fsGroup, which is what actually grants shared access to
 // a volume regardless of which UID created a given file in it. This
 // value is independently maintained in appliance-code
 // (deploy/charts/appliance-control-plane/values.yaml podSecurityContext
-// fsGroup, and services/controlplane/internal/workflows/argo/argo.go's
+// fsGroup, and services/controlplane/internal/workflows/engine/engine.go's
 // sharedFSGID) — if it changes there, it must change here too.
 //
 // ApplianceDirOwnerUID is an arbitrary fixed owner for directories this
@@ -45,9 +45,9 @@ const (
 	// RegistryDirOwnerUID is the fixed numeric identity for the offline
 	// artifact server registry pod (appliance-registry chart runAsUser).
 	RegistryDirOwnerUID = 10003
-	// ArgoControllerDirOwnerUID is the fixed numeric identity for the
+	// WorkflowControllerDirOwnerUID is the fixed numeric identity for the
 	// workflow-controller pod.
-	ArgoControllerDirOwnerUID = 65532
+	WorkflowControllerDirOwnerUID = 65532
 	// DNSDirOwnerUID is the fixed numeric identity for the offline
 	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser). The wrapper
 	// image tees CoreDNS stdout/stderr into /data/zon/logs/dns.
@@ -84,9 +84,9 @@ const (
 	// file under ArtifactServerLogDir. Upstream zot creates this as 0600;
 	// zonctl reseeds it to ServiceLogFileMode so host operators can read it.
 	ArtifactServerApplicationLog = ArtifactServerLogDir + "/application.log"
-	// ArgoControllerLogDir is the host-visible workflow-controller log
+	// WorkflowControllerLogDir is the host-visible workflow-controller log
 	// directory under the shared appliance log tree.
-	ArgoControllerLogDir = "/data/zon/logs/argo-controller"
+	WorkflowControllerLogDir = "/data/zon/logs/workflow-controller"
 	// DNSLogDir is the host-visible LAN DNS (CoreDNS) log directory under
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
@@ -164,9 +164,9 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 	}
 	if includeWorkflows {
 		dirs = append(dirs, OwnedDir{
-			CheckID: "argo-controller-log-directory-owned",
-			Path:    ArgoControllerLogDir,
-			UID:     ArgoControllerDirOwnerUID,
+			CheckID: "workflow-controller-log-directory-owned",
+			Path:    WorkflowControllerLogDir,
+			UID:     WorkflowControllerDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
 		})

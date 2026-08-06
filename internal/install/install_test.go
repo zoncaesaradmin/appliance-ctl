@@ -94,12 +94,12 @@ func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 	return buildFixtureBundleWithOptions(t, false, true)
 }
 
-func buildFixtureBundleWithArgo(t *testing.T, includeArgo bool) (dir string, pub verify.PublicKey) {
+func buildFixtureBundleWithWorkflows(t *testing.T, includeWorkflows bool) (dir string, pub verify.PublicKey) {
 	t.Helper()
-	return buildFixtureBundleWithOptions(t, includeArgo, true)
+	return buildFixtureBundleWithOptions(t, includeWorkflows, true)
 }
 
-func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackages bool) (dir string, pub verify.PublicKey) {
+func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPackages bool) (dir string, pub verify.PublicKey) {
 	t.Helper()
 	dir = t.TempDir()
 
@@ -122,12 +122,12 @@ func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackage
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image tar", "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/appliance-coredns.tar", "oci-images", "fake appliance coredns image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 	}
-	if includeArgo {
+	if includeWorkflows {
 		entries = append(entries,
-			fixtureEntry{"charts/argo-workflows-chart-3.5.10.tgz", "chart", "fake argo chart bytes", ""},
+			fixtureEntry{"charts/workflows-chart-3.5.10.tgz", "chart", "fake workflows chart bytes", ""},
 			fixtureEntry{"kubernetes/crds/workflows.argoproj.io.yaml", "kubernetes-crds", "kind: CustomResourceDefinition\n", ""},
-			fixtureEntry{"oci-images/argo-controller.tar", "oci-images", "fake argo controller image tar", "quay.io/argoproj/workflow-controller:v3.5.10"},
-			fixtureEntry{"oci-images/argo-executor.tar", "oci-images", "fake argo executor image tar", "quay.io/argoproj/argoexec:v3.5.10"},
+			fixtureEntry{"oci-images/workflow-controller.tar", "oci-images", "fake workflow-controller image tar", "quay.io/argoproj/workflow-controller:v3.5.10"},
+			fixtureEntry{"oci-images/workflow-executor.tar", "oci-images", "fake workflow executor image tar", "quay.io/argoproj/argoexec:v3.5.10"},
 		)
 	}
 	if includeHostPackages {
@@ -185,8 +185,8 @@ func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackage
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
 	}
-	if includeArgo {
-		doc["compatibility"].(map[string]any)["argoVersion"] = "3.5.10"
+	if includeWorkflows {
+		doc["compatibility"].(map[string]any)["workflowsVersion"] = "3.5.10"
 	}
 	manifestBytes, err := json.Marshal(doc)
 	if err != nil {
@@ -467,9 +467,9 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
 	case "artifact-server.tar":
 		return []string{"registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
-	case "argo-controller.tar":
+	case "workflow-controller.tar":
 		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
-	case "argo-executor.tar":
+	case "workflow-executor.tar":
 		return []string{"quay.io/argoproj/argoexec:v3.5.10"}
 	default:
 		return nil
@@ -1108,13 +1108,13 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		t.Fatalf("expected exactly one workspace chown to %d:%d, got %v", hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, workspaceChowns)
 	}
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ArtifactServerLogDir: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.FileserverDir:        {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:       {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir:          {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:                 {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:          {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ArtifactServerLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.FileserverDir:            {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected service log ownership for %v, got %v", wantOwnedPaths, ownedPaths)
@@ -1175,11 +1175,11 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 		t.Fatalf("expected install to succeed, got: %v", err)
 	}
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:      {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:             {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:      {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ArgoControllerLogDir: {hostdirs.ArgoControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:       {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir:          {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:                 {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:          {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only core service log ownership %v, got %v", wantOwnedPaths, ownedPaths)
@@ -1230,16 +1230,16 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
 		}
 	}
-	if _, ok := ownedPaths[hostdirs.ArgoControllerLogDir]; ok {
-		t.Fatalf("storage profile must not prepare %s: %v", hostdirs.ArgoControllerLogDir, ownedPaths)
+	if _, ok := ownedPaths[hostdirs.WorkflowControllerLogDir]; ok {
+		t.Fatalf("storage profile must not prepare %s: %v", hostdirs.WorkflowControllerLogDir, ownedPaths)
 	}
 	if _, err := os.Stat(opts.WorkspaceRootDir); !os.IsNotExist(err) {
 		t.Error("expected the workspace directory to not be created for the storage profile")
 	}
 }
 
-func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
-	dir, pub := buildFixtureBundleWithArgo(t, true)
+func TestInstall_EndToEndSuccessWithOptionalWorkflowsBringup(t *testing.T) {
+	dir, pub := buildFixtureBundleWithWorkflows(t, true)
 	opts := baseOptions(t, dir, pub)
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
@@ -1248,27 +1248,27 @@ func TestInstall_EndToEndSuccessWithOptionalArgoBringup(t *testing.T) {
 
 	installed, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
 	if err != nil {
-		t.Fatalf("expected install with optional Argo artifacts to succeed, got: %v (checks: %+v)", err, checks)
+		t.Fatalf("expected install with optional Workflows artifacts to succeed, got: %v (checks: %+v)", err, checks)
 	}
 	if installed.InstalledVersion != "2.4.0" {
 		t.Fatalf("unexpected installed state: %+v", installed)
 	}
 
 	var sawCRDApply bool
-	var sawArgoHelm bool
+	var sawWorkflowsHelm bool
 	for _, c := range fcli.calls {
 		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "apply -f") && strings.Contains(c, "workflows.argoproj.io.yaml") {
 			sawCRDApply = true
 		}
-		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install argo-workflows") {
-			sawArgoHelm = true
+		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install appliance-workflows") {
+			sawWorkflowsHelm = true
 		}
 	}
 	if !sawCRDApply {
-		t.Fatalf("expected Argo CRDs to be applied, got calls: %v", fcli.calls)
+		t.Fatalf("expected Workflows CRDs to be applied, got calls: %v", fcli.calls)
 	}
-	if !sawArgoHelm {
-		t.Fatalf("expected Argo Helm release to be installed, got calls: %v", fcli.calls)
+	if !sawWorkflowsHelm {
+		t.Fatalf("expected Workflows Helm release to be installed, got calls: %v", fcli.calls)
 	}
 }
 

@@ -136,7 +136,7 @@ func TestLoad_ValidReleaseInput(t *testing.T) {
 	}
 }
 
-func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
+func TestLoad_ValidReleaseInputWithOptionalWorkflowsArtifacts(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
 	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
@@ -150,17 +150,17 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
-	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1","argoVersion":"3.5.10"}`)
+	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1","workflowsVersion":"3.5.10"}`)
 	writeFile(t, root, "checksums.txt", "sha256sum entries")
 	writeFile(t, root, "sbom/appliance.spdx.json", "{}")
 	writeFile(t, root, "provenance/appliance.provenance.json", "{}")
 	writeFile(t, root, "notices/THIRD-PARTY-NOTICES.txt", "notice")
 	writeFile(t, root, "tests/conformance.tar.zst", "tests")
-	writeFile(t, root, "argo-workflows-chart-3.5.10.tgz", "argo-chart-bytes")
-	writeFile(t, root, "argo-controller.oci.tar.zst", "argo-controller")
-	writeFile(t, root, "argo-executor.oci.tar.zst", "argo-executor")
+	writeFile(t, root, "workflows-chart-3.5.10.tgz", "workflows-chart-bytes")
+	writeFile(t, root, "workflow-controller.oci.tar.zst", "workflow-controller")
+	writeFile(t, root, "workflow-executor.oci.tar.zst", "workflow-executor")
 	writeFile(t, root, "buildah.oci.tar.zst", "buildah-image")
-	writeFile(t, root, "argo-crds/workflows.argoproj.io.yaml", "kind: CustomResourceDefinition\n")
+	writeFile(t, root, "workflows-crds/workflows.argoproj.io.yaml", "kind: CustomResourceDefinition\n")
 
 	digestOf := func(rel string) string {
 		digest, err := verify.Digest(filepath.Join(root, rel))
@@ -183,36 +183,36 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 		"releaseId":     "release-2.4.0",
 		"generatedAt":   "2026-07-06T00:00:00Z",
 		"artifacts": map[string]any{
-			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
-			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
-			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-bytes"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
-			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
-			"hostPackages":        map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
-			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
-			"artifactServerImage": map[string]any{"path": "artifact-server.oci.tar.zst", "digest": digestOf("artifact-server.oci.tar.zst"), "sizeBytes": len("artifact-server-image"), "imageReference": "registry.local/artifact-server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			"artifactServerChart": map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("artifact-server-chart")},
-			"dnsImage":            map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
-			"dnsChart":            map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
-			"metadataBundle":      map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
-			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
-			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1","argoVersion":"3.5.10"}`)},
-			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
-			"sbom":                map[string]any{"path": "sbom", "manifestDigest": dirDigestOf("sbom")},
-			"provenance":          map[string]any{"path": "provenance", "manifestDigest": dirDigestOf("provenance")},
-			"notices":             map[string]any{"path": "notices", "manifestDigest": dirDigestOf("notices")},
-			"tests":               map[string]any{"path": "tests", "manifestDigest": dirDigestOf("tests")},
-			"argoWorkflowsChart":  map[string]any{"path": "argo-workflows-chart-3.5.10.tgz", "digest": digestOf("argo-workflows-chart-3.5.10.tgz"), "sizeBytes": len("argo-chart-bytes")},
-			"argoCRDs":            map[string]any{"path": "argo-crds", "manifestDigest": dirDigestOf("argo-crds")},
-			"argoControllerImage": map[string]any{"path": "argo-controller.oci.tar.zst", "digest": digestOf("argo-controller.oci.tar.zst"), "sizeBytes": len("argo-controller"), "imageReference": "quay.io/argoproj/workflow-controller:v3.5.10"},
-			"argoExecutorImage":   map[string]any{"path": "argo-executor.oci.tar.zst", "digest": digestOf("argo-executor.oci.tar.zst"), "sizeBytes": len("argo-executor"), "imageReference": "quay.io/argoproj/argoexec:v3.5.10"},
-			"extraOCIImages":      []any{map[string]any{"path": "buildah.oci.tar.zst", "digest": digestOf("buildah.oci.tar.zst"), "sizeBytes": len("buildah-image"), "imageReference": "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+			"controlPlaneImage":       map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
+			"uiImage":                 map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
+			"hostAgentImage":          map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-bytes"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentBinary":         map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
+			"hostPackages":            map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
+			"applianceChart":          map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
+			"artifactServerImage":     map[string]any{"path": "artifact-server.oci.tar.zst", "digest": digestOf("artifact-server.oci.tar.zst"), "sizeBytes": len("artifact-server-image"), "imageReference": "registry.local/artifact-server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"artifactServerChart":     map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("artifact-server-chart")},
+			"dnsImage":                map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+			"dnsChart":                map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
+			"metadataBundle":          map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
+			"configurationSchema":     map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
+			"compatibility":           map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1","workflowsVersion":"3.5.10"}`)},
+			"checksums":               map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
+			"sbom":                    map[string]any{"path": "sbom", "manifestDigest": dirDigestOf("sbom")},
+			"provenance":              map[string]any{"path": "provenance", "manifestDigest": dirDigestOf("provenance")},
+			"notices":                 map[string]any{"path": "notices", "manifestDigest": dirDigestOf("notices")},
+			"tests":                   map[string]any{"path": "tests", "manifestDigest": dirDigestOf("tests")},
+			"workflowsChart":          map[string]any{"path": "workflows-chart-3.5.10.tgz", "digest": digestOf("workflows-chart-3.5.10.tgz"), "sizeBytes": len("workflows-chart-bytes")},
+			"workflowsCRDs":           map[string]any{"path": "workflows-crds", "manifestDigest": dirDigestOf("workflows-crds")},
+			"workflowControllerImage": map[string]any{"path": "workflow-controller.oci.tar.zst", "digest": digestOf("workflow-controller.oci.tar.zst"), "sizeBytes": len("workflow-controller"), "imageReference": "quay.io/argoproj/workflow-controller:v3.5.10"},
+			"workflowExecutorImage":   map[string]any{"path": "workflow-executor.oci.tar.zst", "digest": digestOf("workflow-executor.oci.tar.zst"), "sizeBytes": len("workflow-executor"), "imageReference": "quay.io/argoproj/argoexec:v3.5.10"},
+			"extraOCIImages":          []any{map[string]any{"path": "buildah.oci.tar.zst", "digest": digestOf("buildah.oci.tar.zst"), "sizeBytes": len("buildah-image"), "imageReference": "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
 		},
 		"compatibility": map[string]any{
 			"k3sVersion":            "v1.30.4+k3s1",
 			"chartVersion":          "2.4.0",
 			"artifactServerVersion": "2.1.7",
 			"dnsVersion":            "1.14.4",
-			"argoVersion":           "3.5.10",
+			"workflowsVersion":      "3.5.10",
 		},
 	}
 	data, err := json.Marshal(doc)
@@ -225,19 +225,19 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 
 	in, _, err := releaseinput.Load(root)
 	if err != nil {
-		t.Fatalf("expected valid release input with Argo artifacts, got: %v", err)
+		t.Fatalf("expected valid release input with Workflows artifacts, got: %v", err)
 	}
-	if in.Compatibility.ArgoVersion != "3.5.10" {
-		t.Fatalf("expected argoVersion 3.5.10, got %+v", in.Compatibility)
+	if in.Compatibility.WorkflowsVersion != "3.5.10" {
+		t.Fatalf("expected workflowsVersion 3.5.10, got %+v", in.Compatibility)
 	}
-	if filepath.Base(in.Artifacts.ArgoWorkflowsChart.Path) != "argo-workflows-chart-3.5.10.tgz" {
-		t.Fatalf("unexpected argo chart artifact: %+v", in.Artifacts.ArgoWorkflowsChart)
+	if filepath.Base(in.Artifacts.WorkflowsChart.Path) != "workflows-chart-3.5.10.tgz" {
+		t.Fatalf("unexpected workflows chart artifact: %+v", in.Artifacts.WorkflowsChart)
 	}
-	if filepath.Base(in.Artifacts.ArgoControllerImage.Path) != "argo-controller.oci.tar.zst" {
-		t.Fatalf("unexpected argo controller image artifact: %+v", in.Artifacts.ArgoControllerImage)
+	if filepath.Base(in.Artifacts.WorkflowControllerImage.Path) != "workflow-controller.oci.tar.zst" {
+		t.Fatalf("unexpected workflow-controller image artifact: %+v", in.Artifacts.WorkflowControllerImage)
 	}
-	if filepath.Base(in.Artifacts.ArgoCRDs.Path) != "argo-crds" {
-		t.Fatalf("unexpected argo crd artifact: %+v", in.Artifacts.ArgoCRDs)
+	if filepath.Base(in.Artifacts.WorkflowsCRDs.Path) != "workflows-crds" {
+		t.Fatalf("unexpected workflows crd artifact: %+v", in.Artifacts.WorkflowsCRDs)
 	}
 	if len(in.Artifacts.ExtraOCIImages) != 1 || in.Artifacts.ExtraOCIImages[0].ImageReference != "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("unexpected extra OCI image artifacts: %+v", in.Artifacts.ExtraOCIImages)

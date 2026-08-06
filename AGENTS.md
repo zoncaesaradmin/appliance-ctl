@@ -29,7 +29,7 @@ These rules apply to all implementation and documentation in this repository.
 ## End-To-End Fix Discipline
 
 - Full dependency map, OCI contract, change→check matrix, and done-gate: `.cursor/rules/appliance-cross-repo-e2e.mdc` (always applied).
-- Before closing any bug fix that touches packaging, install, image preload, charts, workflows, or cross-repo contracts, walk the full operator path: export → release-input → signed bundle → zonctl preload/import/tag → Helm values/config → control-plane → Argo/workload image resolve → observable success.
+- Before closing any bug fix that touches packaging, install, image preload, charts, workflows, or cross-repo contracts, walk the full operator path: export → release-input → signed bundle → zonctl preload/import/tag → Helm values/config → control-plane → workflow/workload image resolve → observable success.
 - A change is incomplete if it only updates one side of a producer/consumer pair (for example packaging writes `registry.local/<name>:bundled` while zonctl still requires annotation == digest pin). Update every dependent check, test, docs/example, and sibling repo in the same fix set.
 - Do not treat “make verify passed in one repo” as sufficient when the release flow spans `appliance-release`, `appliance-ctl`, and `appliance-code`; verify each edited repo and explicitly re-check the shared contract.
 - Do not hand off another long release-flow run while a known cross-repo contract mismatch remains.
