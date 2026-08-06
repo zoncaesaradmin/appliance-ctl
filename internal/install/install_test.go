@@ -120,7 +120,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image tar", "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image tar", "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-		{"oci-images/appliance-coredns.tar", "oci-images", "fake appliance coredns image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 	}
 	if includeWorkflows {
 		entries = append(entries,
@@ -453,7 +453,7 @@ func installTestImageRefsForArchive(path string) []string {
 	switch filepath.Base(path) {
 	case "coredns.tar":
 		return []string{"docker.io/rancher/mirrored-coredns-coredns:1.11.3"}
-	case "appliance-coredns.tar":
+	case "dns-server.tar":
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 	case "control-plane.tar":
 		return []string{"internal/control-plane:2.4.0"}

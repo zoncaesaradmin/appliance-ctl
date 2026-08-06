@@ -65,7 +65,7 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | Artifact-server image/chart/version | appliance-code release-input + `export-artifact-server-image-archive.sh` | ctl schema/load/assemble/source, release validator |
 | Registry signing key | control-plane private seed | installer-derived public-only registry verification Secret |
 | Artifact capability | profile catalog | artifact-server preload/chart/PVC/status; core skips artifact capability |
-| `:bundled` coredns + `@sha256` dnsImage | `export-coredns-image-archive.sh` / finalize | ctl assemble/source/preload; release `validate_dns` |
+| `:bundled` coredns + `@sha256` dnsImage | `export-dns-server-image-archive.sh` / finalize | ctl assemble/source/preload; release `validate_dns` |
 | DNS capability | profile catalog | appliance-dns Helm before CP; `dnsReadyURL`; dig verify; core/storage/builder skip |
 | Builder Git HTTPS access | UI `PUT /builder/git-access` → CP secret `builder-git-access` | `resolveWorkspaceGitCredential` → workflow mount + `GIT_ASKPASS` clone |
 | Writable tool home for builds | workflow `HOME`/`GOPATH`/`GOCACHE` under `/tmp/appliance-home` | dev-build image ENV (`/home/devcontainer/...`) must be overridden |
