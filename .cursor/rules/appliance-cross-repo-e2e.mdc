@@ -26,7 +26,7 @@ Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manif
 
 ## Operator path (ordered)
 
-1. **Export** (`appliance-release` `scripts/ci/build-full-bundle.sh`)
+1. **Export** (`appliance-release` `scripts/build-full-bundle.sh`)
    - `finalize_bundled_oci_archive` / `export_bundled_extra_oci_image_archive`
    - Derives digest from archive `index.json`; annotates `:bundled`
 2. **Release-input** (`appliance-code` `scripts/package/archive-release-input.sh`)
@@ -48,7 +48,7 @@ Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manif
    - First-class `zotImage` + `zotChart`, with `compatibility.zotVersion`
    - Preload/tag `registry.local/zot@sha256:<platform-manifest-digest>`
    - Derive a public verification key from the control-plane registry signing seed
-   - Install `appliance-registry` before the control plane; expose the internal zot URL to the control plane
+   - Install `appliance-registry` before the control plane; expose the internal artifact-server URL to the control plane
 
 Online pulls happen **only on the build host** during bundle assembly. Target install/runtime must not need Docker Hub/GHCR.
 
@@ -62,9 +62,9 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | Digests in Helm values | `PrepareValuesFile` | chart ConfigMap, `config.Load`, chart schema |
 | Catalog `dev-build` alias | catalog / examples | `ResolveBuilderImage`, `builderImageReference` |
 | Offline images present | preload/tag | Argo `IfNotPresent` pods |
-| zot image/chart/version | appliance-code release-input + release exporter | ctl schema/load/assemble/source, release validator |
-| Registry signing key | control-plane private seed | installer-derived public-only zot Secret |
-| Artifact capability | profile catalog | zot preload/chart/PVC/status; core skips zot |
+| Artifact-server image/chart/version | appliance-code release-input + `export-artifact-server-image-archive.sh` | ctl schema/load/assemble/source, release validator |
+| Registry signing key | control-plane private seed | installer-derived public-only registry verification Secret |
+| Artifact capability | profile catalog | artifact-server preload/chart/PVC/status; core skips artifact capability |
 | `:bundled` coredns + `@sha256` dnsImage | `export-coredns-image-archive.sh` / finalize | ctl assemble/source/preload; release `validate_dns` |
 | DNS capability | profile catalog | appliance-dns Helm before CP; `dnsReadyURL`; dig verify; core/storage/builder skip |
 | Builder Git HTTPS access | UI `PUT /builder/git-access` → CP secret `builder-git-access` | `resolveWorkspaceGitCredential` → Argo mount + `GIT_ASKPASS` clone |
@@ -100,7 +100,7 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 
 ## Key files
 
-**release:** `scripts/ci/build-full-bundle.sh`, `scripts/ci/bootstrap-build-host.sh`, `scripts/publish/publish-release.sh`, `scripts/package/init-simple-workspace.sh`, `.agents/skills/release/scripts/build-and-publish.sh`, `.agents/skills/release/scripts/validate-release-artifacts.py`, `.agents/skills/release/references/config.example.yaml`
+**release:** `scripts/build-full-bundle.sh`, `scripts/bootstrap-build-host.sh`, `scripts/publish-release.sh`, `scripts/init-bundle-workspace.sh`, `.agents/skills/release/scripts/build-and-publish.sh`, `.agents/skills/release/scripts/validate-release-artifacts.py`, `.agents/skills/release/references/config.example.yaml`
 
 **ctl:** `internal/images/archive.go`, `internal/images/preload.go`, `internal/install/source.go`, `internal/install/install.go`, `internal/productconfig/productconfig.go`, `internal/releasebundle/assemble.go`
 
