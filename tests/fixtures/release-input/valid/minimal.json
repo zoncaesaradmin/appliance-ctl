@@ -36,13 +36,13 @@
       "digest": "sha256:cc57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
       "sizeBytes": 65536
     },
-    "zotImage": {
-      "path": "zot.oci.tar.zst",
+    "artifactServerImage": {
+      "path": "artifact-server.oci.tar.zst",
       "digest": "sha256:ac57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
       "sizeBytes": 52428800,
-      "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "imageReference": "registry.local/artifact-server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
-    "zotChart": {
+    "artifactServerChart": {
       "path": "appliance-registry-2.1.7.tgz",
       "digest": "sha256:bc57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
       "sizeBytes": 32768
@@ -98,7 +98,7 @@
   "compatibility": {
     "k3sVersion": "v1.30.4+k3s1",
     "chartVersion": "2.4.0",
-    "zotVersion": "2.1.7",
+    "artifactServerVersion": "2.1.7",
     "dnsVersion": "1.14.4",
     "supportedUpgradeSources": [
       "2.3.0",

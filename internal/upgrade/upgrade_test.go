@@ -74,7 +74,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"oci-images/appliance-host-agent.tar", "oci-images", "fake appliance host agent image " + spec.bundleVersion, "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image " + spec.bundleVersion, "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
-		{"oci-images/zot.tar", "oci-images", "fake zot image " + spec.bundleVersion, "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image " + spec.bundleVersion, "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/appliance-coredns.tar", "oci-images", "fake appliance coredns image " + spec.bundleVersion, "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 	}
 	entries = append(entries, struct {
@@ -127,7 +127,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		"builtAt":       "2026-07-04T00:00:00Z",
 		"compatibility": map[string]any{
 			"k3sVersion": spec.k3sVersion, "chartVersion": spec.chartVersion,
-			"zotVersion":              "2.1.7",
+			"artifactServerVersion":   "2.1.7",
 			"dnsVersion":              "1.14.4",
 			"supportedUpgradeSources": spec.supportedSources,
 		},
@@ -508,7 +508,7 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 		}
 	}
 	if importCalls != 6 {
-		t.Fatalf("expected 6 image import calls during same-version refresh (zot + control-plane + UI + host agent + workspace provisioner + dev-build), got %d: %v", importCalls, fcli.calls)
+		t.Fatalf("expected 6 image import calls during same-version refresh (artifact-server + control-plane + UI + host agent + workspace provisioner + dev-build), got %d: %v", importCalls, fcli.calls)
 	}
 }
 
@@ -1168,8 +1168,8 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "dev-build.tar":
 		return []string{"registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
-	case "zot.tar":
-		return []string{"registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	case "artifact-server.tar":
+		return []string{"registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	case "appliance-coredns.tar":
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 	default:

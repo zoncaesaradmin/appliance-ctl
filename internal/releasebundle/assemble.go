@@ -157,27 +157,27 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			Executable: true,
 		}
 	}
-	zotImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ZotImage.Path)
-	if _, exists := entryByTarget[zotImageTarget]; !exists {
-		if !isCanonicalZotReference(input.Artifacts.ZotImage.ImageReference) {
-			return Result{}, fmt.Errorf("releasebundle: zot imageReference must be registry.local/zot@sha256:<64 lowercase hex>, got %q", input.Artifacts.ZotImage.ImageReference)
+	artifactServerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ArtifactServerImage.Path)
+	if _, exists := entryByTarget[artifactServerImageTarget]; !exists {
+		if !isCanonicalArtifactServerReference(input.Artifacts.ArtifactServerImage.ImageReference) {
+			return Result{}, fmt.Errorf("releasebundle: artifact server imageReference must be registry.local/artifact-server@sha256:<64 lowercase hex>, got %q", input.Artifacts.ArtifactServerImage.ImageReference)
 		}
-		entryByTarget[zotImageTarget] = EntryConfig{
-			SourcePath:     input.Artifacts.ZotImage.Path,
-			TargetPath:     zotImageTarget,
+		entryByTarget[artifactServerImageTarget] = EntryConfig{
+			SourcePath:     input.Artifacts.ArtifactServerImage.Path,
+			TargetPath:     artifactServerImageTarget,
 			Component:      "oci-images",
-			ImageReference: input.Artifacts.ZotImage.ImageReference,
+			ImageReference: input.Artifacts.ArtifactServerImage.ImageReference,
 		}
 	}
-	zotChartBase := filepath.Base(input.Artifacts.ZotChart.Path)
-	if !strings.HasPrefix(strings.ToLower(zotChartBase), "appliance-registry-") {
-		zotChartBase = "appliance-registry-" + zotChartBase
+	artifactServerChartBase := filepath.Base(input.Artifacts.ArtifactServerChart.Path)
+	if !strings.HasPrefix(strings.ToLower(artifactServerChartBase), "appliance-registry-") {
+		artifactServerChartBase = "appliance-registry-" + artifactServerChartBase
 	}
-	zotChartTarget := "chart/" + zotChartBase
-	if _, exists := entryByTarget[zotChartTarget]; !exists {
-		entryByTarget[zotChartTarget] = EntryConfig{
-			SourcePath: input.Artifacts.ZotChart.Path,
-			TargetPath: zotChartTarget,
+	artifactServerChartTarget := "chart/" + artifactServerChartBase
+	if _, exists := entryByTarget[artifactServerChartTarget]; !exists {
+		entryByTarget[artifactServerChartTarget] = EntryConfig{
+			SourcePath: input.Artifacts.ArtifactServerChart.Path,
+			TargetPath: artifactServerChartTarget,
 			Component:  "chart",
 		}
 	}
@@ -300,7 +300,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	compatibility := map[string]any{
 		"k3sVersion":              input.Compatibility.K3sVersion,
 		"chartVersion":            input.Compatibility.ChartVersion,
-		"zotVersion":              input.Compatibility.ZotVersion,
+		"artifactServerVersion":   input.Compatibility.ArtifactServerVersion,
 		"dnsVersion":              input.Compatibility.DnsVersion,
 		"supportedUpgradeSources": supportedUpgradeSources,
 	}
@@ -346,8 +346,8 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}, nil
 }
 
-func isCanonicalZotReference(ref string) bool {
-	const prefix = "registry.local/zot@sha256:"
+func isCanonicalArtifactServerReference(ref string) bool {
+	const prefix = "registry.local/artifact-server@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}

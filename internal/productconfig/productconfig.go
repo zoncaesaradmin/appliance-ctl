@@ -73,7 +73,7 @@ func BuiltInProfileCatalog() ProfileCatalog {
 }
 
 const (
-	DefaultZotBaseURL              = "http://appliance-registry.artifacts.svc.cluster.local:5000"
+	DefaultArtifactServerBaseURL   = "http://appliance-registry.artifacts.svc.cluster.local:5000"
 	DefaultRegistryPublicKeySecret = "appliance-registry-verification-key"
 	// WifiAPManagementAddress is always injected as a TLS SAN.
 	WifiAPManagementAddress = "10.42.0.1"
@@ -83,7 +83,7 @@ const (
 	// DefaultDNSReadyURL is the CoreDNS health-plugin readiness endpoint
 	// the control plane polls to gate any dns-capability-dependent
 	// behavior on the LAN DNS release actually being up, mirroring how
-	// zotBaseURL gates artifact-capability behavior on the registry
+	// artifactServerBaseURL gates artifact-capability behavior on the registry
 	// release.
 	// CoreDNS ready plugin listens on :8181 (/ready); health is :8080 (/health).
 	DefaultDNSReadyURL = "http://dns-server.dns.svc.cluster.local:8181/ready"
@@ -237,9 +237,9 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 	workspaceProvisionerImageReference = strings.TrimSpace(workspaceProvisionerImageReference)
 	builderImageReference = strings.TrimSpace(builderImageReference)
 	hostAgentImageReference = strings.TrimSpace(hostAgentImageReference)
-	zotImageReference := ""
+	artifactServerImageReference := ""
 	if len(registry) > 0 {
-		zotImageReference = strings.TrimSpace(registry[0])
+		artifactServerImageReference = strings.TrimSpace(registry[0])
 	}
 	if buildEnabled {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
@@ -249,8 +249,8 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned dev-build builder image reference; got %q", builderImageReference)
 		}
 	}
-	if artifactEnabled && len(registry) > 0 && !validZotImageDigest(zotImageReference) {
-		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/zot@sha256 image reference; got %q", zotImageReference)
+	if artifactEnabled && len(registry) > 0 && !validArtifactServerImageDigest(artifactServerImageReference) {
+		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/artifact-server@sha256 image reference; got %q", artifactServerImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -289,9 +289,9 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 		delete(config, "nodeIPv4")
 	}
 	if artifactEnabled {
-		config["zotBaseURL"] = DefaultZotBaseURL
+		config["artifactServerBaseURL"] = DefaultArtifactServerBaseURL
 	} else {
-		delete(config, "zotBaseURL")
+		delete(config, "artifactServerBaseURL")
 	}
 	if dnsEnabled {
 		config["dnsReadyURL"] = DefaultDNSReadyURL
@@ -341,8 +341,8 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 		networkPolicy = map[string]any{}
 	}
 	if artifactEnabled {
-		// Zot ships in the dedicated artifacts namespace; CP egress must target
-		// that namespace, not the control-plane namespace.
+		// The artifact server ships in the dedicated artifacts namespace; CP
+		// egress must target that namespace, not the control-plane namespace.
 		networkPolicy["registryNamespaceLabel"] = map[string]any{
 			"kubernetes.io/metadata.name": "artifacts",
 		}
@@ -413,12 +413,12 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 }
 
 // PrepareRegistryValuesFile renders the small installer-owned values layer
-// for the separate zot release. The chart archive remains immutable; only
-// the verified digest pins, public-key Secret name, and persistence policy
-// are supplied at install time.
-func PrepareRegistryValuesFile(baseDir, zotImageReference, fqdn string) (string, func(), error) {
-	if !validZotImageDigest(zotImageReference) {
-		return "", func() {}, fmt.Errorf("product config: invalid zot image reference %q", zotImageReference)
+// for the separate artifact server release. The chart archive remains
+// immutable; only the verified digest pins, public-key Secret name, and
+// persistence policy are supplied at install time.
+func PrepareRegistryValuesFile(baseDir, artifactServerImageReference, fqdn string) (string, func(), error) {
+	if !validArtifactServerImageDigest(artifactServerImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid artifact server image reference %q", artifactServerImageReference)
 	}
 	host := strings.TrimSpace(fqdn)
 	if host == "" {
@@ -427,13 +427,13 @@ func PrepareRegistryValuesFile(baseDir, zotImageReference, fqdn string) (string,
 	values := map[string]any{
 		"namespace": map[string]any{"create": false, "name": "artifacts"},
 		"image": map[string]any{
-			"repository": "registry.local/zot",
-			"digest":     strings.TrimPrefix(strings.TrimSpace(zotImageReference), "registry.local/zot@"),
+			"repository": "registry.local/artifact-server",
+			"digest":     strings.TrimPrefix(strings.TrimSpace(artifactServerImageReference), "registry.local/artifact-server@"),
 			"pullPolicy": "IfNotPresent",
 		},
 		"auth": map[string]any{
 			"realm":               "https://" + host + "/api/v1/registry/token",
-			"service":             "zot",
+			"service":             "artifact-server",
 			"publicKeySecretName": DefaultRegistryPublicKeySecret,
 			"publicKeySecretKey":  "registry_ed25519_public.pem",
 		},
@@ -866,9 +866,9 @@ func validBuilderImageDigest(image string) bool {
 	return digest != placeholderImageDigestHex
 }
 
-func validZotImageDigest(image string) bool {
+func validArtifactServerImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
-	if !strings.HasPrefix(image, "registry.local/zot@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+	if !strings.HasPrefix(image, "registry.local/artifact-server@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

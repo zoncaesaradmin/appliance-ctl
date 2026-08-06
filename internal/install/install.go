@@ -142,7 +142,7 @@ type Orchestrator struct {
 	// for why this can't just be left to Kubernetes' own fsGroup
 	// handling.
 	EnsureOwnedDir func(path string, uid, gid int, perm os.FileMode) error
-	// EnsureOwnedFile reseeds operator-facing log files (for example zot
+	// EnsureOwnedFile reseeds operator-facing log files (for example artifact server
 	// application.log) to a host-readable mode after upstream may have
 	// created them as 0600.
 	EnsureOwnedFile func(path string, uid, gid int, perm os.FileMode) error
@@ -223,7 +223,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	nodeIPv4 := preferredLocalIPv4(opts.TLSSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -231,7 +231,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if resolved.ArtifactEnabled {
-		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, identity.FQDN)
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ArtifactServerImageReference, identity.FQDN)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
@@ -822,12 +822,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
 		Components: state.Components{
-			K3sVersion:      resolved.Compatibility.K3sVersion,
-			ChartVersion:    resolved.Compatibility.ChartVersion,
-			ZotVersion:      resolved.ZotComponentVersion(resolved.Compatibility.ZotVersion),
-			DNSVersion:      resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
-			MetadataVersion: metadataVersion,
-			MetadataDigest:  metadataDigest,
+			K3sVersion:            resolved.Compatibility.K3sVersion,
+			ChartVersion:          resolved.Compatibility.ChartVersion,
+			ArtifactServerVersion: resolved.ArtifactServerComponentVersion(resolved.Compatibility.ArtifactServerVersion),
+			DNSVersion:            resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
+			MetadataVersion:       metadataVersion,
+			MetadataDigest:        metadataDigest,
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{

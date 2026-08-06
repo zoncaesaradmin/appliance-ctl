@@ -31,7 +31,7 @@ type Compatibility struct {
 	K3sVersion              string
 	ChartVersion            string
 	ArgoVersion             string
-	ZotVersion              string
+	ArtifactServerVersion   string
 	DnsVersion              string
 	SupportedUpgradeSources []string
 }
@@ -56,8 +56,8 @@ type Artifacts struct {
 	HostAgentBinary     FileArtifact
 	HostPackages        DirArtifact
 	ApplianceChart      FileArtifact
-	ZotImage            FileArtifact
-	ZotChart            FileArtifact
+	ArtifactServerImage FileArtifact
+	ArtifactServerChart FileArtifact
 	DnsImage            FileArtifact
 	DnsChart            FileArtifact
 	MetadataBundle      FileArtifact
@@ -85,8 +85,8 @@ type doc struct {
 		HostAgentBinary     fileArtifact   `json:"hostAgentBinary"`
 		HostPackages        dirArtifact    `json:"hostPackages"`
 		ApplianceChart      fileArtifact   `json:"applianceChart"`
-		ZotImage            fileArtifact   `json:"zotImage"`
-		ZotChart            fileArtifact   `json:"zotChart"`
+		ArtifactServerImage fileArtifact   `json:"artifactServerImage"`
+		ArtifactServerChart fileArtifact   `json:"artifactServerChart"`
 		DnsImage            fileArtifact   `json:"dnsImage"`
 		DnsChart            fileArtifact   `json:"dnsChart"`
 		MetadataBundle      fileArtifact   `json:"metadataBundle"`
@@ -149,8 +149,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			HostAgentBinary:     toFileArtifact(rootDir, parsed.Artifacts.HostAgentBinary),
 			HostPackages:        toDirArtifact(rootDir, parsed.Artifacts.HostPackages),
 			ApplianceChart:      toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
-			ZotImage:            toFileArtifact(rootDir, parsed.Artifacts.ZotImage),
-			ZotChart:            toFileArtifact(rootDir, parsed.Artifacts.ZotChart),
+			ArtifactServerImage: toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerImage),
+			ArtifactServerChart: toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerChart),
 			DnsImage:            toFileArtifact(rootDir, parsed.Artifacts.DnsImage),
 			DnsChart:            toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
 			MetadataBundle:      toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
@@ -175,8 +175,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "host-agent-image", Path: input.Artifacts.HostAgentImage.Path, ExpectedDigest: input.Artifacts.HostAgentImage.Digest, ExpectedSizeBytes: input.Artifacts.HostAgentImage.SizeBytes},
 		{Name: "host-agent-binary", Path: input.Artifacts.HostAgentBinary.Path, ExpectedDigest: input.Artifacts.HostAgentBinary.Digest, ExpectedSizeBytes: input.Artifacts.HostAgentBinary.SizeBytes},
 		{Name: "appliance-chart", Path: input.Artifacts.ApplianceChart.Path, ExpectedDigest: input.Artifacts.ApplianceChart.Digest, ExpectedSizeBytes: input.Artifacts.ApplianceChart.SizeBytes},
-		{Name: "zot-image", Path: input.Artifacts.ZotImage.Path, ExpectedDigest: input.Artifacts.ZotImage.Digest, ExpectedSizeBytes: input.Artifacts.ZotImage.SizeBytes},
-		{Name: "zot-chart", Path: input.Artifacts.ZotChart.Path, ExpectedDigest: input.Artifacts.ZotChart.Digest, ExpectedSizeBytes: input.Artifacts.ZotChart.SizeBytes},
+		{Name: "artifact-server-image", Path: input.Artifacts.ArtifactServerImage.Path, ExpectedDigest: input.Artifacts.ArtifactServerImage.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerImage.SizeBytes},
+		{Name: "artifact-server-chart", Path: input.Artifacts.ArtifactServerChart.Path, ExpectedDigest: input.Artifacts.ArtifactServerChart.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerChart.SizeBytes},
 		{Name: "dns-image", Path: input.Artifacts.DnsImage.Path, ExpectedDigest: input.Artifacts.DnsImage.Digest, ExpectedSizeBytes: input.Artifacts.DnsImage.SizeBytes},
 		{Name: "dns-chart", Path: input.Artifacts.DnsChart.Path, ExpectedDigest: input.Artifacts.DnsChart.Digest, ExpectedSizeBytes: input.Artifacts.DnsChart.SizeBytes},
 		{Name: "metadata-bundle", Path: input.Artifacts.MetadataBundle.Path, ExpectedDigest: input.Artifacts.MetadataBundle.Digest, ExpectedSizeBytes: input.Artifacts.MetadataBundle.SizeBytes},

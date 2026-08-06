@@ -1,14 +1,14 @@
 // Package images preloads every bundled OCI image into the K3s
 // (containerd) image store from local archives, so "no image pull can
-// fall through to a public registry" and the appliance's own zot
-// instance is never a bootstrap dependency (see docs/release-plan.md).
+// fall through to a public registry" and the appliance's own artifact
+// server instance is never a bootstrap dependency (see docs/release-plan.md).
 package images
 
 import "sort"
 
 // Category fixes the required preload order: K3s's own platform images
 // first (CoreDNS, Traefik, ...), then this appliance's dependencies
-// (zot, Argo controller/executor), then the product's application
+// (artifact server, Argo controller/executor), then the product's application
 // images. Preloading platform images first means K3s never needs to
 // pull anything itself on first start.
 type Category int

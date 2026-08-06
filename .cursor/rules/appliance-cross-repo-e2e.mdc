@@ -20,7 +20,7 @@ Install:             ctr import (gets :bundled or import-DATE) → ctr image tag
 Runtime:             config.*ImageDigest == digest pin → Argo pod image (IfNotPresent)
 ```
 
-Names today: `workspace-provisioner` (alpine/git), `dev-build` (builder), `zot` (artifact registry dependency), and `coredns` (LAN DNS data plane).
+Names today: `workspace-provisioner` (alpine/git), `dev-build` (builder), `artifact-server` (artifact registry dependency), and `coredns` (LAN DNS data plane).
 
 Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manifest).
 
@@ -45,8 +45,8 @@ Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manif
 8. **Build submit** → Argo build pod
    - `ResolveBuilderImage("dev-build", …)` → dev-build digest pin
 9. **Artifact service** (`CapabilityArtifact`)
-   - First-class `zotImage` + `zotChart`, with `compatibility.zotVersion`
-   - Preload/tag `registry.local/zot@sha256:<platform-manifest-digest>`
+   - First-class `artifactServerImage` + `artifactServerChart`, with `compatibility.artifactServerVersion`
+   - Preload/tag `registry.local/artifact-server@sha256:<platform-manifest-digest>`
    - Derive a public verification key from the control-plane registry signing seed
    - Install `appliance-registry` before the control plane; expose the internal artifact-server URL to the control plane
 
@@ -84,8 +84,8 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 - **Builder HOME/GOPATH** → `argo.workflowToolHomeEnv` + build preamble mkdir; dev-build image ENV; platformkit/forgeline make targets
 - **Build catalog targets** → real Makefile/script paths in each product repo; `build-catalog.example.yaml`; operator `build-catalog.yaml`
 - **Workspace UID/path** → install EnsureOwnedDir; chart PVC; argo pod patch; storage invariants in all three AGENTS.md
-- **zot image/chart/version** → release-input schema and loader; bundle assembly/source; dependency preload/tag; registry chart install before control-plane
-- **Profile capability gates** → zot only for `artifact`; Argo only for `workflows`; storage must not require builder artifacts/catalog/workspaces
+- **artifact-server image/chart/version** → release-input schema and loader; bundle assembly/source; dependency preload/tag; registry chart install before control-plane
+- **Profile capability gates** → artifact-server only for `artifact`; Argo only for `workflows`; storage must not require builder artifacts/catalog/workspaces
 - **Registry lifecycle** → K3s-stop backup/restore includes PVC state; uninstall preserves K3s data; factory-reset explicitly wipes it; support excludes blobs, tokens, and private keys
 - **Only one repo** → insufficient; re-check sibling contract consumers
 

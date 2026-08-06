@@ -72,10 +72,10 @@
           "type": "string",
           "minLength": 1
         },
-        "zotVersion": {
+        "artifactServerVersion": {
           "type": "string",
           "minLength": 1,
-          "description": "Installed zot version when the artifact capability is enabled."
+          "description": "Installed artifact server version when the artifact capability is enabled."
         },
         "dnsVersion": {
           "type": "string",

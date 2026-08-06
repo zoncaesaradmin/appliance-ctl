@@ -13,7 +13,7 @@ const (
 	workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	builderImage              = "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
 	hostAgentImage            = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-	zotImage                  = "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	artifactServerImage       = "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
 
@@ -22,7 +22,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", zotImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 		"externalPath: /api/v1/host/stats",
 		"externalPath: /api/v1/host/health",
 		"reference: " + hostAgentImage,
-		"zotBaseURL:",
+		"artifactServerBaseURL:",
 		"kubernetes.io/metadata.name: artifacts",
 		"app.kubernetes.io/name: appliance-registry",
 	} {
@@ -86,8 +86,8 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 			t.Fatalf("rendered values missing %q:\n%s", want, text)
 		}
 	}
-	if strings.Contains(text, "zotBaseURL:") {
-		t.Fatalf("landns must not inject zotBaseURL:\n%s", text)
+	if strings.Contains(text, "artifactServerBaseURL:") {
+		t.Fatalf("landns must not inject artifactServerBaseURL:\n%s", text)
 	}
 	for _, forbidden := range []string{
 		"dnsBootstrapHostname: appliance",
@@ -131,7 +131,7 @@ func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
 }
 
 func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage, "registry1.appliance.internal")
+	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), artifactServerImage, "registry1.appliance.internal")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 	}
 	text := string(data)
 	if !strings.Contains(text, "digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") ||
-		!strings.Contains(text, "repository: registry.local/zot") ||
+		!strings.Contains(text, "repository: registry.local/artifact-server") ||
 		!strings.Contains(text, "accessMode: ReadWriteOnce") ||
 		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) ||
 		!strings.Contains(text, "kubernetes.io/metadata.name: control") ||
@@ -157,7 +157,7 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 	}
 }
 func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), zotImage, "registry1.appliance.internal")
+	path, cleanup, err := productconfig.PrepareRegistryValuesFile(t.TempDir(), artifactServerImage, "registry1.appliance.internal")
 	if err != nil {
 		t.Fatal(err)
 	}

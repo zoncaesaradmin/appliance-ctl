@@ -42,8 +42,8 @@ const (
 	ControlPlaneDirOwnerUID = 10001
 	// UIDirOwnerUID is the fixed numeric identity for the UI pod.
 	UIDirOwnerUID = 10002
-	// RegistryDirOwnerUID is the fixed numeric identity for the offline zot
-	// registry pod (appliance-registry chart runAsUser).
+	// RegistryDirOwnerUID is the fixed numeric identity for the offline
+	// artifact server registry pod (appliance-registry chart runAsUser).
 	RegistryDirOwnerUID = 10003
 	// ArgoControllerDirOwnerUID is the fixed numeric identity for the
 	// workflow-controller pod.
@@ -77,12 +77,12 @@ const (
 	// UILogDir is the host-visible UI log directory under the shared appliance
 	// log tree.
 	UILogDir = "/data/zon/logs/ui"
-	// ArtifactServerLogDir is the host-visible OCI registry (zot /
-	// artifactserver) log directory under the shared appliance log tree.
+	// ArtifactServerLogDir is the host-visible artifact server log
+	// directory under the shared appliance log tree.
 	ArtifactServerLogDir = "/data/zon/logs/artifactserver"
-	// ArtifactServerApplicationLog is the zot application log file under
-	// ArtifactServerLogDir. Upstream zot creates this as 0600; zonctl reseeds
-	// it to ServiceLogFileMode so host operators can read it.
+	// ArtifactServerApplicationLog is the artifact server application log
+	// file under ArtifactServerLogDir. Upstream zot creates this as 0600;
+	// zonctl reseeds it to ServiceLogFileMode so host operators can read it.
 	ArtifactServerApplicationLog = ArtifactServerLogDir + "/application.log"
 	// ArgoControllerLogDir is the host-visible workflow-controller log
 	// directory under the shared appliance log tree.
@@ -184,8 +184,8 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 }
 
 // ServiceLogFiles returns host-visible log files that zonctl must seed (or
-// re-chmod) in addition to ServiceLogDirs. Today this is only zot's
-// application.log, which upstream creates as 0600.
+// re-chmod) in addition to ServiceLogDirs. Today this is only the artifact
+// server's application.log, which upstream creates as 0600.
 func ServiceLogFiles(includeArtifact, _, _ bool) []OwnedDir {
 	files := []OwnedDir{{
 		CheckID: "host-agent-daemon-log-readable",

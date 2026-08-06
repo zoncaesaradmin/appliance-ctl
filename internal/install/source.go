@@ -55,8 +55,8 @@ type Resolved struct {
 	BuilderImageReference string
 	// HostAgentImageReference is the bundled, digest-pinned appliance host
 	// agent image reference used by the host capability.
-	HostAgentImageReference string
-	ZotImageReference       string
+	HostAgentImageReference      string
+	ArtifactServerImageReference string
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
 	// image reference used for the landns/storage-landns capability.
 	DNSImageReference string
@@ -142,7 +142,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		}
 	}
 	registryChartPath := ""
-	if artifactEnabled && strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
+	if artifactEnabled && strings.TrimSpace(b.Compatibility.ArtifactServerVersion) != "" {
 		registryChartPath, err = requiredRegistryChartPath(b)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
@@ -179,7 +179,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range b.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isZotImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -193,9 +193,9 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
-	zotImageReference := ""
-	if artifactEnabled && strings.TrimSpace(b.Compatibility.ZotVersion) != "" {
-		zotImageReference, err = requiredZotImageReference(b)
+	artifactServerImageReference := ""
+	if artifactEnabled && strings.TrimSpace(b.Compatibility.ArtifactServerVersion) != "" {
+		artifactServerImageReference, err = requiredArtifactServerImageReference(b)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
@@ -235,15 +235,15 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
 		BuilderImageReference:              builderImageReference,
 		HostAgentImageReference:            hostAgentImageReference,
-		ZotImageReference:                  zotImageReference,
+		ArtifactServerImageReference:       artifactServerImageReference,
 		DNSImageReference:                  dnsImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
 }
 
-func isZotImageReference(ref string) bool {
-	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/zot@sha256:")
+func isArtifactServerImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/artifact-server@sha256:")
 }
 
 func isDNSImageReference(ref string) bool {
@@ -277,19 +277,19 @@ func requiredHostAgentImageReference(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func requiredZotImageReference(b *bundle.Bundle) (string, error) {
+func requiredArtifactServerImageReference(b *bundle.Bundle) (string, error) {
 	var found string
 	for _, e := range b.Entries("oci-images") {
-		if !isZotImageReference(e.ImageReference) {
+		if !isArtifactServerImageReference(e.ImageReference) {
 			continue
 		}
 		if found != "" {
-			return "", fmt.Errorf("bundle has multiple zot image entries")
+			return "", fmt.Errorf("bundle has multiple artifact server image entries")
 		}
 		found = strings.TrimSpace(e.ImageReference)
 	}
 	if found == "" {
-		return "", fmt.Errorf("bundle has no canonical registry.local/zot@sha256 image entry")
+		return "", fmt.Errorf("bundle has no canonical registry.local/artifact-server@sha256 image entry")
 	}
 	return found, nil
 }
@@ -488,7 +488,7 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 	out := make([]images.Image, 0, len(all))
 	for _, image := range all {
 		if image.Category == images.CategoryDependency {
-			if strings.HasPrefix(image.Name, "registry.local/zot@") && !r.ArtifactEnabled {
+			if strings.HasPrefix(image.Name, "registry.local/artifact-server@") && !r.ArtifactEnabled {
 				continue
 			}
 			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") || strings.Contains(image.Name, "/argoproj/argoexec:")) &&
@@ -504,7 +504,7 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 	return out
 }
 
-func (r Resolved) ZotComponentVersion(version string) string {
+func (r Resolved) ArtifactServerComponentVersion(version string) string {
 	if r.ArtifactEnabled {
 		return version
 	}

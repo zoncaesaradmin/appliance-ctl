@@ -33,11 +33,11 @@ type Entry struct {
 
 // Compatibility mirrors release-manifest.v1's compatibility block.
 type Compatibility struct {
-	K3sVersion   string
-	ChartVersion string
-	ArgoVersion  string
-	ZotVersion   string
-	DNSVersion   string
+	K3sVersion            string
+	ChartVersion          string
+	ArgoVersion           string
+	ArtifactServerVersion string
+	DNSVersion            string
 	// SupportedUpgradeSources lists appliance versions this release may
 	// upgrade from (the N-1 policy).
 	SupportedUpgradeSources []string
@@ -75,7 +75,7 @@ type manifestDoc struct {
 		K3sVersion              string   `json:"k3sVersion"`
 		ChartVersion            string   `json:"chartVersion"`
 		ArgoVersion             string   `json:"argoVersion"`
-		ZotVersion              string   `json:"zotVersion"`
+		ArtifactServerVersion   string   `json:"artifactServerVersion"`
 		DNSVersion              string   `json:"dnsVersion"`
 		SupportedUpgradeSources []string `json:"supportedUpgradeSources"`
 	} `json:"compatibility"`
@@ -135,7 +135,7 @@ func Load(rootDir string, pub *verify.PublicKey) (*Bundle, []evidence.Check, err
 			K3sVersion:              doc.Compatibility.K3sVersion,
 			ChartVersion:            doc.Compatibility.ChartVersion,
 			ArgoVersion:             doc.Compatibility.ArgoVersion,
-			ZotVersion:              doc.Compatibility.ZotVersion,
+			ArtifactServerVersion:   doc.Compatibility.ArtifactServerVersion,
 			DNSVersion:              doc.Compatibility.DNSVersion,
 			SupportedUpgradeSources: doc.Compatibility.SupportedUpgradeSources,
 		},

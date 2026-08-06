@@ -75,7 +75,7 @@ func EnsureRegistryPublicKeySecret(ctx context.Context, run cli.Runner, kubeconf
 		if !bytes.Equal(existing, publicPEM) {
 			check.Status, check.Message = evidence.StatusFail, "registry public verification Secret does not match the control-plane signing key"
 			prepared.Checks = append(prepared.Checks, check)
-			return prepared, fmt.Errorf("helm: registry public verification Secret is stale or invalid; refusing to start zot")
+			return prepared, fmt.Errorf("helm: registry public verification Secret is stale or invalid; refusing to start the artifact server")
 		}
 		check.Status, check.Message = evidence.StatusPass, fmt.Sprintf("registry public verification Secret %s matches the control-plane signing key", targetSecret)
 		prepared.Checks = append(prepared.Checks, check)

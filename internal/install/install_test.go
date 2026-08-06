@@ -119,7 +119,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackage
 		{"oci-images/appliance-host-agent.tar", "oci-images", "fake appliance host agent image tar", "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image tar", "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
-		{"oci-images/zot.tar", "oci-images", "fake zot image tar", "registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image tar", "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/appliance-coredns.tar", "oci-images", "fake appliance coredns image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 	}
 	if includeArgo {
@@ -181,7 +181,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeArgo, includeHostPackage
 		"releaseId":     "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
-		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "zotVersion": "2.1.7", "dnsVersion": "1.14.4"},
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "artifactServerVersion": "2.1.7", "dnsVersion": "1.14.4"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
 	}
@@ -465,8 +465,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "dev-build.tar":
 		return []string{"registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
-	case "zot.tar":
-		return []string{"registry.local/zot@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	case "artifact-server.tar":
+		return []string{"registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	case "argo-controller.tar":
 		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
 	case "argo-executor.tar":

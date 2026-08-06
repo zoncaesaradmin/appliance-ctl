@@ -36,8 +36,8 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
 	writeFile(t, root, "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", "avahi-deb")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
-	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
-	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
+	writeFile(t, root, "artifact-server.oci.tar.zst", "artifact-server-image")
+	writeFile(t, root, "appliance-registry-2.1.7.tgz", "artifact-server-chart")
 	writeFile(t, root, "coredns.oci.tar.zst", "dns-image")
 	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
@@ -76,8 +76,8 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
 			"hostPackages":        map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
-			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
+			"artifactServerImage": map[string]any{"path": "artifact-server.oci.tar.zst", "digest": digestOf("artifact-server.oci.tar.zst"), "sizeBytes": len("artifact-server-image"), "imageReference": "registry.local/artifact-server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"artifactServerChart": map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("artifact-server-chart")},
 			"dnsImage":            map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 			"dnsChart":            map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"metadataBundle":      map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
@@ -92,7 +92,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 		"compatibility": map[string]any{
 			"k3sVersion":              "v1.30.4+k3s1",
 			"chartVersion":            "2.4.0",
-			"zotVersion":              "2.1.7",
+			"artifactServerVersion":   "2.1.7",
 			"dnsVersion":              "1.14.4",
 			"supportedUpgradeSources": []string{"2.3.0"},
 		},
@@ -144,8 +144,8 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
 	writeFile(t, root, "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", "avahi-deb")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
-	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
-	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
+	writeFile(t, root, "artifact-server.oci.tar.zst", "artifact-server-image")
+	writeFile(t, root, "appliance-registry-2.1.7.tgz", "artifact-server-chart")
 	writeFile(t, root, "coredns.oci.tar.zst", "dns-image")
 	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
@@ -189,8 +189,8 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
 			"hostPackages":        map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
-			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
+			"artifactServerImage": map[string]any{"path": "artifact-server.oci.tar.zst", "digest": digestOf("artifact-server.oci.tar.zst"), "sizeBytes": len("artifact-server-image"), "imageReference": "registry.local/artifact-server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"artifactServerChart": map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("artifact-server-chart")},
 			"dnsImage":            map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 			"dnsChart":            map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"metadataBundle":      map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
@@ -208,11 +208,11 @@ func TestLoad_ValidReleaseInputWithOptionalArgoArtifacts(t *testing.T) {
 			"extraOCIImages":      []any{map[string]any{"path": "buildah.oci.tar.zst", "digest": digestOf("buildah.oci.tar.zst"), "sizeBytes": len("buildah-image"), "imageReference": "registry.local/buildah@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
 		},
 		"compatibility": map[string]any{
-			"k3sVersion":   "v1.30.4+k3s1",
-			"chartVersion": "2.4.0",
-			"zotVersion":   "2.1.7",
-			"dnsVersion":   "1.14.4",
-			"argoVersion":  "3.5.10",
+			"k3sVersion":            "v1.30.4+k3s1",
+			"chartVersion":          "2.4.0",
+			"artifactServerVersion": "2.1.7",
+			"dnsVersion":            "1.14.4",
+			"argoVersion":           "3.5.10",
 		},
 	}
 	data, err := json.Marshal(doc)
@@ -273,8 +273,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
 	writeFile(t, root, "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", "avahi-deb")
 	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
-	writeFile(t, root, "zot.oci.tar.zst", "zot-image")
-	writeFile(t, root, "appliance-registry-2.1.7.tgz", "zot-chart")
+	writeFile(t, root, "artifact-server.oci.tar.zst", "artifact-server-image")
+	writeFile(t, root, "appliance-registry-2.1.7.tgz", "artifact-server-chart")
 	writeFile(t, root, "coredns.oci.tar.zst", "dns-image")
 	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
@@ -313,8 +313,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
 			"hostPackages":        map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
 			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
-			"zotImage":            map[string]any{"path": "zot.oci.tar.zst", "digest": digestOf("zot.oci.tar.zst"), "sizeBytes": len("zot-image"), "imageReference": "registry.local/zot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			"zotChart":            map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("zot-chart")},
+			"artifactServerImage": map[string]any{"path": "artifact-server.oci.tar.zst", "digest": digestOf("artifact-server.oci.tar.zst"), "sizeBytes": len("artifact-server-image"), "imageReference": "registry.local/artifact-server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"artifactServerChart": map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("artifact-server-chart")},
 			"dnsImage":            map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 			"dnsChart":            map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"metadataBundle":      map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
@@ -327,10 +327,10 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 			"tests":               map[string]any{"path": "tests", "manifestDigest": dirDigestOf("tests")},
 		},
 		"compatibility": map[string]any{
-			"k3sVersion":   "v1.30.4+k3s1",
-			"chartVersion": "2.4.0",
-			"zotVersion":   "2.1.7",
-			"dnsVersion":   "1.14.4",
+			"k3sVersion":            "v1.30.4+k3s1",
+			"chartVersion":          "2.4.0",
+			"artifactServerVersion": "2.1.7",
+			"dnsVersion":            "1.14.4",
 		},
 	}
 	data, err := json.Marshal(doc)

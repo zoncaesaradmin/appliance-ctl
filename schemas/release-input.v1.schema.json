@@ -40,8 +40,8 @@
         "hostAgentImage",
         "hostAgentBinary",
         "applianceChart",
-        "zotImage",
-        "zotChart",
+        "artifactServerImage",
+        "artifactServerChart",
         "dnsImage",
         "dnsChart",
         "metadataBundle",
@@ -63,8 +63,8 @@
           "description": "Offline host package directory carrying bundled operating-system packages required by installer-owned host capabilities such as mDNS and management WiFi AP."
         },
         "applianceChart": { "$ref": "#/$defs/artifact" },
-        "zotImage": { "$ref": "#/$defs/artifact" },
-        "zotChart": { "$ref": "#/$defs/artifact" },
+        "artifactServerImage": { "$ref": "#/$defs/artifact" },
+        "artifactServerChart": { "$ref": "#/$defs/artifact" },
         "dnsImage": { "$ref": "#/$defs/artifact" },
         "dnsChart": { "$ref": "#/$defs/artifact" },
         "metadataBundle": {
@@ -92,11 +92,11 @@
     "compatibility": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["k3sVersion", "chartVersion", "zotVersion", "dnsVersion"],
+      "required": ["k3sVersion", "chartVersion", "artifactServerVersion", "dnsVersion"],
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },
-        "zotVersion": { "type": "string", "minLength": 1 },
+        "artifactServerVersion": { "type": "string", "minLength": 1 },
         "dnsVersion": { "type": "string", "minLength": 1 },
         "argoVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {

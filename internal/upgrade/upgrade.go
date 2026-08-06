@@ -214,7 +214,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ZotImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, opts.BuildCatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -222,7 +222,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if targetArtifact {
-		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ZotImageReference, identity.FQDN)
+		registryValuesPath, cleanupRegistryValues, err = productconfig.PrepareRegistryValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.ArtifactServerImageReference, identity.FQDN)
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
@@ -772,12 +772,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
 		Components: state.Components{
-			K3sVersion:      resolved.Compatibility.K3sVersion,
-			ChartVersion:    resolved.Compatibility.ChartVersion,
-			ZotVersion:      resolved.ZotComponentVersion(resolved.Compatibility.ZotVersion),
-			DNSVersion:      resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
-			MetadataVersion: metadataVersion,
-			MetadataDigest:  metadataDigest,
+			K3sVersion:            resolved.Compatibility.K3sVersion,
+			ChartVersion:          resolved.Compatibility.ChartVersion,
+			ArtifactServerVersion: resolved.ArtifactServerComponentVersion(resolved.Compatibility.ArtifactServerVersion),
+			DNSVersion:            resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
+			MetadataVersion:       metadataVersion,
+			MetadataDigest:        metadataDigest,
 		},
 		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: targetVersion},
 		LastOperation: state.Operation{

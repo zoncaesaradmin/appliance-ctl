@@ -19,12 +19,12 @@ import (
 // Components records the installed version of every product component
 // this appliance version owns.
 type Components struct {
-	K3sVersion      string `json:"k3sVersion"`
-	ChartVersion    string `json:"chartVersion"`
-	ZotVersion      string `json:"zotVersion,omitempty"`
-	DNSVersion      string `json:"dnsVersion,omitempty"`
-	MetadataVersion string `json:"metadataVersion,omitempty"`
-	MetadataDigest  string `json:"metadataDigest,omitempty"`
+	K3sVersion            string `json:"k3sVersion"`
+	ChartVersion          string `json:"chartVersion"`
+	ArtifactServerVersion string `json:"artifactServerVersion,omitempty"`
+	DNSVersion            string `json:"dnsVersion,omitempty"`
+	MetadataVersion       string `json:"metadataVersion,omitempty"`
+	MetadataDigest        string `json:"metadataDigest,omitempty"`
 }
 
 // K3sOwnership records that the installed K3s belongs to this appliance
