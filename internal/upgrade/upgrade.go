@@ -553,6 +553,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
 	}
+	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath)
+	checks = append(checks, traefikTimeoutCheck)
+	if traefikTimeoutErr != nil {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", traefikTimeoutErr), func() []evidence.Check {
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
+	}
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	if hadWorkflowsBefore && !targetWorkflows {

@@ -576,6 +576,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if traefikLBErr != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikLBErr), runRollbacks())
 	}
+	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath)
+	checks = append(checks, traefikTimeoutCheck)
+	if traefikTimeoutErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikTimeoutErr), runRollbacks())
+	}
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
