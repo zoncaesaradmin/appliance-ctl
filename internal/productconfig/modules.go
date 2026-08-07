@@ -14,6 +14,7 @@ const (
 	ModuleNameArtifactRegistry = "artifact-registry"
 	ModuleNameLANDNS           = "lan-dns"
 	ModuleNameBuild            = "build"
+	ModuleNameInferenceRuntime = "inference-runtime"
 )
 
 type ExecutionMode string
@@ -116,6 +117,19 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 			ExecutionMode:        ExecutionModeWorkflowBacked,
 			EntitlementKey:       ModuleNameBuild,
 			SecurityClass:        SecurityClassRestricted,
+		},
+		{
+			Name:                 ModuleNameInferenceRuntime,
+			Kind:                 ModuleKindPlatform,
+			RequiredCapabilities: []Capability{CapabilityInference},
+			ExecutionMode:        ExecutionModeClusterService,
+			EntitlementKey:       ModuleNameInferenceRuntime,
+			BaseURL:              DefaultInferenceGatewayBaseURL,
+			SecurityClass:        SecurityClassRestricted,
+			Routes: []ModuleRoute{
+				{Method: "GET", ExternalPath: "/inference/v1/models", UpstreamPath: "/v1/models", Permission: "inference.models.read"},
+				{Method: "POST", ExternalPath: "/inference/v1/chat/completions", UpstreamPath: "/v1/chat/completions", Permission: "inference.use"},
+			},
 		},
 	}
 }

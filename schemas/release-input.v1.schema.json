@@ -44,6 +44,8 @@
         "artifactServerChart",
         "dnsImage",
         "dnsChart",
+        "inferenceRuntimeImage",
+        "inferenceChart",
         "metadataBundle",
         "configurationSchema",
         "compatibility",
@@ -67,6 +69,8 @@
         "artifactServerChart": { "$ref": "#/$defs/artifact" },
         "dnsImage": { "$ref": "#/$defs/artifact" },
         "dnsChart": { "$ref": "#/$defs/artifact" },
+        "inferenceRuntimeImage": { "$ref": "#/$defs/artifact" },
+        "inferenceChart": { "$ref": "#/$defs/artifact" },
         "metadataBundle": {
           "$ref": "#/$defs/artifact",
           "description": "Signed appliance metadata-bundle archive (appliance-metadata-bundle-X.Y.Z.N.tar.zst)."
@@ -92,12 +96,13 @@
     "compatibility": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["k3sVersion", "chartVersion", "artifactServerVersion", "dnsVersion"],
+      "required": ["k3sVersion", "chartVersion", "artifactServerVersion", "dnsVersion", "inferenceVersion"],
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },
         "artifactServerVersion": { "type": "string", "minLength": 1 },
         "dnsVersion": { "type": "string", "minLength": 1 },
+        "inferenceVersion": { "type": "string", "minLength": 1 },
         "workflowsVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",

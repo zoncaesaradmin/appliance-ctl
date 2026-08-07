@@ -23,6 +23,7 @@ type Components struct {
 	ChartVersion          string `json:"chartVersion"`
 	ArtifactServerVersion string `json:"artifactServerVersion,omitempty"`
 	DNSVersion            string `json:"dnsVersion,omitempty"`
+	InferenceVersion      string `json:"inferenceVersion,omitempty"`
 	MetadataVersion       string `json:"metadataVersion,omitempty"`
 	MetadataDigest        string `json:"metadataDigest,omitempty"`
 }

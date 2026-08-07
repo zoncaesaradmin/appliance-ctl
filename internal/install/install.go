@@ -42,6 +42,8 @@ const (
 	registryNamespace           = "artifacts"
 	dnsReleaseName              = "appliance-dns"
 	dnsNamespace                = "dns"
+	inferenceReleaseName        = "appliance-inference"
+	inferenceNamespace          = "inference"
 )
 
 // Options fully parameterizes a fresh install. Every path is explicit
@@ -245,6 +247,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		defer cleanupDNSValues()
 	}
+	inferenceValuesPath := ""
+	cleanupInferenceValues := func() {}
+	if resolved.InferenceEnabled {
+		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference)
+		if err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
+		defer cleanupInferenceValues()
+	}
 
 	// Gated on the Build capability, not the "builder" profile name
 	// directly: more than one profile can enable Build, and this
@@ -262,6 +273,16 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		checks = append(checks, evidence.Check{
 			ID: "workspace-directory-owned", Category: "host", Status: evidence.StatusPass,
 			Message:   fmt.Sprintf("%s owned by %d:%d", opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	if resolved.InferenceEnabled {
+		if err := o.EnsureOwnedDir(hostdirs.InferenceModelsDir, hostdirs.InferenceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
+			return nil, checks, fmt.Errorf("install: prepare inference models directory: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "inference-models-directory-owned", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.InferenceModelsDir, hostdirs.InferenceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
@@ -587,6 +608,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		resolved.ArtifactEnabled,
 		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
+		resolved.InferenceEnabled,
 	) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare service log directory %s: %w", dir.Path, err)
@@ -601,6 +623,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		resolved.ArtifactEnabled,
 		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
+		resolved.InferenceEnabled,
 	) {
 		if o.EnsureOwnedFile == nil {
 			continue
@@ -727,6 +750,42 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 	}
 
+	// Inference runtime installs before the control plane so CP can proxy
+	// /inference/v1 to the in-cluster gateway when the capability is on.
+	if resolved.InferenceEnabled {
+		inferenceCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+			Name: inferenceReleaseName, ChartPath: resolved.InferenceChartPath, Namespace: inferenceNamespace, ValuesPath: inferenceValuesPath,
+			NamespaceLabels: helm.RestrictedNamespaceLabels(),
+		})
+		checks = append(checks, inferenceCheck)
+		if applyErr != nil {
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+				Name:       inferenceReleaseName,
+				ChartPath:  resolved.InferenceChartPath,
+				Namespace:  inferenceNamespace,
+				ValuesPath: inferenceValuesPath,
+			})...)
+			var cleanupErr error
+			if !opts.PreserveFailedState {
+				cleanupErr = errors.Join(applier.Uninstall(ctx, inferenceReleaseName), runRollbacks())
+			}
+			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
+		}
+		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, inferenceReleaseName) })
+		inferenceWaitRun := o.ClusterRun
+		if inferenceWaitRun == nil {
+			inferenceWaitRun = o.HelmRun
+		}
+		if inferenceWaitRun == nil {
+			inferenceWaitRun = cli.Exec
+		}
+		inferenceReadyCheck, readyErr := helm.WaitDeploymentAvailable(ctx, inferenceWaitRun, opts.KubeconfigPath, inferenceNamespace, "inference-gateway", "appliance-inference-ready")
+		checks = append(checks, inferenceReadyCheck)
+		if readyErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: wait for appliance-inference: %w", readyErr), runRollbacks())
+		}
+	}
+
 	clusterRun := o.ClusterRun
 	if clusterRun == nil {
 		clusterRun = cli.Exec
@@ -825,6 +884,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			ChartVersion:          resolved.Compatibility.ChartVersion,
 			ArtifactServerVersion: resolved.ArtifactServerComponentVersion(resolved.Compatibility.ArtifactServerVersion),
 			DNSVersion:            resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
+			InferenceVersion:      resolved.InferenceComponentVersion(resolved.Compatibility.InferenceVersion),
 			MetadataVersion:       metadataVersion,
 			MetadataDigest:        metadataDigest,
 		},

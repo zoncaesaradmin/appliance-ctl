@@ -99,6 +99,7 @@ var commands = []commandSpec{
 	{"support-bundle", false},
 	{"uninstall", true},
 	{"factory-reset", true},
+	{"models-import", true},
 }
 
 func findCommand(name string) (commandSpec, bool) {

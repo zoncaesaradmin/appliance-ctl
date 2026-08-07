@@ -83,7 +83,7 @@ func TestEnsureOwnedDir_PropagatesChownFailure(t *testing.T) {
 }
 
 func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(true, false, false)
+	dirs := hostdirs.ServiceLogDirs(true, false, false, false)
 	var found *hostdirs.OwnedDir
 	for i := range dirs {
 		if dirs[i].Path == hostdirs.FileserverDir {
@@ -111,7 +111,7 @@ func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
 }
 
 func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(false, false, false)
+	dirs := hostdirs.ServiceLogDirs(false, false, false, false)
 	for _, dir := range dirs {
 		if dir.Path == hostdirs.HostAgentLogDir {
 			if dir.UID != hostdirs.HostAgentDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
@@ -127,10 +127,10 @@ func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
 }
 
 func TestServiceLogFiles_ArtifactApplicationLogReadable(t *testing.T) {
-	if files := hostdirs.ServiceLogFiles(false, true, true); len(files) != 1 || files[0].Path != hostdirs.HostAgentDaemonLog {
+	if files := hostdirs.ServiceLogFiles(false, true, true, true); len(files) != 1 || files[0].Path != hostdirs.HostAgentDaemonLog {
 		t.Fatalf("expected only host-agent daemon log without artifact capability, got %#v", files)
 	}
-	files := hostdirs.ServiceLogFiles(true, false, false)
+	files := hostdirs.ServiceLogFiles(true, false, false, false)
 	if len(files) != 2 {
 		t.Fatalf("expected host-agent and artifact log files, got %#v", files)
 	}

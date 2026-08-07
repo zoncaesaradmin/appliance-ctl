@@ -29,6 +29,7 @@ type Resolved struct {
 	HostEnabled      bool
 	ArtifactEnabled  bool
 	DNSEnabled       bool
+	InferenceEnabled bool
 	BuildEnabled     bool
 	WorkflowsEnabled bool
 	ZonctlBinaryPath string
@@ -40,6 +41,7 @@ type Resolved struct {
 	ChartPath           string
 	RegistryChartPath   string
 	DNSChartPath        string
+	InferenceChartPath  string
 	WorkflowsChartPath  string
 	WorkflowsCRDPaths   []string
 	ConfigurationPath   string
@@ -60,6 +62,10 @@ type Resolved struct {
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
 	// image reference used for the landns/storage-landns capability.
 	DNSImageReference string
+	// InferenceImageReference is the bundled, digest-pinned
+	// registry.local/inference-runtime image reference used for the
+	// inference capability.
+	InferenceImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -129,6 +135,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	hostEnabled := productconfig.HostAgentEnabled(resolvedModules)
 	artifactEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameArtifactRegistry)
 	dnsEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameLANDNS)
+	inferenceEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameInferenceRuntime)
 	buildEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameBuild)
 	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, catalog.Profiles)
 
@@ -151,6 +158,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	dnsChartPath := ""
 	if dnsEnabled && strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
 		dnsChartPath, err = requiredDNSChartPath(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
+	inferenceChartPath := ""
+	if inferenceEnabled && strings.TrimSpace(b.Compatibility.InferenceVersion) != "" {
+		inferenceChartPath, err = requiredInferenceChartPath(b)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
@@ -179,7 +193,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range b.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -207,6 +221,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
+	inferenceImageReference := ""
+	if inferenceEnabled && strings.TrimSpace(b.Compatibility.InferenceVersion) != "" {
+		inferenceImageReference, err = requiredInferenceImageReference(b)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+	}
 
 	return Resolved{
 		BundleVersion:                      b.BundleVersion,
@@ -218,6 +239,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		HostEnabled:                        hostEnabled,
 		ArtifactEnabled:                    artifactEnabled,
 		DNSEnabled:                         dnsEnabled,
+		InferenceEnabled:                   inferenceEnabled,
 		BuildEnabled:                       buildEnabled,
 		WorkflowsEnabled:                   workflowsEnabled,
 		ZonctlBinaryPath:                   zonctlBinaryPath,
@@ -226,6 +248,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ChartPath:                          chartPath,
 		RegistryChartPath:                  registryChartPath,
 		DNSChartPath:                       dnsChartPath,
+		InferenceChartPath:                 inferenceChartPath,
 		WorkflowsChartPath:                 workflowsChartPath,
 		WorkflowsCRDPaths:                  workflowsCRDPaths,
 		ConfigurationPath:                  configurationPath,
@@ -237,6 +260,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		HostAgentImageReference:            hostAgentImageReference,
 		ArtifactServerImageReference:       artifactServerImageReference,
 		DNSImageReference:                  dnsImageReference,
+		InferenceImageReference:            inferenceImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
@@ -248,6 +272,10 @@ func isArtifactServerImageReference(ref string) bool {
 
 func isDNSImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/coredns@sha256:")
+}
+
+func isInferenceRuntimeImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/inference-runtime@sha256:")
 }
 
 func isWorkflowDependencyReference(ref string) bool {
@@ -308,6 +336,23 @@ func requiredDNSImageReference(b *bundle.Bundle) (string, error) {
 	}
 	if found == "" {
 		return "", fmt.Errorf("bundle has no canonical registry.local/coredns@sha256 image entry")
+	}
+	return found, nil
+}
+
+func requiredInferenceImageReference(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isInferenceRuntimeImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple inference-runtime image entries")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no canonical registry.local/inference-runtime@sha256 image entry")
 	}
 	return found, nil
 }
@@ -401,6 +446,24 @@ func requiredDNSChartPath(b *bundle.Bundle) (string, error) {
 	}
 	if found == "" {
 		return "", fmt.Errorf("bundle has no appliance-dns chart entry")
+	}
+	return found, nil
+}
+
+func requiredInferenceChartPath(b *bundle.Bundle) (string, error) {
+	var found string
+	for _, e := range b.Entries("chart") {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if !strings.HasPrefix(base, "appliance-inference-") {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple appliance-inference chart entries")
+		}
+		found = e.Path
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no appliance-inference chart entry")
 	}
 	return found, nil
 }
@@ -501,6 +564,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 			if strings.HasPrefix(image.Name, "registry.local/coredns@") && !r.DNSEnabled {
 				continue
 			}
+			if strings.HasPrefix(image.Name, "registry.local/inference-runtime@") && !r.InferenceEnabled {
+				continue
+			}
 		}
 		out = append(out, image)
 	}
@@ -516,6 +582,13 @@ func (r Resolved) ArtifactServerComponentVersion(version string) string {
 
 func (r Resolved) DNSComponentVersion(version string) string {
 	if r.DNSEnabled {
+		return version
+	}
+	return ""
+}
+
+func (r Resolved) InferenceComponentVersion(version string) string {
+	if r.InferenceEnabled {
 		return version
 	}
 	return ""

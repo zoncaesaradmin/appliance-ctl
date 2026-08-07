@@ -67,6 +67,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"charts/appliance-chart.tgz", "chart", "fake chart " + spec.chartVersion, ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart", ""},
 		{"charts/appliance-dns-1.14.4.tgz", "chart", "fake dns chart", ""},
+		{"charts/appliance-inference-0.6.5.tgz", "chart", "fake inference chart", ""},
 		{"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst", "artifacts", "", ""},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image " + spec.bundleVersion, "internal/control-plane:" + spec.bundleVersion},
@@ -76,6 +77,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image " + spec.bundleVersion, "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image " + spec.bundleVersion, "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image " + spec.bundleVersion, "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image " + spec.bundleVersion, "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
 	}
 	entries = append(entries, struct {
 		relPath        string
@@ -129,6 +131,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 			"k3sVersion": spec.k3sVersion, "chartVersion": spec.chartVersion,
 			"artifactServerVersion":   "2.1.7",
 			"dnsVersion":              "1.14.4",
+			"inferenceVersion":        "0.6.5",
 			"supportedUpgradeSources": spec.supportedSources,
 		},
 		"signingKeyId": "release-signing-key",

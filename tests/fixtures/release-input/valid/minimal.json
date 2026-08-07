@@ -93,6 +93,17 @@
     "tests": {
       "path": "tests/",
       "manifestDigest": "sha256:59830ebc3a4184110566bf1a290d08473dfdcbd492ce498b14cd1a5e2fa2e441"
+    },
+    "inferenceRuntimeImage": {
+      "path": "inference-runtime.oci.tar.zst",
+      "digest": "sha256:fc57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
+      "sizeBytes": 31457280,
+      "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "inferenceChart": {
+      "path": "appliance-inference-0.6.5.tgz",
+      "digest": "sha256:0c57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
+      "sizeBytes": 16384
     }
   },
   "compatibility": {
@@ -103,6 +114,7 @@
     "supportedUpgradeSources": [
       "2.3.0",
       "2.3.1"
-    ]
+    ],
+    "inferenceVersion": "0.6.5"
   }
 }

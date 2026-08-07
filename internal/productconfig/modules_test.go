@@ -37,6 +37,41 @@ func TestResolveModulesIncludesDNSWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestResolveModulesIncludesInferenceWhenEnabled(t *testing.T) {
+	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileLANLLM, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameInferenceRuntime) {
+		t.Fatal("lanllm modules should include inference-runtime")
+	}
+	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
+		t.Fatal("lanllm profile should not include build")
+	}
+}
+
+func TestResolveModulesIncludesInferenceForBuilderLANLLM(t *testing.T) {
+	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileBuilderLANLLM, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameInferenceRuntime) {
+		t.Fatal("builder-lanllm modules should include inference-runtime")
+	}
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
+		t.Fatal("builder-lanllm modules should include build")
+	}
+}
+
+func TestResolveModulesIncludesEverythingForBuilderLANLLMStorageLANDNS(t *testing.T) {
+	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileBuilderLANLLMStorageLANDNS, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	for _, moduleName := range []string{
+		productconfig.ModuleNameHostAgent,
+		productconfig.ModuleNameArtifactRegistry,
+		productconfig.ModuleNameBuild,
+		productconfig.ModuleNameLANDNS,
+		productconfig.ModuleNameInferenceRuntime,
+	} {
+		if !productconfig.ModuleEnabled(modules, moduleName) {
+			t.Fatalf("builder-lanllm-storage-landns modules should include %s", moduleName)
+		}
+	}
+}
+
 func TestResolveModulesSuppressesModuleWhenNotEntitled(t *testing.T) {
 	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileCore, productconfig.BuiltInProfileCatalog(), denyAllEntitlements{}, productconfig.BuiltInModuleCatalog())
 	if len(modules) != 0 {

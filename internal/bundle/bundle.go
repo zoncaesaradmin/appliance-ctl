@@ -38,6 +38,7 @@ type Compatibility struct {
 	WorkflowsVersion      string
 	ArtifactServerVersion string
 	DNSVersion            string
+	InferenceVersion      string
 	// SupportedUpgradeSources lists appliance versions this release may
 	// upgrade from (the N-1 policy).
 	SupportedUpgradeSources []string
@@ -77,6 +78,7 @@ type manifestDoc struct {
 		WorkflowsVersion        string   `json:"workflowsVersion"`
 		ArtifactServerVersion   string   `json:"artifactServerVersion"`
 		DNSVersion              string   `json:"dnsVersion"`
+		InferenceVersion        string   `json:"inferenceVersion"`
 		SupportedUpgradeSources []string `json:"supportedUpgradeSources"`
 	} `json:"compatibility"`
 	SigningKeyID string `json:"signingKeyId"`
@@ -137,6 +139,7 @@ func Load(rootDir string, pub *verify.PublicKey) (*Bundle, []evidence.Check, err
 			WorkflowsVersion:        doc.Compatibility.WorkflowsVersion,
 			ArtifactServerVersion:   doc.Compatibility.ArtifactServerVersion,
 			DNSVersion:              doc.Compatibility.DNSVersion,
+			InferenceVersion:        doc.Compatibility.InferenceVersion,
 			SupportedUpgradeSources: doc.Compatibility.SupportedUpgradeSources,
 		},
 	}

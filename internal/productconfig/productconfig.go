@@ -11,13 +11,16 @@ import (
 )
 
 const (
-	ProfileCore                 = "core"
-	ProfileBuilder              = "builder"
-	ProfileStorage              = "storage"
-	ProfileLANDNS               = "landns"
-	ProfileStorageLANDNS        = "storage-landns"
-	ProfileBuilderLANDNS        = "builder-landns"
-	ProfileBuilderStorageLANDNS = "builder-storage-landns"
+	ProfileCore                       = "core"
+	ProfileBuilder                    = "builder"
+	ProfileStorage                    = "storage"
+	ProfileLANDNS                     = "landns"
+	ProfileStorageLANDNS              = "storage-landns"
+	ProfileBuilderLANDNS              = "builder-landns"
+	ProfileBuilderStorageLANDNS       = "builder-storage-landns"
+	ProfileLANLLM                     = "lanllm"
+	ProfileBuilderLANLLM              = "builder-lanllm"
+	ProfileBuilderLANLLMStorageLANDNS = "builder-lanllm-storage-landns"
 )
 
 // Capability is the granular unit appliance behavior should actually be
@@ -38,6 +41,7 @@ const (
 	CapabilityBuild     Capability = "build"
 	CapabilityArtifact  Capability = "artifact"
 	CapabilityDNS       Capability = "dns"
+	CapabilityInference Capability = "inference"
 )
 
 type ProfileDefinition struct {
@@ -47,13 +51,16 @@ type ProfileDefinition struct {
 type ProfileCatalog map[string]ProfileDefinition
 
 var builtInProfileCatalog = ProfileCatalog{
-	ProfileCore:                 {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows}},
-	ProfileBuilder:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
-	ProfileStorage:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact}},
-	ProfileLANDNS:               {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityDNS}},
-	ProfileStorageLANDNS:        {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact, CapabilityDNS}},
-	ProfileBuilderLANDNS:        {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
-	ProfileBuilderStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
+	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows}},
+	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
+	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact}},
+	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityDNS}},
+	ProfileStorageLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact, CapabilityDNS}},
+	ProfileBuilderLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
+	ProfileBuilderStorageLANDNS:       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
+	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityInference}},
+	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference}},
+	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference}},
 }
 
 var builtInProfileOrder = []string{
@@ -64,6 +71,9 @@ var builtInProfileOrder = []string{
 	ProfileStorageLANDNS,
 	ProfileBuilderLANDNS,
 	ProfileBuilderStorageLANDNS,
+	ProfileLANLLM,
+	ProfileBuilderLANLLM,
+	ProfileBuilderLANLLMStorageLANDNS,
 }
 
 func BuiltInProfileCatalog() ProfileCatalog {
@@ -85,6 +95,10 @@ const (
 	// release.
 	// CoreDNS ready plugin listens on :8181 (/ready); health is :8080 (/health).
 	DefaultDNSReadyURL = "http://dns-server.dns.svc.cluster.local:8181/ready"
+	// DefaultInferenceGatewayBaseURL is the in-cluster OpenAI-compatible
+	// gateway Service used when the inference capability is enabled. The
+	// control plane authenticates and reverse-proxies /inference/v1/* here.
+	DefaultInferenceGatewayBaseURL = "http://inference-gateway.inference.svc.cluster.local:8080"
 	// DefaultLANDNSZone is the CoreDNS local-zone suffix for LAN A records.
 	// Must not be ".local" — systemd-resolved (and dig) treat .local as
 	// Multicast DNS and will never send those queries to unicast DNS.
@@ -224,6 +238,7 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	hostAgentEnabled := HostAgentEnabled(resolvedModules)
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
+	inferenceEnabled := ModuleEnabled(resolvedModules, ModuleNameInferenceRuntime)
 	buildEnabled := ModuleEnabled(resolvedModules, ModuleNameBuild)
 	identity, err := ResolveApplianceIdentity(applianceName, dnsZone)
 	if err != nil {
@@ -305,6 +320,11 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		delete(config, "dnsBootstrapIPv4")
 		delete(config, "dnsAllowFakeZoneSync")
 	}
+	if inferenceEnabled {
+		config["inferenceGatewayBaseURL"] = DefaultInferenceGatewayBaseURL
+	} else {
+		delete(config, "inferenceGatewayBaseURL")
+	}
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
 	} else {
@@ -356,7 +376,20 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		delete(networkPolicy, "dnsPodLabels")
 		delete(networkPolicy, "dnsReadyPort")
 	}
-	if artifactEnabled || dnsEnabled {
+	if inferenceEnabled {
+		networkPolicy["inferenceNamespaceLabel"] = map[string]any{
+			"kubernetes.io/metadata.name": "inference",
+		}
+		networkPolicy["inferencePodLabels"] = map[string]any{
+			"app.kubernetes.io/name": "inference-gateway",
+		}
+		networkPolicy["inferencePort"] = 8080
+	} else {
+		delete(networkPolicy, "inferenceNamespaceLabel")
+		delete(networkPolicy, "inferencePodLabels")
+		delete(networkPolicy, "inferencePort")
+	}
+	if artifactEnabled || dnsEnabled || inferenceEnabled {
 		values["networkPolicy"] = networkPolicy
 	}
 
@@ -553,6 +586,43 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, dnsZone, nsIPv4 string
 	return tmp.Name(), cleanup, nil
 }
 
+func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string) (string, func(), error) {
+	if !validInferenceRuntimeImageDigest(inferenceRuntimeImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid inference-runtime image reference %q", inferenceRuntimeImageReference)
+	}
+	values := map[string]any{
+		"namespace": map[string]any{"create": false, "name": "inference"},
+		"image": map[string]any{
+			"repository": "registry.local/inference-runtime",
+			"digest":     strings.TrimPrefix(strings.TrimSpace(inferenceRuntimeImageReference), "registry.local/inference-runtime@"),
+			"pullPolicy": "IfNotPresent",
+		},
+		"logs": map[string]any{
+			"hostPath": "/data/zon/logs/inference",
+			"prepare":  map[string]any{"enabled": false},
+		},
+	}
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: render inference values: %w", err)
+	}
+	tmp, err := os.CreateTemp(baseDir, ".zonctl-inference-values-*.yaml")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: create inference values file: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(tmp.Name()) }
+	if _, err := tmp.Write(rendered); err != nil {
+		tmp.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: write inference values file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: close inference values file: %w", err)
+	}
+	return tmp.Name(), cleanup, nil
+}
+
 func validBuilderImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !sha256ImageDigestRE.MatchString(image) {
@@ -574,6 +644,15 @@ func validArtifactServerImageDigest(image string) bool {
 func validDNSImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/coredns@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
+}
+
+func validInferenceRuntimeImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/inference-runtime@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

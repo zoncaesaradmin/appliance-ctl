@@ -33,6 +33,7 @@ type Compatibility struct {
 	WorkflowsVersion        string
 	ArtifactServerVersion   string
 	DnsVersion              string
+	InferenceVersion        string
 	SupportedUpgradeSources []string
 }
 
@@ -60,6 +61,8 @@ type Artifacts struct {
 	ArtifactServerChart     FileArtifact
 	DnsImage                FileArtifact
 	DnsChart                FileArtifact
+	InferenceRuntimeImage   FileArtifact
+	InferenceChart          FileArtifact
 	MetadataBundle          FileArtifact
 	WorkflowsChart          FileArtifact
 	WorkflowControllerImage FileArtifact
@@ -89,6 +92,8 @@ type doc struct {
 		ArtifactServerChart     fileArtifact   `json:"artifactServerChart"`
 		DnsImage                fileArtifact   `json:"dnsImage"`
 		DnsChart                fileArtifact   `json:"dnsChart"`
+		InferenceRuntimeImage   fileArtifact   `json:"inferenceRuntimeImage"`
+		InferenceChart          fileArtifact   `json:"inferenceChart"`
 		MetadataBundle          fileArtifact   `json:"metadataBundle"`
 		WorkflowsChart          fileArtifact   `json:"workflowsChart"`
 		WorkflowControllerImage fileArtifact   `json:"workflowControllerImage"`
@@ -153,6 +158,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			ArtifactServerChart:     toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerChart),
 			DnsImage:                toFileArtifact(rootDir, parsed.Artifacts.DnsImage),
 			DnsChart:                toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
+			InferenceRuntimeImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceRuntimeImage),
+			InferenceChart:          toFileArtifact(rootDir, parsed.Artifacts.InferenceChart),
 			MetadataBundle:          toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
 			WorkflowsChart:          toFileArtifact(rootDir, parsed.Artifacts.WorkflowsChart),
 			WorkflowControllerImage: toFileArtifact(rootDir, parsed.Artifacts.WorkflowControllerImage),
@@ -179,6 +186,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "artifact-server-chart", Path: input.Artifacts.ArtifactServerChart.Path, ExpectedDigest: input.Artifacts.ArtifactServerChart.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerChart.SizeBytes},
 		{Name: "dns-image", Path: input.Artifacts.DnsImage.Path, ExpectedDigest: input.Artifacts.DnsImage.Digest, ExpectedSizeBytes: input.Artifacts.DnsImage.SizeBytes},
 		{Name: "dns-chart", Path: input.Artifacts.DnsChart.Path, ExpectedDigest: input.Artifacts.DnsChart.Digest, ExpectedSizeBytes: input.Artifacts.DnsChart.SizeBytes},
+		{Name: "inference-runtime-image", Path: input.Artifacts.InferenceRuntimeImage.Path, ExpectedDigest: input.Artifacts.InferenceRuntimeImage.Digest, ExpectedSizeBytes: input.Artifacts.InferenceRuntimeImage.SizeBytes},
+		{Name: "inference-chart", Path: input.Artifacts.InferenceChart.Path, ExpectedDigest: input.Artifacts.InferenceChart.Digest, ExpectedSizeBytes: input.Artifacts.InferenceChart.SizeBytes},
 		{Name: "metadata-bundle", Path: input.Artifacts.MetadataBundle.Path, ExpectedDigest: input.Artifacts.MetadataBundle.Digest, ExpectedSizeBytes: input.Artifacts.MetadataBundle.SizeBytes},
 		{Name: "configuration-schema", Path: input.Artifacts.ConfigurationSchema.Path, ExpectedDigest: input.Artifacts.ConfigurationSchema.Digest, ExpectedSizeBytes: input.Artifacts.ConfigurationSchema.SizeBytes},
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},

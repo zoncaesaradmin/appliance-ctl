@@ -55,6 +55,11 @@ const (
 	// HostAgentDirOwnerUID is the fixed numeric identity for the in-cluster
 	// appliance host agent pod.
 	HostAgentDirOwnerUID = 10005
+	// InferenceDirOwnerUID is the fixed numeric identity for the offline
+	// inference runtime pod (appliance-inference chart runAsUser). Distinct
+	// from HostAgentDirOwnerUID even though both are non-root appliance
+	// identities — never reuse service UIDs across components.
+	InferenceDirOwnerUID = 10006
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -90,6 +95,12 @@ const (
 	// DNSLogDir is the host-visible LAN DNS (CoreDNS) log directory under
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
+	// InferenceLogDir is the host-visible inference runtime log directory
+	// under the shared appliance log tree.
+	InferenceLogDir = "/data/zon/logs/inference"
+	// InferenceModelsDir is the host-visible model-weight tree mounted into
+	// the inference runtime at /models (filled by zonctl models-import).
+	InferenceModelsDir = "/data/zon/inference/models"
 	// HostAgentLogDir is the host-visible appliance host agent log directory
 	// under the shared appliance log tree.
 	HostAgentLogDir = "/data/zon/logs/host-agent"
@@ -118,9 +129,9 @@ type OwnedDir struct {
 
 // ServiceLogDirs returns the host-visible log directories the selected
 // capability set requires. Control-plane, UI, and the appliance host agent
-// always exist; registry, files API backing store, workflow-controller, and
-// DNS logs are added only when those capabilities are enabled.
-func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedDir {
+// always exist; registry, files API backing store, workflow-controller,
+// DNS, and inference logs are added only when those capabilities are enabled.
+func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS, includeInference bool) []OwnedDir {
 	dirs := []OwnedDir{
 		{
 			CheckID: "api-server-log-directory-owned",
@@ -180,13 +191,22 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS bool) []OwnedD
 			Mode:    ServiceLogDirMode,
 		})
 	}
+	if includeInference {
+		dirs = append(dirs, OwnedDir{
+			CheckID: "inference-log-directory-owned",
+			Path:    InferenceLogDir,
+			UID:     InferenceDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		})
+	}
 	return dirs
 }
 
 // ServiceLogFiles returns host-visible log files that zonctl must seed (or
 // re-chmod) in addition to ServiceLogDirs. Today this is only the artifact
 // server's application.log, which upstream creates as 0600.
-func ServiceLogFiles(includeArtifact, _, _ bool) []OwnedDir {
+func ServiceLogFiles(includeArtifact, _, _, _ bool) []OwnedDir {
 	files := []OwnedDir{{
 		CheckID: "host-agent-daemon-log-readable",
 		Path:    HostAgentDaemonLog,

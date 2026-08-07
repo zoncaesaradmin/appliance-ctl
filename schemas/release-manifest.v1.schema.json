@@ -42,6 +42,7 @@
         "chartVersion": { "type": "string", "minLength": 1 },
         "artifactServerVersion": { "type": "string", "minLength": 1 },
         "dnsVersion": { "type": "string", "minLength": 1 },
+        "inferenceVersion": { "type": "string", "minLength": 1 },
         "workflowsVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",

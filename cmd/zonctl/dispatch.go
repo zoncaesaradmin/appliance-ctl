@@ -137,6 +137,8 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 		result = runUninstall(context.Background(), opts, logger, result)
 	case "factory-reset":
 		result = runFactoryReset(context.Background(), opts, logger, result)
+	case "models-import":
+		result = runModelsImport(context.Background(), opts, logger, result)
 	default:
 		// Command bodies land with the adapters that implement them
 		// (R1-02/R1-03+); the skeleton always ends the transaction in a

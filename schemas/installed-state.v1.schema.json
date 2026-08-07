@@ -82,6 +82,11 @@
           "minLength": 1,
           "description": "Installed CoreDNS version when the dns capability is enabled."
         },
+        "inferenceVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Installed inference runtime version when the inference capability is enabled."
+        },
         "metadataVersion": {
           "type": "string",
           "minLength": 1,

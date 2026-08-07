@@ -205,6 +205,30 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			Component:  "chart",
 		}
 	}
+	inferenceImageTarget := "oci-images/" + filepath.Base(input.Artifacts.InferenceRuntimeImage.Path)
+	if _, exists := entryByTarget[inferenceImageTarget]; !exists {
+		if !isCanonicalInferenceRuntimeReference(input.Artifacts.InferenceRuntimeImage.ImageReference) {
+			return Result{}, fmt.Errorf("releasebundle: inference-runtime imageReference must be registry.local/inference-runtime@sha256:<64 lowercase hex>, got %q", input.Artifacts.InferenceRuntimeImage.ImageReference)
+		}
+		entryByTarget[inferenceImageTarget] = EntryConfig{
+			SourcePath:     input.Artifacts.InferenceRuntimeImage.Path,
+			TargetPath:     inferenceImageTarget,
+			Component:      "oci-images",
+			ImageReference: input.Artifacts.InferenceRuntimeImage.ImageReference,
+		}
+	}
+	inferenceChartBase := filepath.Base(input.Artifacts.InferenceChart.Path)
+	if !strings.HasPrefix(strings.ToLower(inferenceChartBase), "appliance-inference-") {
+		inferenceChartBase = "appliance-inference-" + inferenceChartBase
+	}
+	inferenceChartTarget := "chart/" + inferenceChartBase
+	if _, exists := entryByTarget[inferenceChartTarget]; !exists {
+		entryByTarget[inferenceChartTarget] = EntryConfig{
+			SourcePath: input.Artifacts.InferenceChart.Path,
+			TargetPath: inferenceChartTarget,
+			Component:  "chart",
+		}
+	}
 	metadataBundleBase := filepath.Base(input.Artifacts.MetadataBundle.Path)
 	metadataBundleTarget := "artifacts/" + metadataBundleBase
 	if _, exists := entryByTarget[metadataBundleTarget]; !exists {
@@ -302,6 +326,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		"chartVersion":            input.Compatibility.ChartVersion,
 		"artifactServerVersion":   input.Compatibility.ArtifactServerVersion,
 		"dnsVersion":              input.Compatibility.DnsVersion,
+		"inferenceVersion":        input.Compatibility.InferenceVersion,
 		"supportedUpgradeSources": supportedUpgradeSources,
 	}
 	if strings.TrimSpace(input.Compatibility.WorkflowsVersion) != "" {
@@ -374,6 +399,19 @@ func isCanonicalHostAgentReference(ref string) bool {
 
 func isCanonicalDNSReference(ref string) bool {
 	const prefix = "registry.local/coredns@sha256:"
+	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
+		return false
+	}
+	for _, c := range strings.TrimPrefix(ref, prefix) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCanonicalInferenceRuntimeReference(ref string) bool {
+	const prefix = "registry.local/inference-runtime@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}
