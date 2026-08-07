@@ -2,9 +2,7 @@ package productconfig
 
 import (
 	"fmt"
-	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -112,9 +110,6 @@ var (
 	dnsLabelRE                = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 	sha256ImageDigestRE       = regexp.MustCompile(`^.+@sha256:[0-9a-f]{64}$`)
 	placeholderImageDigestHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	catalogNameRE             = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
-	ociRepoRE                 = regexp.MustCompile(`^[a-z0-9]+([._/-][a-z0-9]+)*$`)
-	makeTargetRE              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
 )
 
 func ResolveApplianceProfile(requested, current string) (string, error) {
@@ -215,7 +210,7 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 	}, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
+func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
 	catalog, err := LoadCatalog(applianceCatalogPath)
 	if err != nil {
 		return "", func() {}, err
@@ -326,17 +321,9 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, buildCatal
 		delete(config, "serviceRegistry")
 	}
 	delete(config, "allowedBuilderImageDigests")
-	if buildEnabled && strings.TrimSpace(buildCatalogPath) == "" {
-		return "", func() {}, fmt.Errorf("product config: build capability requires --build-catalog with workProfiles and repos (chart default buildCatalog:{} is not valid for profile %s)", effectiveProfile)
-	}
-	if strings.TrimSpace(buildCatalogPath) != "" {
-		catalog, err := loadBuildCatalog(buildCatalogPath)
-		if err != nil {
-			return "", func() {}, err
-		}
-		config["buildCatalog"] = catalog
-		config["allowedGitSourceHosts"] = deriveAllowedGitSourceHosts(catalog)
-	}
+	// Runtime build catalogs are uploaded post-install via PUT /api/v1/builder/catalog.
+	config["buildCatalog"] = map[string]any{}
+	delete(config, "allowedGitSourceHosts")
 	values["config"] = config
 
 	networkPolicy, _ := values["networkPolicy"].(map[string]any)
@@ -566,315 +553,6 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, dnsZone, nsIPv4 string
 	return tmp.Name(), cleanup, nil
 }
 
-func loadBuildCatalog(path string) (map[string]any, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("product config: read build catalog %s: %w", path, err)
-	}
-	var catalog map[string]any
-	if err := yaml.Unmarshal(data, &catalog); err != nil {
-		return nil, fmt.Errorf("product config: parse build catalog %s: %w", path, err)
-	}
-	if len(catalog) == 0 {
-		return nil, fmt.Errorf("product config: build catalog %s must be a non-empty object", path)
-	}
-	if err := flattenNestedBuildTargets(catalog, path); err != nil {
-		return nil, err
-	}
-	normalizeCatalogExecutions(catalog)
-	if err := validateBuildCatalog(catalog, path); err != nil {
-		return nil, err
-	}
-	return catalog, nil
-}
-
-// flattenNestedBuildTargets lifts repos[].buildTargets into the top-level
-// buildTargets list and fills each target's repo from its parent repo name.
-func flattenNestedBuildTargets(catalog map[string]any, path string) error {
-	repos := objectList(catalog["repos"])
-	var lifted []any
-	for repoIndex, repo := range repos {
-		repoName, _ := repo["name"].(string)
-		repoName = strings.TrimSpace(repoName)
-		nested := objectList(repo["buildTargets"])
-		if len(nested) == 0 {
-			continue
-		}
-		if repoName == "" {
-			return fmt.Errorf("product config: build catalog %s repos[%d].name is required when buildTargets are nested", path, repoIndex)
-		}
-		for targetIndex, target := range nested {
-			copied := map[string]any{}
-			for k, v := range target {
-				copied[k] = v
-			}
-			existingRepo, _ := copied["repo"].(string)
-			existingRepo = strings.TrimSpace(existingRepo)
-			if existingRepo == "" {
-				copied["repo"] = repoName
-			} else if !strings.EqualFold(existingRepo, repoName) {
-				return fmt.Errorf("product config: build catalog %s repos[%d].buildTargets[%d].repo %q does not match parent repo %q", path, repoIndex, targetIndex, existingRepo, repoName)
-			} else {
-				copied["repo"] = repoName
-			}
-			lifted = append(lifted, copied)
-		}
-		delete(repo, "buildTargets")
-	}
-	if len(lifted) == 0 {
-		return nil
-	}
-	existing := catalog["buildTargets"]
-	switch existing := existing.(type) {
-	case nil:
-		catalog["buildTargets"] = lifted
-	case []any:
-		catalog["buildTargets"] = append(append([]any{}, existing...), lifted...)
-	default:
-		return fmt.Errorf("product config: build catalog %s buildTargets must be a list", path)
-	}
-	return nil
-}
-
-func validateBuildCatalog(catalog map[string]any, path string) error {
-	reposByName := map[string]struct{}{}
-	repos := objectList(catalog["repos"])
-	if len(repos) == 0 {
-		return fmt.Errorf("product config: build catalog %s must declare at least one repos entry", path)
-	}
-	for _, repo := range repos {
-		name, _ := repo["name"].(string)
-		name = strings.TrimSpace(name)
-		if name != "" {
-			reposByName[name] = struct{}{}
-		}
-	}
-
-	workProfiles := objectList(catalog["workProfiles"])
-	if len(workProfiles) == 0 {
-		return fmt.Errorf("product config: build catalog %s must declare at least one workProfiles entry", path)
-	}
-	for index, profile := range workProfiles {
-		name, _ := profile["name"].(string)
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return fmt.Errorf("product config: build catalog %s workProfiles[%d].name is required", path, index)
-		}
-		profileRepos := objectList(profile["repos"])
-		if len(profileRepos) == 0 {
-			return fmt.Errorf("product config: build catalog %s workProfiles[%d].repos must declare at least one repo", path, index)
-		}
-		seenProfileRepos := map[string]struct{}{}
-		for repoIndex, profileRepo := range profileRepos {
-			repoName, _ := profileRepo["name"].(string)
-			repoName = strings.TrimSpace(repoName)
-			if repoName == "" {
-				return fmt.Errorf("product config: build catalog %s workProfiles[%d].repos[%d].name is required", path, index, repoIndex)
-			}
-			if _, ok := reposByName[repoName]; !ok {
-				return fmt.Errorf("product config: build catalog %s workProfiles[%d].repos[%d].name references unknown repo %q", path, index, repoIndex, repoName)
-			}
-			if _, ok := seenProfileRepos[repoName]; ok {
-				return fmt.Errorf("product config: build catalog %s workProfiles[%d].repos[%d].name duplicates repo %q", path, index, repoIndex, repoName)
-			}
-			seenProfileRepos[repoName] = struct{}{}
-		}
-	}
-
-	for index, repo := range repos {
-		rawURL, _ := repo["url"].(string)
-		rawURL = strings.TrimSpace(rawURL)
-		if rawURL == "" {
-			return fmt.Errorf("product config: build catalog %s repos[%d].url is required", path, index)
-		}
-		u, err := url.Parse(rawURL)
-		if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Hostname() == "" {
-			return fmt.Errorf("product config: build catalog %s repos[%d].url must be an https URL with a host", path, index)
-		}
-	}
-
-	seenTargetNames := map[string]string{}
-	for index, target := range objectList(catalog["buildTargets"]) {
-		prefix := fmt.Sprintf("product config: build catalog %s buildTargets[%d]", path, index)
-		name, _ := target["name"].(string)
-		name = normalizeCatalogName(name)
-		if name == "" {
-			return fmt.Errorf("%s.name is required", prefix)
-		}
-		if !catalogNameRE.MatchString(name) {
-			return fmt.Errorf("%s.name %q is invalid", prefix, name)
-		}
-		if prev, exists := seenTargetNames[name]; exists {
-			return fmt.Errorf("%s.name %q duplicates build target name/alias %q", prefix, name, prev)
-		}
-		seenTargetNames[name] = name
-
-		if aliases, ok := target["aliases"].([]any); ok {
-			for aliasIndex, rawAlias := range aliases {
-				alias, _ := rawAlias.(string)
-				alias = normalizeCatalogName(alias)
-				if alias == "" {
-					return fmt.Errorf("%s.aliases[%d] is required when present", prefix, aliasIndex)
-				}
-				if !catalogNameRE.MatchString(alias) {
-					return fmt.Errorf("%s.aliases[%d] %q is invalid", prefix, aliasIndex, alias)
-				}
-				if prev, exists := seenTargetNames[alias]; exists {
-					return fmt.Errorf("%s.aliases[%d] %q duplicates build target name/alias %q", prefix, aliasIndex, alias, prev)
-				}
-				seenTargetNames[alias] = name
-			}
-		}
-
-		repoName, _ := target["repo"].(string)
-		repoName = strings.TrimSpace(repoName)
-		if repoName == "" {
-			return fmt.Errorf("%s.repo is required", prefix)
-		}
-		if _, ok := reposByName[repoName]; !ok {
-			return fmt.Errorf("%s.repo references unknown repo %q", prefix, repoName)
-		}
-
-		execution, _ := target["execution"].(string)
-		execution = strings.TrimSpace(execution)
-		args := stringList(target["args"])
-		switch execution {
-		case "script":
-			if len(args) != 1 {
-				return fmt.Errorf("%s.args must contain exactly one script path when execution is script", prefix)
-			}
-			if !validRepoRelativePath(args[0]) {
-				return fmt.Errorf("%s.args[0] must be a relative path inside the repo", prefix)
-			}
-		case "make":
-			if len(args) != 1 {
-				return fmt.Errorf("%s.args must contain exactly one make target when execution is make", prefix)
-			}
-			if !makeTargetRE.MatchString(args[0]) {
-				return fmt.Errorf("%s.args[0] %q contains unsupported characters", prefix, args[0])
-			}
-		default:
-			return fmt.Errorf("%s.execution must be make or script", prefix)
-		}
-
-		if workingDirectory, _ := target["workingDirectory"].(string); strings.TrimSpace(workingDirectory) != "" {
-			wd := strings.TrimSpace(workingDirectory)
-			if wd != "." && wd != "./" && !validRepoRelativePath(wd) {
-				return fmt.Errorf("%s.workingDirectory must be a relative path inside the repo", prefix)
-			}
-		}
-
-		if containerfilePath, _ := target["containerfilePath"].(string); strings.TrimSpace(containerfilePath) != "" && !validRepoRelativePath(containerfilePath) {
-			return fmt.Errorf("%s.containerfilePath must be a relative path inside the repo", prefix)
-		}
-
-		imageRepository, _ := target["imageRepository"].(string)
-		imageRepository = strings.TrimSpace(imageRepository)
-		if imageRepository == "" {
-			return fmt.Errorf("%s.imageRepository is required", prefix)
-		}
-		if !ociRepoRE.MatchString(imageRepository) {
-			return fmt.Errorf("%s.imageRepository %q is invalid", prefix, imageRepository)
-		}
-
-		builderImageDigest, _ := target["builderImageDigest"].(string)
-		builderImageDigest = strings.TrimSpace(builderImageDigest)
-		if builderImageDigest != "" && !validCatalogBuilderImage(builderImageDigest) {
-			return fmt.Errorf("%s.builderImageDigest %q is invalid; use %q or a digest-pinned image reference", prefix, builderImageDigest, "dev-build")
-		}
-	}
-
-	return nil
-}
-
-func normalizeCatalogExecutions(catalog map[string]any) {
-	targets := objectList(catalog["buildTargets"])
-	normalized := make([]any, 0, len(targets))
-	for _, target := range targets {
-		normalizeTargetExecutionMap(target)
-		normalized = append(normalized, target)
-	}
-	if len(normalized) > 0 {
-		catalog["buildTargets"] = normalized
-	}
-}
-
-func normalizeTargetExecutionMap(target map[string]any) {
-	execution, _ := target["execution"].(string)
-	execution = strings.TrimSpace(execution)
-	args := stringList(target["args"])
-	switch execution {
-	case "make_target", "make":
-		target["execution"] = "make"
-		if len(args) == 0 {
-			if makeTarget, _ := target["makeTarget"].(string); strings.TrimSpace(makeTarget) != "" {
-				args = []string{strings.TrimSpace(makeTarget)}
-			}
-		}
-	case "repo_script", "script":
-		target["execution"] = "script"
-		if len(args) == 0 {
-			if scriptPath, _ := target["scriptPath"].(string); strings.TrimSpace(scriptPath) != "" {
-				args = []string{strings.TrimSpace(scriptPath)}
-			} else {
-				args = []string{"build.sh"}
-			}
-		}
-	}
-	if len(args) > 0 {
-		out := make([]any, len(args))
-		for i, arg := range args {
-			out[i] = arg
-		}
-		target["args"] = out
-	}
-	delete(target, "makeTarget")
-	delete(target, "scriptPath")
-	if wd, _ := target["workingDirectory"].(string); true {
-		wd = strings.TrimSpace(wd)
-		if wd == "" || wd == "." || wd == "./" {
-			delete(target, "workingDirectory")
-		} else {
-			target["workingDirectory"] = strings.TrimSuffix(wd, "/")
-		}
-	}
-}
-
-func stringList(v any) []string {
-	items, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		s, _ := item.(string)
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
-func normalizeCatalogName(v string) string {
-	return strings.ToLower(strings.TrimSpace(v))
-}
-
-func validRepoRelativePath(v string) bool {
-	v = strings.TrimSpace(v)
-	if v == "" || strings.HasPrefix(v, "/") || strings.Contains(v, "\\") {
-		return false
-	}
-	clean := path.Clean(v)
-	for _, part := range strings.Split(v, "/") {
-		if part == "." || part == ".." {
-			return false
-		}
-	}
-	return clean != "." && clean != ".." && !strings.HasPrefix(clean, "../")
-}
-
 func validBuilderImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !sha256ImageDigestRE.MatchString(image) {
@@ -909,63 +587,6 @@ func validHostAgentImageDigest(image string) bool {
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")
 	return digest != placeholderImageDigestHex
-}
-
-func validCatalogBuilderImage(image string) bool {
-	image = strings.TrimSpace(image)
-	switch strings.ToLower(image) {
-	case "", "dev-build", "builder", "dev-container", "devcontainer":
-		return true
-	}
-	return validBuilderImageDigest(image)
-}
-
-func deriveAllowedGitSourceHosts(catalog map[string]any) []string {
-	seen := map[string]struct{}{}
-	var hosts []string
-	addHost := func(host string) {
-		host = strings.TrimSpace(host)
-		if host == "" {
-			return
-		}
-		if _, ok := seen[host]; ok {
-			return
-		}
-		seen[host] = struct{}{}
-		hosts = append(hosts, host)
-	}
-
-	for _, repo := range objectList(catalog["repos"]) {
-		rawURL, _ := repo["url"].(string)
-		addHost(gitURLHost(rawURL))
-	}
-	return hosts
-}
-
-func gitURLHost(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if u, err := url.Parse(raw); err == nil && strings.EqualFold(u.Scheme, "https") && u.Host != "" {
-		return u.Hostname()
-	}
-	return ""
-}
-
-func objectList(v any) []map[string]any {
-	items, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if ok {
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 func validKubernetesName(name string) bool {

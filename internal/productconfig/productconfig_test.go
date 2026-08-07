@@ -22,7 +22,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, "", "", "", "", hostAgentImage, "dns1", "appliance.internal", "192.0.2.10")
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, "", "", "", hostAgentImage, "dns1", "appliance.internal", "192.0.2.10")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,12 +266,8 @@ func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
 	if err := os.WriteFile(valuesPath, []byte("replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -320,7 +316,7 @@ func TestPrepareValuesFile_InjectsApplianceCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "custom", catalogPath, "", "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "custom", catalogPath, "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -335,255 +331,14 @@ func TestPrepareValuesFile_InjectsApplianceCatalog(t *testing.T) {
 	}
 }
 
-func TestPrepareValuesFile_InjectsBuildCatalog(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\n        enabledByDefault: true\n      - name: docs\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n  - name: docs\n    url: https://git.backup.internal.example.com/team/docs.git\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
-	defer cleanup()
-	if err != nil {
-		t.Fatalf("PrepareValuesFile returned error: %v", err)
-	}
-	prepared, err := os.ReadFile(preparedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(prepared)
-	if !strings.Contains(text, "applianceProfile: builder") || !strings.Contains(text, "buildCatalog:") || !strings.Contains(text, "workProfiles:") {
-		t.Fatalf("prepared values missing injected product config: %s", text)
-	}
-	if !strings.Contains(text, "allowedGitSourceHosts:") || !strings.Contains(text, "- git.internal.example.com") || !strings.Contains(text, "- git.backup.internal.example.com") {
-		t.Fatalf("prepared values missing derived Git host allowlist: %s", text)
-	}
-	if strings.Contains(text, "allowedBuilderImageDigests:") {
-		t.Fatalf("prepared values should not derive builder image allowlist from workspace-only catalog: %s", text)
-	}
-	if !strings.Contains(text, "workspaceProvisionerImageDigest: registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
-		t.Fatalf("prepared values missing workspace provisioner image: %s", text)
-	}
-}
-
-func TestPrepareValuesFile_InjectsNestedBuildTargets(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	catalog := `workProfiles:
-  - name: builder
-    repos:
-      - name: app
-repos:
-  - name: app
-    url: https://git.internal.example.com/team/app.git
-    defaultRef: main
-    buildTargets:
-      - name: app
-        execution: make
-        args: [build]
-        imageRepository: users/example/app
-      - name: app-api
-        execution: make
-        args: [api]
-        imageRepository: users/example/app-api
-`
-	if err := os.WriteFile(catalogPath, []byte(catalog), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
-	defer cleanup()
-	if err != nil {
-		t.Fatalf("PrepareValuesFile returned error: %v", err)
-	}
-	prepared, err := os.ReadFile(preparedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(prepared)
-	if !strings.Contains(text, "buildTargets:") || !strings.Contains(text, "name: app-api") || !strings.Contains(text, "repo: app") {
-		t.Fatalf("prepared values missing flattened nested build targets: %s", text)
-	}
-	if strings.Count(text, "buildTargets:") != 1 {
-		t.Fatalf("prepared values should contain exactly one top-level buildTargets list: %s", text)
-	}
-}
-
-func TestPrepareValuesFile_InjectsBuildTargets(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	catalog := `workProfiles:
-  - name: builder
-    repos:
-      - name: app
-repos:
-  - name: app
-    url: https://git.internal.example.com/team/app.git
-buildTargets:
-  - name: app
-    repo: app
-    execution: make
-    args: [build]
-    imageRepository: users/example/app
-  - name: app-api
-    repo: app
-    execution: make
-    args: [api]
-    imageRepository: users/example/app-api
-`
-	if err := os.WriteFile(catalogPath, []byte(catalog), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
-	defer cleanup()
-	if err != nil {
-		t.Fatalf("PrepareValuesFile returned error: %v", err)
-	}
-	prepared, err := os.ReadFile(preparedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(prepared)
-	if !strings.Contains(text, "buildTargets:") || !strings.Contains(text, "- build") || !strings.Contains(text, "name: app-api") {
-		t.Fatalf("prepared values missing injected build targets: %s", text)
-	}
-	if strings.Contains(text, "allowedBuilderImageDigests:") {
-		t.Fatalf("prepared values should not derive builder image allowlist from catalog: %s", text)
-	}
-	if !strings.Contains(text, "builderImageDigest: registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c") {
-		t.Fatalf("prepared values missing bundled builder image: %s", text)
-	}
-}
-
-func TestPrepareValuesFile_RejectsInvalidBuildTarget(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: app\n    repo: app\n    execution: make\n    imageRepository: users/example/app\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
-	defer cleanup()
-	if err == nil {
-		t.Fatal("expected build target missing args to be rejected")
-	}
-	if !strings.Contains(err.Error(), "args must contain exactly one make target") {
-		t.Fatalf("error = %v, want makeTarget validation failure", err)
-	}
-}
-
-func TestPrepareValuesFile_RejectsUnknownBuildTargetRepo(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\nbuildTargets:\n  - name: other\n    repo: missing\n    execution: make\n    args: [build]\n    imageRepository: users/example/other\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
-	defer cleanup()
-	if err == nil {
-		t.Fatal("expected unknown build target repo to be rejected")
-	}
-	if !strings.Contains(err.Error(), "references unknown repo") {
-		t.Fatalf("error = %v, want unknown repo reference", err)
-	}
-}
-
-func TestPrepareValuesFile_RejectsDuplicateBuildTargetAlias(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	catalog := `workProfiles:
-  - name: builder
-    repos:
-      - name: app
-repos:
-  - name: app
-    url: https://git.internal.example.com/team/app.git
-buildTargets:
-  - name: app
-    repo: app
-    execution: make
-    args: [build]
-    imageRepository: users/example/app
-  - name: app-api
-    aliases: [app]
-    repo: app
-    execution: make
-    args: [api]
-    imageRepository: users/example/app-api
-`
-	if err := os.WriteFile(catalogPath, []byte(catalog), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
-	defer cleanup()
-	if err == nil {
-		t.Fatal("expected duplicate build target alias to be rejected")
-	}
-	if !strings.Contains(err.Error(), "duplicates build target name/alias") {
-		t.Fatalf("error = %v, want duplicate alias validation failure", err)
-	}
-}
-
-func TestPrepareValuesFile_RejectsNonHTTPSCatalogRepo(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: git@git.internal.example.com:team/app.git\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
-	defer cleanup()
-	if err == nil {
-		t.Fatal("expected non-HTTPS catalog repo to be rejected")
-	}
-	if !strings.Contains(err.Error(), "must be an https URL with a host") {
-		t.Fatalf("error = %v, want HTTPS validation failure", err)
-	}
-}
-
 func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *testing.T) {
 	dir := t.TempDir()
 	valuesPath := filepath.Join(dir, "values.yaml")
 	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: app\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected placeholder workspace provisioner image digest to be rejected")
@@ -593,54 +348,22 @@ func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *
 	}
 }
 
-func TestPrepareValuesFile_RejectsEmptyBuildCatalog(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	catalogPath := filepath.Join(dir, "empty.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(catalogPath, []byte("{}\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, ""); err == nil {
-		t.Fatal("expected empty build catalog to be rejected")
-	}
-}
-
-func TestPrepareValuesFile_RequiresBuildCatalogForBuildProfile(t *testing.T) {
+func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) {
 	dir := t.TempDir()
 	valuesPath := filepath.Join(dir, "values.yaml")
 	if err := os.WriteFile(valuesPath, []byte("config:\n  buildCatalog: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilderLANDNS, "", "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	path, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilderLANDNS, "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
 	defer cleanup()
-	if err == nil {
-		t.Fatal("expected missing --build-catalog to be rejected for builder-landns")
+	if err != nil {
+		t.Fatalf("PrepareValuesFile for builder profile: %v", err)
 	}
-	if !strings.Contains(err.Error(), "requires --build-catalog") {
-		t.Fatalf("error = %v, want missing build catalog failure", err)
-	}
-}
-
-func TestPrepareValuesFile_RejectsUnknownWorkspaceProfileRepo(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
+	text, err := os.ReadFile(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	catalogPath := filepath.Join(dir, "build-catalog.yaml")
-	if err := os.WriteFile(catalogPath, []byte("workProfiles:\n  - name: builder\n    repos:\n      - name: missing\nrepos:\n  - name: app\n    url: https://git.internal.example.com/team/app.git\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", catalogPath, workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
-	defer cleanup()
-	if err == nil {
-		t.Fatal("expected unknown work profile repo membership to be rejected")
-	}
-	if !strings.Contains(err.Error(), "references unknown repo") {
-		t.Fatalf("error = %v, want unknown repo reference", err)
+	if !strings.Contains(string(text), "buildCatalog:") {
+		t.Fatalf("prepared values missing empty buildCatalog:\n%s", text)
 	}
 }

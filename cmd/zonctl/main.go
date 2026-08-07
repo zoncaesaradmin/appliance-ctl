@@ -59,7 +59,6 @@ type cliOptions struct {
 	bundleDir           string
 	publicKey           string
 	applianceProfile    string
-	buildCatalogPath    string
 	nodeName            string
 	applianceName       string
 	dnsZone             string
@@ -159,7 +158,6 @@ func run(args []string) int {
 	bundleDir := fs.String("bundle-dir", "", "path to an extracted signed appliance bundle directory (required for install/upgrade)")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage, landns, storage-landns, builder-landns, builder-storage-landns); install defaults to core and upgrade preserves the installed profile when omitted")
-	buildCatalogPath := fs.String("build-catalog", "", "path to developer workflow build catalog JSON/YAML to pass as product config into the control plane")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
 	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN becomes <name>.<dns-zone> for TLS and canonical origin (required for install; upgrade preserves installed value when omitted)")
 	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")
@@ -197,7 +195,6 @@ func run(args []string) int {
 		bundleDir:                     *bundleDir,
 		publicKey:                     *publicKey,
 		applianceProfile:              *applianceProfile,
-		buildCatalogPath:              *buildCatalogPath,
 		nodeName:                      *nodeName,
 		applianceName:                 *applianceName,
 		dnsZone:                       *dnsZone,

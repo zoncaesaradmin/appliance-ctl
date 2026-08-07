@@ -297,7 +297,6 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		HostAgentSocketPath:     defaultHostAgentSocketPath,
 		HostAgentLogPath:        defaultHostAgentLogPath,
 		ApplianceProfile:        opts.applianceProfile,
-		BuildCatalogPath:        opts.buildCatalogPath,
 		WorkspaceRootDir:        defaultWorkspaceRootDir,
 		MetadataBundlesDir:      hostdirs.MetadataBundlesDir,
 		NodeName:                opts.nodeName,
