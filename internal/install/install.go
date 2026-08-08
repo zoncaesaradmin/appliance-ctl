@@ -611,6 +611,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 
 	for _, dir := range hostdirs.ServiceLogDirs(
 		resolved.ArtifactEnabled,
+		resolved.FilesEnabled,
 		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,
@@ -626,6 +627,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	for _, file := range hostdirs.ServiceLogFiles(
 		resolved.ArtifactEnabled,
+		resolved.FilesEnabled,
 		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,

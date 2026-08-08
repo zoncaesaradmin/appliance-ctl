@@ -173,10 +173,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 	sameVersionRefresh := strings.TrimSpace(installed.InstalledVersion) == targetVersion
 	hadArtifactBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact)
+	hadFilesBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityFiles)
 	hadWorkflowsBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityWorkflows)
 	hadDNSBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityDNS)
 	hadInferenceBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityInference)
 	targetArtifact := resolved.ArtifactEnabled
+	targetFiles := resolved.FilesEnabled
 	targetWorkflows := resolved.WorkflowsEnabled
 	targetDNS := resolved.DNSEnabled
 	targetInference := resolved.InferenceEnabled
@@ -184,6 +186,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	targetHost := resolved.HostEnabled
 	if hadArtifactBefore && !targetArtifact {
 		return nil, checks, fmt.Errorf("upgrade: changing from artifact-capable profile %q to non-artifact profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
+	}
+	if hadFilesBefore && !targetFiles {
+		return nil, checks, fmt.Errorf("upgrade: changing from files-capable profile %q to non-files profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
 	}
 	if hadDNSBefore && !targetDNS {
 		return nil, checks, fmt.Errorf("upgrade: changing from dns-capable profile %q to non-dns profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
@@ -572,7 +577,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
-	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetWorkflows, targetDNS, targetInference) {
+	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare service log directory %s: %w", dir.Path, err), rollback)
 			checks = append(checks, rollbackChecks...)
@@ -584,7 +589,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetWorkflows, targetDNS, targetInference) {
+	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference) {
 		if o.EnsureOwnedFile == nil {
 			continue
 		}

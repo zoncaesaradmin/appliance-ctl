@@ -129,9 +129,9 @@ type OwnedDir struct {
 
 // ServiceLogDirs returns the host-visible log directories the selected
 // capability set requires. Control-plane, UI, and the appliance host agent
-// always exist; registry, files API backing store, workflow-controller,
+// always exist; registry logs, files API backing store, workflow-controller,
 // DNS, and inference logs are added only when those capabilities are enabled.
-func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS, includeInference bool) []OwnedDir {
+func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool) []OwnedDir {
 	dirs := []OwnedDir{
 		{
 			CheckID: "api-server-log-directory-owned",
@@ -156,22 +156,22 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS, includeInfere
 		},
 	}
 	if includeArtifact {
-		dirs = append(dirs,
-			OwnedDir{
-				CheckID: "artifactserver-log-directory-owned",
-				Path:    ArtifactServerLogDir,
-				UID:     RegistryDirOwnerUID,
-				GID:     ApplianceSharedFSGID,
-				Mode:    ServiceLogDirMode,
-			},
-			OwnedDir{
-				CheckID: "fileserver-directory-owned",
-				Path:    FileserverDir,
-				UID:     ControlPlaneDirOwnerUID,
-				GID:     ApplianceSharedFSGID,
-				Mode:    SharedWritableDirMode,
-			},
-		)
+		dirs = append(dirs, OwnedDir{
+			CheckID: "artifactserver-log-directory-owned",
+			Path:    ArtifactServerLogDir,
+			UID:     RegistryDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		})
+	}
+	if includeFiles {
+		dirs = append(dirs, OwnedDir{
+			CheckID: "fileserver-directory-owned",
+			Path:    FileserverDir,
+			UID:     ControlPlaneDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    SharedWritableDirMode,
+		})
 	}
 	if includeWorkflows {
 		dirs = append(dirs, OwnedDir{
@@ -206,7 +206,7 @@ func ServiceLogDirs(includeArtifact, includeWorkflows, includeDNS, includeInfere
 // ServiceLogFiles returns host-visible log files that zonctl must seed (or
 // re-chmod) in addition to ServiceLogDirs. Today this is only the artifact
 // server's application.log, which upstream creates as 0600.
-func ServiceLogFiles(includeArtifact, _, _, _ bool) []OwnedDir {
+func ServiceLogFiles(includeArtifact, _, _, _, _ bool) []OwnedDir {
 	files := []OwnedDir{{
 		CheckID: "host-agent-daemon-log-readable",
 		Path:    HostAgentDaemonLog,

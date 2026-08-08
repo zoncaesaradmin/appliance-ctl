@@ -8,13 +8,16 @@ import (
 
 func TestResolveModulesIncludesHostAgentForHostCapableProfiles(t *testing.T) {
 	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileCore, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
-	if len(modules) != 1 {
-		t.Fatalf("ResolveModulesWithCatalog(core) returned %d modules, want 1", len(modules))
+	if len(modules) != 2 {
+		t.Fatalf("ResolveModulesWithCatalog(core) returned %d modules, want 2", len(modules))
 	}
-	module := modules[0]
-	if module.Name != "host-agent" {
-		t.Fatalf("module.Name = %q, want host-agent", module.Name)
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameHostAgent) {
+		t.Fatal("core modules should include host-agent")
 	}
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameFiles) {
+		t.Fatal("core modules should include files")
+	}
+	module, _ := productconfig.ModuleNamed(modules, productconfig.ModuleNameHostAgent)
 	if module.PrimaryCapability() != productconfig.CapabilityHost {
 		t.Fatalf("PrimaryCapability = %q, want %q", module.PrimaryCapability(), productconfig.CapabilityHost)
 	}
@@ -42,6 +45,9 @@ func TestResolveModulesIncludesInferenceWhenEnabled(t *testing.T) {
 	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameInferenceRuntime) {
 		t.Fatal("lanllm modules should include inference-runtime")
 	}
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameFiles) {
+		t.Fatal("lanllm modules should include files")
+	}
 	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
 		t.Fatal("lanllm profile should not include build")
 	}
@@ -61,6 +67,7 @@ func TestResolveModulesIncludesEverythingForBuilderLANLLMStorageLANDNS(t *testin
 	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileBuilderLANLLMStorageLANDNS, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	for _, moduleName := range []string{
 		productconfig.ModuleNameHostAgent,
+		productconfig.ModuleNameFiles,
 		productconfig.ModuleNameArtifactRegistry,
 		productconfig.ModuleNameBuild,
 		productconfig.ModuleNameLANDNS,

@@ -27,6 +27,7 @@ type Resolved struct {
 	EffectiveProfile string
 	CatalogPath      string
 	HostEnabled      bool
+	FilesEnabled     bool
 	ArtifactEnabled  bool
 	DNSEnabled       bool
 	InferenceEnabled bool
@@ -153,6 +154,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, catalog.Profiles, productconfig.AlwaysEntitled{}, catalog.Modules)
 	hostEnabled := productconfig.HostAgentEnabled(resolvedModules)
 	artifactEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameArtifactRegistry)
+	filesEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameFiles)
 	dnsEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameLANDNS)
 	inferenceEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameInferenceRuntime)
 	buildEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameBuild)
@@ -262,6 +264,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		EffectiveProfile:                   effectiveProfile,
 		CatalogPath:                        catalogPath,
 		HostEnabled:                        hostEnabled,
+		FilesEnabled:                       filesEnabled,
 		ArtifactEnabled:                    artifactEnabled,
 		DNSEnabled:                         dnsEnabled,
 		InferenceEnabled:                   inferenceEnabled,

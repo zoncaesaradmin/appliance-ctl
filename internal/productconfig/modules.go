@@ -11,6 +11,7 @@ const (
 
 const (
 	ModuleNameHostAgent        = "host-agent"
+	ModuleNameFiles            = "files"
 	ModuleNameArtifactRegistry = "artifact-registry"
 	ModuleNameLANDNS           = "lan-dns"
 	ModuleNameBuild            = "build"
@@ -93,6 +94,14 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 				{Method: "GET", ExternalPath: "/api/v1/host/mdns", UpstreamPath: "/internal/v1/host/mdns", Permission: "host.read"},
 				{Method: "PUT", ExternalPath: "/api/v1/host/mdns", UpstreamPath: "/internal/v1/host/mdns", Permission: "host.write"},
 			},
+		},
+		{
+			Name:                 ModuleNameFiles,
+			Kind:                 ModuleKindPlatform,
+			RequiredCapabilities: []Capability{CapabilityFiles},
+			ExecutionMode:        ExecutionModeClusterService,
+			EntitlementKey:       ModuleNameFiles,
+			SecurityClass:        SecurityClassRestricted,
 		},
 		{
 			Name:                 ModuleNameArtifactRegistry,

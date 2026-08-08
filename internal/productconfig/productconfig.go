@@ -39,6 +39,7 @@ const (
 	CapabilityHost      Capability = "host"
 	CapabilityWorkflows Capability = "workflows"
 	CapabilityBuild     Capability = "build"
+	CapabilityFiles     Capability = "files"
 	CapabilityArtifact  Capability = "artifact"
 	CapabilityDNS       Capability = "dns"
 	CapabilityInference Capability = "inference"
@@ -51,16 +52,16 @@ type ProfileDefinition struct {
 type ProfileCatalog map[string]ProfileDefinition
 
 var builtInProfileCatalog = ProfileCatalog{
-	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityHost}},
-	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
-	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact}},
-	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityDNS}},
-	ProfileStorageLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact, CapabilityDNS}},
-	ProfileBuilderLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
-	ProfileBuilderStorageLANDNS:       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
-	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityInference}},
-	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference}},
-	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference}},
+	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles}},
+	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
+	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact}},
+	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityDNS}},
+	ProfileStorageLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityDNS}},
+	ProfileBuilderLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
+	ProfileBuilderStorageLANDNS:       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
+	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityInference}},
+	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference}},
+	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference}},
 }
 
 var builtInProfileOrder = []string{
