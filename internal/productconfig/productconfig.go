@@ -613,10 +613,6 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string) 
 			"digest":     strings.TrimPrefix(strings.TrimSpace(inferenceRuntimeImageReference), "registry.local/inference-runtime@"),
 			"pullPolicy": "IfNotPresent",
 		},
-		"logs": map[string]any{
-			"hostPath": "/data/zon/logs/inference",
-			"prepare":  map[string]any{"enabled": false},
-		},
 	}
 	rendered, err := yaml.Marshal(values)
 	if err != nil {

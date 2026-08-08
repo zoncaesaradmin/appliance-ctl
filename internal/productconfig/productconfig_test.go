@@ -15,6 +15,7 @@ const (
 	hostAgentImage            = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	artifactServerImage       = "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	inferenceRuntimeImage     = "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 )
 
 func TestRequiredPacks(t *testing.T) {
@@ -200,6 +201,37 @@ func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
 	}
 	if strings.Contains(text, "host: appliance.internal.example.com") {
 		t.Fatalf("registry ingress host should remain empty by default so /v2 matches appliance IP access too:\n%s", text)
+	}
+}
+
+func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "repository: registry.local/inference-runtime") ||
+		!strings.Contains(text, "digest: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") ||
+		!strings.Contains(text, "name: inference") ||
+		!strings.Contains(text, "create: false") {
+		t.Fatalf("unexpected inference values:\n%s", text)
+	}
+	// Chart owns persistence defaults (static hostPath PV+PVC). Installer
+	// values must not inject a pod-level hostPath or unused logs block.
+	for _, forbidden := range []string{
+		"hostPath:",
+		"/data/zon/logs/inference",
+		"/data/zon/inference/models",
+		"persistence:",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("inference values unexpectedly contain %q:\n%s", forbidden, text)
+		}
 	}
 }
 
