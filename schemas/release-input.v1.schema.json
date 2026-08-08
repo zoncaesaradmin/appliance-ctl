@@ -44,8 +44,6 @@
         "artifactServerChart",
         "dnsImage",
         "dnsChart",
-        "inferenceRuntimeImage",
-        "inferenceChart",
         "metadataBundle",
         "configurationSchema",
         "compatibility",
@@ -96,7 +94,7 @@
     "compatibility": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["k3sVersion", "chartVersion", "artifactServerVersion", "dnsVersion", "inferenceVersion"],
+      "required": ["k3sVersion", "chartVersion", "artifactServerVersion", "dnsVersion"],
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },

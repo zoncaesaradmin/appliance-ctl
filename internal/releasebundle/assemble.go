@@ -34,9 +34,9 @@ type EntryConfig struct {
 }
 
 const (
-	PackBase      = "base"
-	PackDeveloper = "developer"
-	PackInference = "inference"
+	PackFoundation = "foundation"
+	PackDeveloper  = "developer"
+	PackInference  = "inference"
 )
 
 type Config struct {
@@ -49,7 +49,7 @@ type Config struct {
 	HostBaseline          HostBaseline  `json:"hostBaseline"`
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
-	// Empty means legacy full bundle (everything). PackBase excludes
+	// Empty means legacy full bundle (everything). PackFoundation excludes
 	// developer and inference artifacts.
 	Pack string `json:"pack,omitempty"`
 }
@@ -103,9 +103,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackBase, PackDeveloper, PackInference:
+	case "", PackFoundation, PackDeveloper, PackInference:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, or %q", PackBase, PackDeveloper, PackInference)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, or %q", PackFoundation, PackDeveloper, PackInference)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -144,9 +144,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		entryByTarget[target] = entry
 	}
 
-	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackBase
+	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
 	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackInference
-	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackBase
+	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackFoundation
 	if cfg.Pack == PackInference {
 		// Inference pack is auto-add only; drop any leftover cfg entries.
 		entryByTarget = map[string]EntryConfig{}
@@ -266,28 +266,34 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	if includeInferenceAutoAdd {
-		inferenceImageTarget := "oci-images/" + filepath.Base(input.Artifacts.InferenceRuntimeImage.Path)
-		if _, exists := entryByTarget[inferenceImageTarget]; !exists {
-			if !isCanonicalInferenceRuntimeReference(input.Artifacts.InferenceRuntimeImage.ImageReference) {
-				return Result{}, fmt.Errorf("releasebundle: inference-runtime imageReference must be registry.local/inference-runtime@sha256:<64 lowercase hex>, got %q", input.Artifacts.InferenceRuntimeImage.ImageReference)
+		if input.Artifacts.InferenceRuntimeImage.Path == "" || input.Artifacts.InferenceChart.Path == "" {
+			if cfg.Pack == PackInference {
+				return Result{}, fmt.Errorf("releasebundle: inference pack requires release-input inferenceRuntimeImage and inferenceChart")
 			}
-			entryByTarget[inferenceImageTarget] = EntryConfig{
-				SourcePath:     input.Artifacts.InferenceRuntimeImage.Path,
-				TargetPath:     inferenceImageTarget,
-				Component:      "oci-images",
-				ImageReference: input.Artifacts.InferenceRuntimeImage.ImageReference,
+		} else {
+			inferenceImageTarget := "oci-images/" + filepath.Base(input.Artifacts.InferenceRuntimeImage.Path)
+			if _, exists := entryByTarget[inferenceImageTarget]; !exists {
+				if !isCanonicalInferenceRuntimeReference(input.Artifacts.InferenceRuntimeImage.ImageReference) {
+					return Result{}, fmt.Errorf("releasebundle: inference-runtime imageReference must be registry.local/inference-runtime@sha256:<64 lowercase hex>, got %q", input.Artifacts.InferenceRuntimeImage.ImageReference)
+				}
+				entryByTarget[inferenceImageTarget] = EntryConfig{
+					SourcePath:     input.Artifacts.InferenceRuntimeImage.Path,
+					TargetPath:     inferenceImageTarget,
+					Component:      "oci-images",
+					ImageReference: input.Artifacts.InferenceRuntimeImage.ImageReference,
+				}
 			}
-		}
-		inferenceChartBase := filepath.Base(input.Artifacts.InferenceChart.Path)
-		if !strings.HasPrefix(strings.ToLower(inferenceChartBase), "appliance-inference-") {
-			inferenceChartBase = "appliance-inference-" + inferenceChartBase
-		}
-		inferenceChartTarget := "chart/" + inferenceChartBase
-		if _, exists := entryByTarget[inferenceChartTarget]; !exists {
-			entryByTarget[inferenceChartTarget] = EntryConfig{
-				SourcePath: input.Artifacts.InferenceChart.Path,
-				TargetPath: inferenceChartTarget,
-				Component:  "chart",
+			inferenceChartBase := filepath.Base(input.Artifacts.InferenceChart.Path)
+			if !strings.HasPrefix(strings.ToLower(inferenceChartBase), "appliance-inference-") {
+				inferenceChartBase = "appliance-inference-" + inferenceChartBase
+			}
+			inferenceChartTarget := "chart/" + inferenceChartBase
+			if _, exists := entryByTarget[inferenceChartTarget]; !exists {
+				entryByTarget[inferenceChartTarget] = EntryConfig{
+					SourcePath: input.Artifacts.InferenceChart.Path,
+					TargetPath: inferenceChartTarget,
+					Component:  "chart",
+				}
 			}
 		}
 	}
@@ -357,8 +363,10 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		"chartVersion":            input.Compatibility.ChartVersion,
 		"artifactServerVersion":   input.Compatibility.ArtifactServerVersion,
 		"dnsVersion":              input.Compatibility.DnsVersion,
-		"inferenceVersion":        input.Compatibility.InferenceVersion,
 		"supportedUpgradeSources": supportedUpgradeSources,
+	}
+	if strings.TrimSpace(input.Compatibility.InferenceVersion) != "" {
+		compatibility["inferenceVersion"] = input.Compatibility.InferenceVersion
 	}
 	if strings.TrimSpace(input.Compatibility.WorkflowsVersion) != "" {
 		compatibility["workflowsVersion"] = input.Compatibility.WorkflowsVersion
@@ -680,7 +688,7 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	switch pack {
 	case "":
 		return true
-	case PackBase:
+	case PackFoundation:
 		return !entryIsDeveloper(entry) && !entryIsInference(entry)
 	case PackDeveloper:
 		return entryIsDeveloper(entry)

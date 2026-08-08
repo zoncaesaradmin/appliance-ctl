@@ -80,7 +80,7 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 
 - **Annotation scheme** → ctl `ValidateOCIArchiveReference` + preload tag tests; release finalize + `validate-release-artifacts.py`; config.example docs
 - **Digest derivation** → finalize (archive wins); never reintroduce inspect-first pins
-- **EXTRA_OCI refs/order** → pairing comments; path/token validator; workspace-provisioner in developer pack (not base)
+- **EXTRA_OCI refs/order** → pairing comments; path/token validator; workspace-provisioner in developer pack (not foundation)
 - **Builder images** → operator-supplied digest pins in catalog; not packaged; `ResolveBuilderImage` + chart schema/examples/tests
 - **Tag/import algorithm** → `preload.go` / tests; install+upgrade fake-ctr tests
 - **PrepareValuesFile keys** → chart `configmap.yaml` env names; config Load; chart_test

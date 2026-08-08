@@ -186,12 +186,26 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "artifact-server-chart", Path: input.Artifacts.ArtifactServerChart.Path, ExpectedDigest: input.Artifacts.ArtifactServerChart.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerChart.SizeBytes},
 		{Name: "dns-image", Path: input.Artifacts.DnsImage.Path, ExpectedDigest: input.Artifacts.DnsImage.Digest, ExpectedSizeBytes: input.Artifacts.DnsImage.SizeBytes},
 		{Name: "dns-chart", Path: input.Artifacts.DnsChart.Path, ExpectedDigest: input.Artifacts.DnsChart.Digest, ExpectedSizeBytes: input.Artifacts.DnsChart.SizeBytes},
-		{Name: "inference-runtime-image", Path: input.Artifacts.InferenceRuntimeImage.Path, ExpectedDigest: input.Artifacts.InferenceRuntimeImage.Digest, ExpectedSizeBytes: input.Artifacts.InferenceRuntimeImage.SizeBytes},
-		{Name: "inference-chart", Path: input.Artifacts.InferenceChart.Path, ExpectedDigest: input.Artifacts.InferenceChart.Digest, ExpectedSizeBytes: input.Artifacts.InferenceChart.SizeBytes},
 		{Name: "metadata-bundle", Path: input.Artifacts.MetadataBundle.Path, ExpectedDigest: input.Artifacts.MetadataBundle.Digest, ExpectedSizeBytes: input.Artifacts.MetadataBundle.SizeBytes},
 		{Name: "configuration-schema", Path: input.Artifacts.ConfigurationSchema.Path, ExpectedDigest: input.Artifacts.ConfigurationSchema.Digest, ExpectedSizeBytes: input.Artifacts.ConfigurationSchema.SizeBytes},
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
 		{Name: "checksums", Path: input.Artifacts.Checksums.Path, ExpectedDigest: input.Artifacts.Checksums.Digest, ExpectedSizeBytes: input.Artifacts.Checksums.SizeBytes},
+	}
+	if input.Artifacts.InferenceRuntimeImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "inference-runtime-image",
+			Path:              input.Artifacts.InferenceRuntimeImage.Path,
+			ExpectedDigest:    input.Artifacts.InferenceRuntimeImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.InferenceRuntimeImage.SizeBytes,
+		})
+	}
+	if input.Artifacts.InferenceChart.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "inference-chart",
+			Path:              input.Artifacts.InferenceChart.Path,
+			ExpectedDigest:    input.Artifacts.InferenceChart.Digest,
+			ExpectedSizeBytes: input.Artifacts.InferenceChart.SizeBytes,
+		})
 	}
 	if input.Artifacts.WorkflowsChart.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{

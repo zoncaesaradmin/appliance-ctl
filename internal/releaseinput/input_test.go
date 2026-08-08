@@ -364,3 +364,91 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 		t.Fatalf("expected no supported upgrade sources, got %+v", in.Compatibility.SupportedUpgradeSources)
 	}
 }
+
+func TestLoad_ValidReleaseInputWithoutOptionalInference(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "control-plane.oci.tar.zst", "control-plane-bytes")
+	writeFile(t, root, "appliance-ui.oci.tar.zst", "ui-bytes")
+	writeFile(t, root, "appliance-host-agent.oci.tar.zst", "host-agent-bytes")
+	writeFile(t, root, "appliance-host-agentd", "host-agentd-bytes")
+	writeFile(t, root, "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb", "avahi-deb")
+	writeFile(t, root, "appliance-chart-2.4.0.tgz", "chart-bytes")
+	writeFile(t, root, "artifact-server.oci.tar.zst", "artifact-server-image")
+	writeFile(t, root, "appliance-registry-2.1.7.tgz", "artifact-server-chart")
+	writeFile(t, root, "coredns.oci.tar.zst", "dns-image")
+	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
+	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
+	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
+	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1"}`)
+	writeFile(t, root, "checksums.txt", "sha256sum entries")
+	writeFile(t, root, "sbom/appliance.spdx.json", "{}")
+	writeFile(t, root, "provenance/appliance.provenance.json", "{}")
+	writeFile(t, root, "notices/THIRD-PARTY-NOTICES.txt", "notice")
+	writeFile(t, root, "tests/conformance.tar.zst", "tests")
+
+	digestOf := func(rel string) string {
+		digest, err := verify.Digest(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return digest
+	}
+	dirDigestOf := func(rel string) string {
+		digest, err := releaseinput.DirectoryManifestDigest(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return digest
+	}
+
+	doc := map[string]any{
+		"schemaVersion": 1,
+		"codeVersion":   "2.4.0",
+		"releaseId":     "release-2.4.0",
+		"generatedAt":   "2026-07-06T00:00:00Z",
+		"artifacts": map[string]any{
+			"controlPlaneImage":   map[string]any{"path": "control-plane.oci.tar.zst", "digest": digestOf("control-plane.oci.tar.zst"), "sizeBytes": len("control-plane-bytes"), "imageReference": "localhost/appliance-control-plane:2.4.0"},
+			"uiImage":             map[string]any{"path": "appliance-ui.oci.tar.zst", "digest": digestOf("appliance-ui.oci.tar.zst"), "sizeBytes": len("ui-bytes"), "imageReference": "localhost/appliance-ui:2.4.0"},
+			"hostAgentImage":      map[string]any{"path": "appliance-host-agent.oci.tar.zst", "digest": digestOf("appliance-host-agent.oci.tar.zst"), "sizeBytes": len("host-agent-bytes"), "imageReference": "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			"hostAgentBinary":     map[string]any{"path": "appliance-host-agentd", "digest": digestOf("appliance-host-agentd"), "sizeBytes": len("host-agentd-bytes")},
+			"hostPackages":        map[string]any{"path": "host-packages", "manifestDigest": dirDigestOf("host-packages")},
+			"applianceChart":      map[string]any{"path": "appliance-chart-2.4.0.tgz", "digest": digestOf("appliance-chart-2.4.0.tgz"), "sizeBytes": len("chart-bytes")},
+			"artifactServerImage": map[string]any{"path": "artifact-server.oci.tar.zst", "digest": digestOf("artifact-server.oci.tar.zst"), "sizeBytes": len("artifact-server-image"), "imageReference": "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			"artifactServerChart": map[string]any{"path": "appliance-registry-2.1.7.tgz", "digest": digestOf("appliance-registry-2.1.7.tgz"), "sizeBytes": len("artifact-server-chart")},
+			"dnsImage":            map[string]any{"path": "coredns.oci.tar.zst", "digest": digestOf("coredns.oci.tar.zst"), "sizeBytes": len("dns-image"), "imageReference": "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+			"dnsChart":            map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
+			"metadataBundle":      map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
+			"configurationSchema": map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
+			"compatibility":       map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
+			"checksums":           map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
+			"sbom":                map[string]any{"path": "sbom", "manifestDigest": dirDigestOf("sbom")},
+			"provenance":          map[string]any{"path": "provenance", "manifestDigest": dirDigestOf("provenance")},
+			"notices":             map[string]any{"path": "notices", "manifestDigest": dirDigestOf("notices")},
+			"tests":               map[string]any{"path": "tests", "manifestDigest": dirDigestOf("tests")},
+		},
+		"compatibility": map[string]any{
+			"k3sVersion":            "v1.30.4+k3s1",
+			"chartVersion":          "2.4.0",
+			"artifactServerVersion": "2.1.7",
+			"dnsVersion":            "1.14.4",
+		},
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "release-input.json"), data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	in, _, err := releaseinput.Load(root)
+	if err != nil {
+		t.Fatalf("expected release input without optional inference to load, got: %v", err)
+	}
+	if in.Artifacts.InferenceRuntimeImage.Path != "" || in.Artifacts.InferenceChart.Path != "" {
+		t.Fatalf("expected empty inference artifacts, got image=%q chart=%q", in.Artifacts.InferenceRuntimeImage.Path, in.Artifacts.InferenceChart.Path)
+	}
+	if in.Compatibility.InferenceVersion != "" {
+		t.Fatalf("expected empty inferenceVersion, got %q", in.Compatibility.InferenceVersion)
+	}
+}

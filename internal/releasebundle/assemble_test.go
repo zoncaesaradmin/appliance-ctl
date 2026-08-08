@@ -272,7 +272,7 @@ func TestAssembleAndVerifyBundleWithoutSupportedUpgradeSources(t *testing.T) {
 	}
 }
 
-func TestAssemblePackBaseExcludesWorkflowAndInference(t *testing.T) {
+func TestAssemblePackFoundationExcludesWorkflowAndInference(t *testing.T) {
 	releaseInputDir := buildReleaseInputDir(t)
 	staging := t.TempDir()
 	writeTestFile(t, staging, "zonctl", "zonctl-binary", 0o750)
@@ -308,7 +308,7 @@ func TestAssemblePackBaseExcludesWorkflowAndInference(t *testing.T) {
 		SigningKeyID:          "release-signing-key",
 		SigningPrivateKeyPath: privateKeyPath,
 		HostBaseline:          releasebundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
-		Pack:                  releasebundle.PackBase,
+		Pack:                  releasebundle.PackFoundation,
 		Entries: []releasebundle.EntryConfig{
 			{SourcePath: filepath.Join(staging, "zonctl"), TargetPath: "zonctl", Component: "appliance", Executable: true},
 			{SourcePath: filepath.Join(staging, "k3s"), TargetPath: "k3s/binary/k3s", Component: "k3s-binary", Executable: true},
@@ -326,16 +326,16 @@ func TestAssemblePackBaseExcludesWorkflowAndInference(t *testing.T) {
 
 	result, err := releasebundle.Assemble(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("expected base pack assembly to succeed, got: %v", err)
+		t.Fatalf("expected foundation pack assembly to succeed, got: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "charts", "workflows-chart-1.0.0.tgz")); !os.IsNotExist(err) {
-		t.Fatalf("base pack must exclude workflows chart, stat err=%v", err)
+		t.Fatalf("foundation pack must exclude workflows chart, stat err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-runtime.oci.tar.zst")); !os.IsNotExist(err) {
-		t.Fatalf("base pack must exclude inference image, stat err=%v", err)
+		t.Fatalf("foundation pack must exclude inference image, stat err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "appliance-ui.oci.tar.zst")); err != nil {
-		t.Fatalf("base pack must keep UI image: %v", err)
+		t.Fatalf("foundation pack must keep UI image: %v", err)
 	}
 }
 
@@ -390,6 +390,6 @@ func TestAssemblePackInferenceOnly(t *testing.T) {
 		t.Fatalf("inference pack must include inference chart: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "zonctl")); !os.IsNotExist(err) {
-		t.Fatalf("inference pack must not include base appliance binary, stat err=%v", err)
+		t.Fatalf("inference pack must not include foundation appliance binary, stat err=%v", err)
 	}
 }

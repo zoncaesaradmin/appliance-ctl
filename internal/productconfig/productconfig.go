@@ -106,7 +106,7 @@ const (
 )
 
 // RequiredPacks returns the optional signed pack IDs needed for profile
-// beyond the base pack. The base pack is always required conceptually and
+// beyond the foundation pack. The foundation pack is always required conceptually and
 // is not listed here.
 func RequiredPacks(profile string) []string {
 	var packs []string
