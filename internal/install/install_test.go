@@ -119,7 +119,6 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image tar", "internal/appliance-ui:2.4.0"},
 		{"oci-images/appliance-host-agent.tar", "oci-images", "fake appliance host agent image tar", "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image tar", "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image tar", "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image tar", "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
@@ -465,8 +464,6 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
 	case "workspace-provisioner.tar":
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
-	case "dev-build.tar":
-		return []string{"registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
 	case "artifact-server.tar":
 		return []string{"registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	case "workflow-controller.tar":
@@ -623,8 +620,8 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 			secretCreateCalls++
 		}
 	}
-	if importCalls != 6 {
-		t.Errorf("expected 6 image import calls (k3s platform + control-plane app + UI app + host agent + workspace provisioner + dev-build), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 4 {
+		t.Errorf("expected 4 image import calls (k3s platform + control-plane app + UI app + host agent), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -1005,7 +1002,7 @@ func TestInstall_RefusesStaleInstalledStateWhenK3sArtifactsRemain(t *testing.T) 
 }
 
 func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
-	dir, pub := buildFixtureBundle(t)
+	dir, pub := buildFixtureBundleWithWorkflows(t, true)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "builder"
 
@@ -1067,7 +1064,7 @@ func TestInstall_ArtifactProfileUsesApplianceIdentityForRegistry(t *testing.T) {
 // (only the chown syscall is faked, since arbitrary chown targets
 // require root).
 func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
-	dir, pub := buildFixtureBundle(t)
+	dir, pub := buildFixtureBundleWithWorkflows(t, true)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "builder"
 	workspaceDir := filepath.Join(t.TempDir(), "workspaces")
@@ -1177,11 +1174,10 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 		t.Fatalf("expected install to succeed, got: %v", err)
 	}
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:          {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:                 {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:          {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir: {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:        {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir: {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:  {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only core service log ownership %v, got %v", wantOwnedPaths, ownedPaths)
@@ -1243,6 +1239,7 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 func TestInstall_EndToEndSuccessWithOptionalWorkflowsBringup(t *testing.T) {
 	dir, pub := buildFixtureBundleWithWorkflows(t, true)
 	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "builder"
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -1509,7 +1506,7 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 			rmCalls++
 		}
 	}
-	if rmCalls != 6 {
+	if rmCalls != 4 {
 		t.Errorf("expected all newly-imported images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
 	}
 

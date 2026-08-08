@@ -20,7 +20,10 @@ Install:             ctr import (gets :bundled or import-DATE) → ctr image tag
 Runtime:             config.*ImageDigest == digest pin → workflow pod image (IfNotPresent)
 ```
 
-Names today: `workspace-provisioner` (alpine/git), `dev-build` (builder), `artifact-server` (artifact registry dependency), and `coredns` (LAN DNS data plane).
+Names today (product packs): `workspace-provisioner` (developer pack),
+`artifact-server`, `coredns` (base), `inference-runtime` (inference pack).
+`dev-build` is **build-host tooling only** and is not packaged into product packs.
+Operator build catalogs use explicit digest-pinned builder images.
 
 Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manifest).
 
@@ -37,13 +40,15 @@ Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manif
    - `ValidateOCIArchiveReference` (digest match; `:bundled` annotation OK)
    - `ctr import --digests` then `ensureImageReference` / `ctr image tag` to digest pin
 5. **Values** (`appliance-ctl` `productconfig.PrepareValuesFile`)
-   - Injects `config.workspaceProvisionerImageDigest` + `config.builderImageDigest`
+   - Injects `config.workspaceProvisionerImageDigest` (from developer pack)
+   - `config.builderImageDigest` is optional day-2 default only (not from bundle)
 6. **Control-plane** (`appliance-code` config + `devflows.NewService`)
-   - Env from chart ConfigMap; fail-closed if digests missing/invalid
+   - Env from chart ConfigMap; workspace provisioner fail-closed when build on;
+     builder image required at build submit (catalog digest pin)
 7. **Workspace create** → workflow `workspace-prepare` (`engine.workflowContainerSpec`)
    - Pod `image:` = provisioner digest pin
 8. **Build submit** → workflow build pod
-   - `ResolveBuilderImage("dev-build", …)` → dev-build digest pin
+   - `ResolveBuilderImage` → explicit catalog `@sha256` (or optional day-2 default)
 9. **Artifact service** (`CapabilityArtifact`)
    - First-class `artifactServerImage` + `artifactServerChart`, with `compatibility.artifactServerVersion`
    - Preload/tag `registry.local/artifact-server@sha256:<platform-manifest-digest>`
@@ -57,10 +62,10 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | Contract | Producer | Consumers |
 |---|---|---|
 | `:bundled` annotation + `@sha256` imageReference | `build-full-bundle.sh` finalize/relabel | `images/archive.go`, `preload.go`, `validate-release-artifacts.py` |
-| EXTRA_OCI pairing / order | `build-full-bundle.sh` (do not append provisioner onto EXTRA list before pairing) | path↔token checks in validator |
+| EXTRA_OCI pairing / order | `build-full-bundle.sh` (workspace-provisioner in developer pack) | path↔token checks in validator |
 | `RequireReference` + tag | Bundle entry `imageReference` | `install/source.go` `imageName`, `PreloadAll` |
 | Digests in Helm values | `PrepareValuesFile` | chart ConfigMap, `config.Load`, chart schema |
-| Catalog `dev-build` alias | catalog / examples | `ResolveBuilderImage`, `builderImageReference` |
+| Catalog builder digests | operator-supplied `@sha256` in build catalog | `ResolveBuilderImage`, optional day-2 default |
 | Offline images present | preload/tag | workflow `IfNotPresent` pods |
 | Artifact-server image/chart/version | appliance-code release-input + `export-artifact-server-image-archive.sh` | ctl schema/load/assemble/source, release validator |
 | Registry signing key | control-plane private seed | installer-derived public-only registry verification Secret |
@@ -75,8 +80,8 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 
 - **Annotation scheme** → ctl `ValidateOCIArchiveReference` + preload tag tests; release finalize + `validate-release-artifacts.py`; config.example docs
 - **Digest derivation** → finalize (archive wins); never reintroduce inspect-first pins
-- **EXTRA_OCI refs/order** → pairing comments; path/token validator; both provisioner and dev-build in bundle
-- **Builder image name** → `source.go`, `catalog.go` DefaultBuilderImageRef, chart schema, examples, tests
+- **EXTRA_OCI refs/order** → pairing comments; path/token validator; workspace-provisioner in developer pack (not base)
+- **Builder images** → operator-supplied digest pins in catalog; not packaged; `ResolveBuilderImage` + chart schema/examples/tests
 - **Tag/import algorithm** → `preload.go` / tests; install+upgrade fake-ctr tests
 - **PrepareValuesFile keys** → chart `configmap.yaml` env names; config Load; chart_test
 - **Workflow image / pullPolicy** → offline contract; preload completeness

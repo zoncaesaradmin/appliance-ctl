@@ -51,7 +51,7 @@ type ProfileDefinition struct {
 type ProfileCatalog map[string]ProfileDefinition
 
 var builtInProfileCatalog = ProfileCatalog{
-	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows}},
+	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityHost}},
 	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
 	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityArtifact}},
 	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityDNS}},
@@ -104,6 +104,20 @@ const (
 	// Multicast DNS and will never send those queries to unicast DNS.
 	DefaultLANDNSZone = "appliance.internal"
 )
+
+// RequiredPacks returns the optional signed pack IDs needed for profile
+// beyond the base pack. The base pack is always required conceptually and
+// is not listed here.
+func RequiredPacks(profile string) []string {
+	var packs []string
+	if HasCapability(profile, CapabilityWorkflows) || HasCapability(profile, CapabilityBuild) {
+		packs = append(packs, "developer")
+	}
+	if HasCapability(profile, CapabilityInference) {
+		packs = append(packs, "inference")
+	}
+	return packs
+}
 
 // HasCapability reports whether the given (already-resolved) profile
 // enables capability.
@@ -255,8 +269,10 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
 			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
 		}
-		if !validBuilderImageDigest(builderImageReference) {
-			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned dev-build builder image reference; got %q", builderImageReference)
+		// Builder images are operator-supplied (not packaged). When a digest is
+		// provided (day-2 default), it must be digest-pinned; otherwise omit.
+		if builderImageReference != "" && !validBuilderImageDigest(builderImageReference) {
+			return "", func() {}, fmt.Errorf("product config: builderImageDigest must be digest-pinned when set; got %q", builderImageReference)
 		}
 	}
 	if artifactEnabled && len(registry) > 0 && !validArtifactServerImageDigest(artifactServerImageReference) {

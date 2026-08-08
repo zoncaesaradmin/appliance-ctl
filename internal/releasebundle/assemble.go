@@ -33,6 +33,12 @@ type EntryConfig struct {
 	ImageReference string `json:"imageReference,omitempty"`
 }
 
+const (
+	PackBase      = "base"
+	PackDeveloper = "developer"
+	PackInference = "inference"
+)
+
 type Config struct {
 	SchemaVersion         int           `json:"schemaVersion"`
 	BundleVersion         string        `json:"bundleVersion"`
@@ -42,6 +48,10 @@ type Config struct {
 	SigningPrivateKeyPath string        `json:"signingPrivateKeyPath"`
 	HostBaseline          HostBaseline  `json:"hostBaseline"`
 	Entries               []EntryConfig `json:"entries"`
+	// Pack selects which signed deliverable to assemble.
+	// Empty means legacy full bundle (everything). PackBase excludes
+	// developer and inference artifacts.
+	Pack string `json:"pack,omitempty"`
 }
 
 type Result struct {
@@ -92,6 +102,11 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.HostBaseline.OS == "" || cfg.HostBaseline.OSVersion == "" || cfg.HostBaseline.Arch == "" {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
+	switch cfg.Pack {
+	case "", PackBase, PackDeveloper, PackInference:
+	default:
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, or %q", PackBase, PackDeveloper, PackInference)
+	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
 	}
@@ -123,141 +138,157 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			return Result{}, fmt.Errorf("releasebundle: duplicate targetPath %q", target)
 		}
 		entry.TargetPath = target
+		if !entryBelongsToPack(entry, cfg.Pack) {
+			continue
+		}
 		entryByTarget[target] = entry
 	}
 
-	// Carry the product configuration schema and evidence directories into the final bundle.
-	uiImageTarget := "oci-images/" + filepath.Base(input.Artifacts.UIImage.Path)
-	if _, exists := entryByTarget[uiImageTarget]; !exists {
-		entryByTarget[uiImageTarget] = EntryConfig{
-			SourcePath:     input.Artifacts.UIImage.Path,
-			TargetPath:     uiImageTarget,
-			Component:      "oci-images",
-			ImageReference: input.Artifacts.UIImage.ImageReference,
-		}
+	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackBase
+	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackInference
+	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackBase
+	if cfg.Pack == PackInference {
+		// Inference pack is auto-add only; drop any leftover cfg entries.
+		entryByTarget = map[string]EntryConfig{}
 	}
-	hostAgentImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostAgentImage.Path)
-	if _, exists := entryByTarget[hostAgentImageTarget]; !exists {
-		if !isCanonicalHostAgentReference(input.Artifacts.HostAgentImage.ImageReference) {
-			return Result{}, fmt.Errorf("releasebundle: host-agent imageReference must be registry.local/appliance-host-agent@sha256:<64 lowercase hex>, got %q", input.Artifacts.HostAgentImage.ImageReference)
+
+	if includeProductAutoAdds {
+		// Carry the product configuration schema and evidence directories into the final bundle.
+		uiImageTarget := "oci-images/" + filepath.Base(input.Artifacts.UIImage.Path)
+		if _, exists := entryByTarget[uiImageTarget]; !exists {
+			entryByTarget[uiImageTarget] = EntryConfig{
+				SourcePath:     input.Artifacts.UIImage.Path,
+				TargetPath:     uiImageTarget,
+				Component:      "oci-images",
+				ImageReference: input.Artifacts.UIImage.ImageReference,
+			}
 		}
-		entryByTarget[hostAgentImageTarget] = EntryConfig{
-			SourcePath:     input.Artifacts.HostAgentImage.Path,
-			TargetPath:     hostAgentImageTarget,
-			Component:      "oci-images",
-			ImageReference: input.Artifacts.HostAgentImage.ImageReference,
+		hostAgentImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostAgentImage.Path)
+		if _, exists := entryByTarget[hostAgentImageTarget]; !exists {
+			if !isCanonicalHostAgentReference(input.Artifacts.HostAgentImage.ImageReference) {
+				return Result{}, fmt.Errorf("releasebundle: host-agent imageReference must be registry.local/appliance-host-agent@sha256:<64 lowercase hex>, got %q", input.Artifacts.HostAgentImage.ImageReference)
+			}
+			entryByTarget[hostAgentImageTarget] = EntryConfig{
+				SourcePath:     input.Artifacts.HostAgentImage.Path,
+				TargetPath:     hostAgentImageTarget,
+				Component:      "oci-images",
+				ImageReference: input.Artifacts.HostAgentImage.ImageReference,
+			}
 		}
-	}
-	hostAgentBinaryTarget := "bin/" + filepath.Base(input.Artifacts.HostAgentBinary.Path)
-	if _, exists := entryByTarget[hostAgentBinaryTarget]; !exists {
-		entryByTarget[hostAgentBinaryTarget] = EntryConfig{
-			SourcePath: input.Artifacts.HostAgentBinary.Path,
-			TargetPath: hostAgentBinaryTarget,
-			Component:  "appliance",
-			Executable: true,
+		hostAgentBinaryTarget := "bin/" + filepath.Base(input.Artifacts.HostAgentBinary.Path)
+		if _, exists := entryByTarget[hostAgentBinaryTarget]; !exists {
+			entryByTarget[hostAgentBinaryTarget] = EntryConfig{
+				SourcePath: input.Artifacts.HostAgentBinary.Path,
+				TargetPath: hostAgentBinaryTarget,
+				Component:  "appliance",
+				Executable: true,
+			}
 		}
-	}
-	artifactServerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ArtifactServerImage.Path)
-	if _, exists := entryByTarget[artifactServerImageTarget]; !exists {
-		if !isCanonicalArtifactServerReference(input.Artifacts.ArtifactServerImage.ImageReference) {
-			return Result{}, fmt.Errorf("releasebundle: artifact server imageReference must be registry.local/artifact-server@sha256:<64 lowercase hex>, got %q", input.Artifacts.ArtifactServerImage.ImageReference)
+		artifactServerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ArtifactServerImage.Path)
+		if _, exists := entryByTarget[artifactServerImageTarget]; !exists {
+			if !isCanonicalArtifactServerReference(input.Artifacts.ArtifactServerImage.ImageReference) {
+				return Result{}, fmt.Errorf("releasebundle: artifact server imageReference must be registry.local/artifact-server@sha256:<64 lowercase hex>, got %q", input.Artifacts.ArtifactServerImage.ImageReference)
+			}
+			entryByTarget[artifactServerImageTarget] = EntryConfig{
+				SourcePath:     input.Artifacts.ArtifactServerImage.Path,
+				TargetPath:     artifactServerImageTarget,
+				Component:      "oci-images",
+				ImageReference: input.Artifacts.ArtifactServerImage.ImageReference,
+			}
 		}
-		entryByTarget[artifactServerImageTarget] = EntryConfig{
-			SourcePath:     input.Artifacts.ArtifactServerImage.Path,
-			TargetPath:     artifactServerImageTarget,
-			Component:      "oci-images",
-			ImageReference: input.Artifacts.ArtifactServerImage.ImageReference,
+		artifactServerChartBase := filepath.Base(input.Artifacts.ArtifactServerChart.Path)
+		if !strings.HasPrefix(strings.ToLower(artifactServerChartBase), "appliance-registry-") {
+			artifactServerChartBase = "appliance-registry-" + artifactServerChartBase
 		}
-	}
-	artifactServerChartBase := filepath.Base(input.Artifacts.ArtifactServerChart.Path)
-	if !strings.HasPrefix(strings.ToLower(artifactServerChartBase), "appliance-registry-") {
-		artifactServerChartBase = "appliance-registry-" + artifactServerChartBase
-	}
-	artifactServerChartTarget := "chart/" + artifactServerChartBase
-	if _, exists := entryByTarget[artifactServerChartTarget]; !exists {
-		entryByTarget[artifactServerChartTarget] = EntryConfig{
-			SourcePath: input.Artifacts.ArtifactServerChart.Path,
-			TargetPath: artifactServerChartTarget,
-			Component:  "chart",
+		artifactServerChartTarget := "chart/" + artifactServerChartBase
+		if _, exists := entryByTarget[artifactServerChartTarget]; !exists {
+			entryByTarget[artifactServerChartTarget] = EntryConfig{
+				SourcePath: input.Artifacts.ArtifactServerChart.Path,
+				TargetPath: artifactServerChartTarget,
+				Component:  "chart",
+			}
 		}
-	}
-	dnsImageTarget := "oci-images/" + filepath.Base(input.Artifacts.DnsImage.Path)
-	if _, exists := entryByTarget[dnsImageTarget]; !exists {
-		if !isCanonicalDNSReference(input.Artifacts.DnsImage.ImageReference) {
-			return Result{}, fmt.Errorf("releasebundle: coredns imageReference must be registry.local/coredns@sha256:<64 lowercase hex>, got %q", input.Artifacts.DnsImage.ImageReference)
+		dnsImageTarget := "oci-images/" + filepath.Base(input.Artifacts.DnsImage.Path)
+		if _, exists := entryByTarget[dnsImageTarget]; !exists {
+			if !isCanonicalDNSReference(input.Artifacts.DnsImage.ImageReference) {
+				return Result{}, fmt.Errorf("releasebundle: coredns imageReference must be registry.local/coredns@sha256:<64 lowercase hex>, got %q", input.Artifacts.DnsImage.ImageReference)
+			}
+			entryByTarget[dnsImageTarget] = EntryConfig{
+				SourcePath:     input.Artifacts.DnsImage.Path,
+				TargetPath:     dnsImageTarget,
+				Component:      "oci-images",
+				ImageReference: input.Artifacts.DnsImage.ImageReference,
+			}
 		}
-		entryByTarget[dnsImageTarget] = EntryConfig{
-			SourcePath:     input.Artifacts.DnsImage.Path,
-			TargetPath:     dnsImageTarget,
-			Component:      "oci-images",
-			ImageReference: input.Artifacts.DnsImage.ImageReference,
+		dnsChartBase := filepath.Base(input.Artifacts.DnsChart.Path)
+		if !strings.HasPrefix(strings.ToLower(dnsChartBase), "appliance-dns-") {
+			dnsChartBase = "appliance-dns-" + dnsChartBase
 		}
-	}
-	dnsChartBase := filepath.Base(input.Artifacts.DnsChart.Path)
-	if !strings.HasPrefix(strings.ToLower(dnsChartBase), "appliance-dns-") {
-		dnsChartBase = "appliance-dns-" + dnsChartBase
-	}
-	dnsChartTarget := "chart/" + dnsChartBase
-	if _, exists := entryByTarget[dnsChartTarget]; !exists {
-		entryByTarget[dnsChartTarget] = EntryConfig{
-			SourcePath: input.Artifacts.DnsChart.Path,
-			TargetPath: dnsChartTarget,
-			Component:  "chart",
+		dnsChartTarget := "chart/" + dnsChartBase
+		if _, exists := entryByTarget[dnsChartTarget]; !exists {
+			entryByTarget[dnsChartTarget] = EntryConfig{
+				SourcePath: input.Artifacts.DnsChart.Path,
+				TargetPath: dnsChartTarget,
+				Component:  "chart",
+			}
 		}
-	}
-	inferenceImageTarget := "oci-images/" + filepath.Base(input.Artifacts.InferenceRuntimeImage.Path)
-	if _, exists := entryByTarget[inferenceImageTarget]; !exists {
-		if !isCanonicalInferenceRuntimeReference(input.Artifacts.InferenceRuntimeImage.ImageReference) {
-			return Result{}, fmt.Errorf("releasebundle: inference-runtime imageReference must be registry.local/inference-runtime@sha256:<64 lowercase hex>, got %q", input.Artifacts.InferenceRuntimeImage.ImageReference)
+		metadataBundleBase := filepath.Base(input.Artifacts.MetadataBundle.Path)
+		metadataBundleTarget := "artifacts/" + metadataBundleBase
+		if _, exists := entryByTarget[metadataBundleTarget]; !exists {
+			entryByTarget[metadataBundleTarget] = EntryConfig{
+				SourcePath: input.Artifacts.MetadataBundle.Path,
+				TargetPath: metadataBundleTarget,
+				Component:  "artifacts",
+			}
 		}
-		entryByTarget[inferenceImageTarget] = EntryConfig{
-			SourcePath:     input.Artifacts.InferenceRuntimeImage.Path,
-			TargetPath:     inferenceImageTarget,
-			Component:      "oci-images",
-			ImageReference: input.Artifacts.InferenceRuntimeImage.ImageReference,
+
+		configSchemaTarget := "configuration/configuration.schema.json"
+		if _, exists := entryByTarget[configSchemaTarget]; !exists {
+			entryByTarget[configSchemaTarget] = EntryConfig{
+				SourcePath: input.Artifacts.ConfigurationSchema.Path,
+				TargetPath: configSchemaTarget,
+				Component:  "configuration",
+			}
 		}
-	}
-	inferenceChartBase := filepath.Base(input.Artifacts.InferenceChart.Path)
-	if !strings.HasPrefix(strings.ToLower(inferenceChartBase), "appliance-inference-") {
-		inferenceChartBase = "appliance-inference-" + inferenceChartBase
-	}
-	inferenceChartTarget := "chart/" + inferenceChartBase
-	if _, exists := entryByTarget[inferenceChartTarget]; !exists {
-		entryByTarget[inferenceChartTarget] = EntryConfig{
-			SourcePath: input.Artifacts.InferenceChart.Path,
-			TargetPath: inferenceChartTarget,
-			Component:  "chart",
+		catalogSourcePath, err := writeBuiltInCatalogFile()
+		if err != nil {
+			return Result{}, err
 		}
-	}
-	metadataBundleBase := filepath.Base(input.Artifacts.MetadataBundle.Path)
-	metadataBundleTarget := "artifacts/" + metadataBundleBase
-	if _, exists := entryByTarget[metadataBundleTarget]; !exists {
-		entryByTarget[metadataBundleTarget] = EntryConfig{
-			SourcePath: input.Artifacts.MetadataBundle.Path,
-			TargetPath: metadataBundleTarget,
-			Component:  "artifacts",
+		defer os.Remove(catalogSourcePath)
+		catalogTarget := "configuration/appliance-catalog.json"
+		if _, exists := entryByTarget[catalogTarget]; !exists {
+			entryByTarget[catalogTarget] = EntryConfig{
+				SourcePath: catalogSourcePath,
+				TargetPath: catalogTarget,
+				Component:  "configuration",
+			}
 		}
 	}
 
-	configSchemaTarget := "configuration/configuration.schema.json"
-	if _, exists := entryByTarget[configSchemaTarget]; !exists {
-		entryByTarget[configSchemaTarget] = EntryConfig{
-			SourcePath: input.Artifacts.ConfigurationSchema.Path,
-			TargetPath: configSchemaTarget,
-			Component:  "configuration",
+	if includeInferenceAutoAdd {
+		inferenceImageTarget := "oci-images/" + filepath.Base(input.Artifacts.InferenceRuntimeImage.Path)
+		if _, exists := entryByTarget[inferenceImageTarget]; !exists {
+			if !isCanonicalInferenceRuntimeReference(input.Artifacts.InferenceRuntimeImage.ImageReference) {
+				return Result{}, fmt.Errorf("releasebundle: inference-runtime imageReference must be registry.local/inference-runtime@sha256:<64 lowercase hex>, got %q", input.Artifacts.InferenceRuntimeImage.ImageReference)
+			}
+			entryByTarget[inferenceImageTarget] = EntryConfig{
+				SourcePath:     input.Artifacts.InferenceRuntimeImage.Path,
+				TargetPath:     inferenceImageTarget,
+				Component:      "oci-images",
+				ImageReference: input.Artifacts.InferenceRuntimeImage.ImageReference,
+			}
 		}
-	}
-	catalogSourcePath, err := writeBuiltInCatalogFile()
-	if err != nil {
-		return Result{}, err
-	}
-	defer os.Remove(catalogSourcePath)
-	catalogTarget := "configuration/appliance-catalog.json"
-	if _, exists := entryByTarget[catalogTarget]; !exists {
-		entryByTarget[catalogTarget] = EntryConfig{
-			SourcePath: catalogSourcePath,
-			TargetPath: catalogTarget,
-			Component:  "configuration",
+		inferenceChartBase := filepath.Base(input.Artifacts.InferenceChart.Path)
+		if !strings.HasPrefix(strings.ToLower(inferenceChartBase), "appliance-inference-") {
+			inferenceChartBase = "appliance-inference-" + inferenceChartBase
+		}
+		inferenceChartTarget := "chart/" + inferenceChartBase
+		if _, exists := entryByTarget[inferenceChartTarget]; !exists {
+			entryByTarget[inferenceChartTarget] = EntryConfig{
+				SourcePath: input.Artifacts.InferenceChart.Path,
+				TargetPath: inferenceChartTarget,
+				Component:  "chart",
+			}
 		}
 	}
 
@@ -288,19 +319,19 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		manifestEntries = append(manifestEntries, manifestEntry)
 	}
 
-	if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.SBOM.Path, "sbom", &manifestEntries); err != nil {
-		return Result{}, err
-	}
-	if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.Provenance.Path, "provenance", &manifestEntries); err != nil {
-		return Result{}, err
-	}
-	if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.Notices.Path, "notices", &manifestEntries); err != nil {
-		return Result{}, err
-	}
-	if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.Tests.Path, "tests", &manifestEntries); err != nil {
-		return Result{}, err
-	}
-	if input.Artifacts.HostPackages.Path != "" {
+	if includeEvidenceDirs {
+		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.SBOM.Path, "sbom", &manifestEntries); err != nil {
+			return Result{}, err
+		}
+		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.Provenance.Path, "provenance", &manifestEntries); err != nil {
+			return Result{}, err
+		}
+		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.Notices.Path, "notices", &manifestEntries); err != nil {
+			return Result{}, err
+		}
+		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.Tests.Path, "tests", &manifestEntries); err != nil {
+			return Result{}, err
+		}
 		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.HostPackages.Path, "host-packages", &manifestEntries); err != nil {
 			return Result{}, err
 		}
@@ -312,7 +343,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 	manifestEntries = append(manifestEntries, pubEntry)
 
-	if err := validateInstallableBundle(manifestEntries); err != nil {
+	if err := validateInstallableBundle(manifestEntries, cfg.Pack); err != nil {
 		return Result{}, err
 	}
 	sort.Slice(manifestEntries, func(i, j int) bool { return manifestEntries[i].Path < manifestEntries[j].Path })
@@ -496,6 +527,9 @@ func copyEntry(bundleDir string, entry EntryConfig) (manifestEntry, error) {
 }
 
 func addDirectoryEntries(bundleDir, sourceDir, component string, manifestEntries *[]manifestEntry) error {
+	if strings.TrimSpace(sourceDir) == "" {
+		return nil
+	}
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -568,11 +602,63 @@ func writeBuiltInCatalogFile() (string, error) {
 	return file.Name(), nil
 }
 
-func validateInstallableBundle(entries []manifestEntry) error {
+func validateInstallableBundle(entries []manifestEntry, pack string) error {
 	counts := map[string]int{}
 	for _, entry := range entries {
 		counts[entry.Component]++
 	}
+	switch pack {
+	case PackDeveloper:
+		if counts["chart"] == 0 {
+			return fmt.Errorf("releasebundle: developer pack is missing a workflows chart")
+		}
+		if counts["kubernetes-crds"] == 0 {
+			return fmt.Errorf("releasebundle: developer pack is missing kubernetes-crds")
+		}
+		if counts["oci-images"] == 0 {
+			return fmt.Errorf("releasebundle: developer pack must include at least one oci-images archive")
+		}
+		var hasWorkflowsChart bool
+		for _, entry := range entries {
+			if entry.Component != "chart" {
+				continue
+			}
+			base := strings.ToLower(filepath.Base(entry.Path))
+			if strings.Contains(base, "workflows") {
+				hasWorkflowsChart = true
+				break
+			}
+		}
+		if !hasWorkflowsChart {
+			return fmt.Errorf("releasebundle: developer pack is missing a workflows chart")
+		}
+		return nil
+	case PackInference:
+		if counts["chart"] == 0 {
+			return fmt.Errorf("releasebundle: inference pack is missing appliance-inference chart")
+		}
+		if counts["oci-images"] == 0 {
+			return fmt.Errorf("releasebundle: inference pack must include the inference-runtime image")
+		}
+		var hasInferenceChart, hasInferenceImage bool
+		for _, entry := range entries {
+			base := strings.ToLower(filepath.Base(entry.Path))
+			if entry.Component == "chart" && strings.HasPrefix(base, "appliance-inference-") {
+				hasInferenceChart = true
+			}
+			if entry.Component == "oci-images" && isCanonicalInferenceRuntimeReference(entry.ImageReference) {
+				hasInferenceImage = true
+			}
+		}
+		if !hasInferenceChart {
+			return fmt.Errorf("releasebundle: inference pack is missing appliance-inference chart")
+		}
+		if !hasInferenceImage {
+			return fmt.Errorf("releasebundle: inference pack is missing inference-runtime image")
+		}
+		return nil
+	}
+
 	requiredSingles := []string{"appliance", "k3s-binary", "chart", "configuration"}
 	for _, component := range requiredSingles {
 		if counts[component] == 0 {
@@ -586,6 +672,65 @@ func validateInstallableBundle(entries []manifestEntry) error {
 		return fmt.Errorf("releasebundle: assembled bundle must include at least one oci-images archive")
 	}
 	return nil
+}
+
+// entryBelongsToPack reports whether a configured entry should be included in
+// the assembled pack. Empty pack means legacy full bundle (everything).
+func entryBelongsToPack(entry EntryConfig, pack string) bool {
+	switch pack {
+	case "":
+		return true
+	case PackBase:
+		return !entryIsDeveloper(entry) && !entryIsInference(entry)
+	case PackDeveloper:
+		return entryIsDeveloper(entry)
+	case PackInference:
+		return entryIsInference(entry)
+	default:
+		return false
+	}
+}
+
+func entryIsDeveloper(entry EntryConfig) bool {
+	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
+	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
+	base := strings.ToLower(filepath.Base(target))
+	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
+
+	if strings.HasPrefix(target, "kubernetes/crds/") || entry.Component == "kubernetes-crds" {
+		return true
+	}
+	if entry.Component == "chart" && (strings.Contains(base, "workflows") || strings.Contains(sourceBase, "workflows")) {
+		return true
+	}
+	if strings.Contains(ref, "workflow-controller") || strings.Contains(ref, "argoexec") ||
+		strings.Contains(ref, "workflow-executor") || strings.Contains(base, "workflow-controller") ||
+		strings.Contains(base, "workflow-executor") || strings.Contains(sourceBase, "workflow-controller") ||
+		strings.Contains(sourceBase, "workflow-executor") {
+		return true
+	}
+	if strings.Contains(ref, "workspace-provisioner") || strings.Contains(target, "workspace-provisioner") ||
+		strings.Contains(sourceBase, "workspace-provisioner") {
+		return true
+	}
+	return false
+}
+
+func entryIsInference(entry EntryConfig) bool {
+	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
+	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
+	base := strings.ToLower(filepath.Base(target))
+	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
+
+	if strings.Contains(ref, "inference-runtime") || strings.Contains(target, "inference-runtime") ||
+		strings.Contains(sourceBase, "inference-runtime") {
+		return true
+	}
+	if entry.Component == "chart" && (strings.HasPrefix(base, "appliance-inference-") ||
+		strings.HasPrefix(sourceBase, "appliance-inference-") || strings.Contains(base, "inference")) {
+		return true
+	}
+	return false
 }
 
 func encodePublicKeyPEM(pub ed25519.PublicKey) ([]byte, error) {

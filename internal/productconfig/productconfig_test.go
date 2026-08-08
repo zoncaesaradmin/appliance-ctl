@@ -17,6 +17,34 @@ const (
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 )
 
+func TestRequiredPacks(t *testing.T) {
+	cases := []struct {
+		profile string
+		want    []string
+	}{
+		{productconfig.ProfileCore, nil},
+		{productconfig.ProfileStorage, nil},
+		{productconfig.ProfileLANDNS, nil},
+		{productconfig.ProfileStorageLANDNS, nil},
+		{productconfig.ProfileLANLLM, []string{"inference"}},
+		{productconfig.ProfileBuilder, []string{"developer"}},
+		{productconfig.ProfileBuilderLANDNS, []string{"developer"}},
+		{productconfig.ProfileBuilderLANLLM, []string{"developer", "inference"}},
+		{productconfig.ProfileBuilderLANLLMStorageLANDNS, []string{"developer", "inference"}},
+	}
+	for _, tc := range cases {
+		got := productconfig.RequiredPacks(tc.profile)
+		if len(got) != len(tc.want) {
+			t.Fatalf("RequiredPacks(%q)=%v, want %v", tc.profile, got, tc.want)
+		}
+		for i := range tc.want {
+			if got[i] != tc.want[i] {
+				t.Fatalf("RequiredPacks(%q)=%v, want %v", tc.profile, got, tc.want)
+			}
+		}
+	}
+}
+
 func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T) {
 	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {

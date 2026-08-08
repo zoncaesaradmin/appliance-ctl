@@ -52,8 +52,9 @@ type Resolved struct {
 	// WorkspaceProvisionerImageReference is the appliance-owned generic
 	// image used by builder workspace provisioning workflows.
 	WorkspaceProvisionerImageReference string
-	// BuilderImageReference is the single bundled builder/dev-container image
-	// used by workflow build pods (dev-build).
+	// BuilderImageReference is an optional operator-supplied default builder
+	// image digest. Builder images are not packaged in the appliance bundle;
+	// catalogs must use explicit digest-pinned refs for build pods.
 	BuilderImageReference string
 	// HostAgentImageReference is the bundled, digest-pinned appliance host
 	// agent image reference used by the host capability.
@@ -89,6 +90,9 @@ type Source interface {
 // OfflineSource resolves artifacts from a verified local air-gap bundle.
 type OfflineSource struct {
 	BundleDir string
+	// PackDirs are additional signed pack bundle directories (developer,
+	// inference) verified with the same public key and merged into Resolved.
+	PackDirs  []string
 	PublicKey *verify.PublicKey
 }
 
@@ -98,6 +102,21 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
+	var packs []*bundle.Bundle
+	for _, dir := range s.PackDirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		pb, packChecks, packErr := bundle.Load(dir, s.PublicKey)
+		checks = append(checks, packChecks...)
+		if packErr != nil {
+			return Resolved{}, checks, fmt.Errorf("install: pack-dir %s: %w", dir, packErr)
+		}
+		packs = append(packs, pb)
+	}
+	view := mergedBundle{primary: b, packs: packs}
+	compat := mergeCompatibility(b, packs)
 
 	k3sBinaryPath, ok := b.Path("k3s-binary")
 	if !ok {
@@ -141,32 +160,38 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 
 	workflowsChartPath := ""
 	workflowsCRDPaths := []string(nil)
-	if workflowsEnabled {
-		workflowsChartPath = optionalWorkflowsChartPath(b)
-		workflowsCRDPaths = crdPaths(b)
+	if workflowsEnabled || buildEnabled {
+		workflowsChartPath = optionalWorkflowsChartPath(view)
+		workflowsCRDPaths = crdPaths(view)
+		if workflowsChartPath == "" && len(workflowsCRDPaths) == 0 {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires workflows/build capability but the developer pack was not provided (missing workflows chart and/or CRDs)", effectiveProfile)
+		}
 		if workflowsChartPath != "" && len(workflowsCRDPaths) == 0 {
 			return Resolved{}, checks, fmt.Errorf("install: bundle has a workflows chart but no workflows-crds artifact; the workflow controller cannot start without its CRDs")
 		}
+		if workflowsChartPath == "" {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires workflows/build capability but the developer pack was not provided (missing workflows chart)", effectiveProfile)
+		}
 	}
 	registryChartPath := ""
-	if artifactEnabled && strings.TrimSpace(b.Compatibility.ArtifactServerVersion) != "" {
-		registryChartPath, err = requiredRegistryChartPath(b)
+	if artifactEnabled && strings.TrimSpace(compat.ArtifactServerVersion) != "" {
+		registryChartPath, err = requiredRegistryChartPath(view)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
 	dnsChartPath := ""
-	if dnsEnabled && strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
-		dnsChartPath, err = requiredDNSChartPath(b)
+	if dnsEnabled && strings.TrimSpace(compat.DNSVersion) != "" {
+		dnsChartPath, err = requiredDNSChartPath(view)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
 	inferenceChartPath := ""
-	if inferenceEnabled && strings.TrimSpace(b.Compatibility.InferenceVersion) != "" {
-		inferenceChartPath, err = requiredInferenceChartPath(b)
+	if inferenceEnabled && strings.TrimSpace(compat.InferenceVersion) != "" {
+		inferenceChartPath, err = requiredInferenceChartPath(view)
 		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the inference pack was not provided: %w", effectiveProfile, err)
 		}
 	}
 	hostAgentBinaryPath := ""
@@ -190,7 +215,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		name, requireReference := imageName(e)
 		k3sImages = append(k3sImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: images.CategoryK3sPlatform, RequireReference: requireReference})
 	}
-	for _, e := range b.Entries("oci-images") {
+	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
 		if isArtifactServerImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
@@ -198,34 +223,34 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
 	}
-	workspaceProvisionerImageReference := workspaceProvisionerImageReference(b)
-	builderImageReference := builderImageReference(b)
+	workspaceProvisionerImageReference := workspaceProvisionerImageReference(view)
+	builderImageReference := builderImageReference(view)
 	hostAgentImageReference := ""
 	if hostEnabled {
-		hostAgentImageReference, err = requiredHostAgentImageReference(b)
+		hostAgentImageReference, err = requiredHostAgentImageReference(view)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
 	artifactServerImageReference := ""
-	if artifactEnabled && strings.TrimSpace(b.Compatibility.ArtifactServerVersion) != "" {
-		artifactServerImageReference, err = requiredArtifactServerImageReference(b)
+	if artifactEnabled && strings.TrimSpace(compat.ArtifactServerVersion) != "" {
+		artifactServerImageReference, err = requiredArtifactServerImageReference(view)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
 	dnsImageReference := ""
-	if dnsEnabled && strings.TrimSpace(b.Compatibility.DNSVersion) != "" {
-		dnsImageReference, err = requiredDNSImageReference(b)
+	if dnsEnabled && strings.TrimSpace(compat.DNSVersion) != "" {
+		dnsImageReference, err = requiredDNSImageReference(view)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
 	inferenceImageReference := ""
-	if inferenceEnabled && strings.TrimSpace(b.Compatibility.InferenceVersion) != "" {
-		inferenceImageReference, err = requiredInferenceImageReference(b)
+	if inferenceEnabled && strings.TrimSpace(compat.InferenceVersion) != "" {
+		inferenceImageReference, err = requiredInferenceImageReference(view)
 		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the inference pack was not provided: %w", effectiveProfile, err)
 		}
 	}
 
@@ -233,7 +258,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		BundleVersion:                      b.BundleVersion,
 		ReleaseID:                          b.ReleaseID,
 		HostBaseline:                       b.HostBaseline,
-		Compatibility:                      b.Compatibility,
+		Compatibility:                      compat,
 		EffectiveProfile:                   effectiveProfile,
 		CatalogPath:                        catalogPath,
 		HostEnabled:                        hostEnabled,
@@ -266,6 +291,45 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}, checks, nil
 }
 
+// entrySource is anything that can list verified bundle entries by component.
+type entrySource interface {
+	Entries(component string) []bundle.Entry
+}
+
+// mergedBundle presents primary + pack entries as one lookup surface for
+// charts, CRDs, and OCI images while keeping base-only artifacts on primary.
+type mergedBundle struct {
+	primary *bundle.Bundle
+	packs   []*bundle.Bundle
+}
+
+func (m mergedBundle) Entries(component string) []bundle.Entry {
+	out := append([]bundle.Entry{}, m.primary.Entries(component)...)
+	for _, p := range m.packs {
+		out = append(out, p.Entries(component)...)
+	}
+	return out
+}
+
+func mergeCompatibility(primary *bundle.Bundle, packs []*bundle.Bundle) bundle.Compatibility {
+	compat := primary.Compatibility
+	for _, p := range packs {
+		if strings.TrimSpace(compat.WorkflowsVersion) == "" {
+			compat.WorkflowsVersion = p.Compatibility.WorkflowsVersion
+		}
+		if strings.TrimSpace(compat.InferenceVersion) == "" {
+			compat.InferenceVersion = p.Compatibility.InferenceVersion
+		}
+		if strings.TrimSpace(compat.ArtifactServerVersion) == "" {
+			compat.ArtifactServerVersion = p.Compatibility.ArtifactServerVersion
+		}
+		if strings.TrimSpace(compat.DNSVersion) == "" {
+			compat.DNSVersion = p.Compatibility.DNSVersion
+		}
+	}
+	return compat
+}
+
 func isArtifactServerImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/artifact-server@sha256:")
 }
@@ -289,7 +353,7 @@ func isHostAgentImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/appliance-host-agent@sha256:")
 }
 
-func requiredHostAgentImageReference(b *bundle.Bundle) (string, error) {
+func requiredHostAgentImageReference(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("oci-images") {
 		if !isHostAgentImageReference(e.ImageReference) {
@@ -306,7 +370,7 @@ func requiredHostAgentImageReference(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func requiredArtifactServerImageReference(b *bundle.Bundle) (string, error) {
+func requiredArtifactServerImageReference(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("oci-images") {
 		if !isArtifactServerImageReference(e.ImageReference) {
@@ -323,7 +387,7 @@ func requiredArtifactServerImageReference(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func requiredDNSImageReference(b *bundle.Bundle) (string, error) {
+func requiredDNSImageReference(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("oci-images") {
 		if !isDNSImageReference(e.ImageReference) {
@@ -340,7 +404,7 @@ func requiredDNSImageReference(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func requiredInferenceImageReference(b *bundle.Bundle) (string, error) {
+func requiredInferenceImageReference(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("oci-images") {
 		if !isInferenceRuntimeImageReference(e.ImageReference) {
@@ -364,7 +428,7 @@ func imageName(e bundle.Entry) (string, bool) {
 	return e.Path, false
 }
 
-func workspaceProvisionerImageReference(b *bundle.Bundle) string {
+func workspaceProvisionerImageReference(b entrySource) string {
 	for _, e := range b.Entries("oci-images") {
 		ref := strings.TrimSpace(e.ImageReference)
 		if strings.Contains(ref, "/workspace-provisioner@sha256:") ||
@@ -376,9 +440,15 @@ func workspaceProvisionerImageReference(b *bundle.Bundle) string {
 	return ""
 }
 
-func builderImageReference(b *bundle.Bundle) string {
+func builderImageReference(b entrySource) string {
+	// Builder images are operator-supplied and are not packaged in the product
+	// bundle. Keep a best-effort lookup for any day-2 injected digest entry, but
+	// do not require registry.local/dev-build.
 	for _, e := range b.Entries("oci-images") {
 		ref := strings.TrimSpace(e.ImageReference)
+		if ref == "" || !strings.Contains(ref, "@sha256:") {
+			continue
+		}
 		if strings.Contains(ref, "/dev-build@sha256:") ||
 			strings.HasPrefix(ref, "dev-build@sha256:") {
 			return ref
@@ -387,7 +457,7 @@ func builderImageReference(b *bundle.Bundle) string {
 	return ""
 }
 
-func applianceChartPath(b *bundle.Bundle) (string, error) {
+func applianceChartPath(b entrySource) (string, error) {
 	entries := b.Entries("chart")
 	if len(entries) == 0 {
 		return "", fmt.Errorf("bundle has no chart entry")
@@ -404,7 +474,7 @@ func applianceChartPath(b *bundle.Bundle) (string, error) {
 	return "", fmt.Errorf("bundle has multiple chart entries but none named appliance-chart-*")
 }
 
-func optionalWorkflowsChartPath(b *bundle.Bundle) string {
+func optionalWorkflowsChartPath(b entrySource) string {
 	for _, e := range b.Entries("chart") {
 		base := strings.ToLower(filepath.Base(e.Path))
 		if strings.Contains(base, "workflows-chart") || strings.Contains(base, "appliance-workflows") {
@@ -414,7 +484,7 @@ func optionalWorkflowsChartPath(b *bundle.Bundle) string {
 	return ""
 }
 
-func requiredRegistryChartPath(b *bundle.Bundle) (string, error) {
+func requiredRegistryChartPath(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("chart") {
 		base := strings.ToLower(filepath.Base(e.Path))
@@ -432,7 +502,7 @@ func requiredRegistryChartPath(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func requiredDNSChartPath(b *bundle.Bundle) (string, error) {
+func requiredDNSChartPath(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("chart") {
 		base := strings.ToLower(filepath.Base(e.Path))
@@ -450,7 +520,7 @@ func requiredDNSChartPath(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func requiredInferenceChartPath(b *bundle.Bundle) (string, error) {
+func requiredInferenceChartPath(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("chart") {
 		base := strings.ToLower(filepath.Base(e.Path))
@@ -468,7 +538,7 @@ func requiredInferenceChartPath(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func crdPaths(b *bundle.Bundle) []string {
+func crdPaths(b entrySource) []string {
 	entries := b.Entries("kubernetes-crds")
 	paths := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -478,7 +548,7 @@ func crdPaths(b *bundle.Bundle) []string {
 	return paths
 }
 
-func requiredMetadataBundleArchivePath(b *bundle.Bundle) (string, error) {
+func requiredMetadataBundleArchivePath(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("artifacts") {
 		base := strings.ToLower(filepath.Base(e.Path))
@@ -496,7 +566,7 @@ func requiredMetadataBundleArchivePath(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func configurationPath(b *bundle.Bundle) (string, error) {
+func configurationPath(b entrySource) (string, error) {
 	entries := b.Entries("configuration")
 	if len(entries) == 0 {
 		return "", fmt.Errorf("bundle has no configuration entry")
@@ -513,7 +583,7 @@ func configurationPath(b *bundle.Bundle) (string, error) {
 	return "", fmt.Errorf("bundle has multiple configuration entries but none is values.yaml/values.yml")
 }
 
-func optionalCatalogPath(b *bundle.Bundle) (string, error) {
+func optionalCatalogPath(b entrySource) (string, error) {
 	var found string
 	for _, e := range b.Entries("configuration") {
 		base := strings.ToLower(filepath.Base(e.Path))
@@ -528,7 +598,7 @@ func optionalCatalogPath(b *bundle.Bundle) (string, error) {
 	return found, nil
 }
 
-func applianceBinaryPath(b *bundle.Bundle, baseName string) (string, error) {
+func applianceBinaryPath(b entrySource, baseName string) (string, error) {
 	for _, e := range b.Entries("appliance") {
 		if strings.EqualFold(filepath.Base(e.Path), baseName) {
 			return e.Path, nil
@@ -551,6 +621,9 @@ func componentRootDir(b *bundle.Bundle, component string) string {
 func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 	out := make([]images.Image, 0, len(all))
 	for _, image := range all {
+		if strings.HasPrefix(image.Name, "registry.local/workspace-provisioner@") && !r.BuildEnabled {
+			continue
+		}
 		if image.Category == images.CategoryDependency {
 			if strings.HasPrefix(image.Name, "registry.local/artifact-server@") && !r.ArtifactEnabled {
 				continue

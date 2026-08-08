@@ -271,3 +271,125 @@ func TestAssembleAndVerifyBundleWithoutSupportedUpgradeSources(t *testing.T) {
 		t.Fatalf("expected assembled bundle to verify, got: %v", err)
 	}
 }
+
+func TestAssemblePackBaseExcludesWorkflowAndInference(t *testing.T) {
+	releaseInputDir := buildReleaseInputDir(t)
+	staging := t.TempDir()
+	writeTestFile(t, staging, "zonctl", "zonctl-binary", 0o750)
+	writeTestFile(t, staging, "k3s", "k3s-binary", 0o750)
+	writeTestFile(t, staging, "install.sh", "#!/bin/sh\n", 0o750)
+	writeTestFile(t, staging, "k3s-airgap-images.tar", "k3s images", 0o640)
+	writeTestFile(t, staging, "control-plane.tar", "app image", 0o640)
+	writeTestFile(t, staging, "chart.tgz", "chart", 0o640)
+	writeTestFile(t, staging, "values.yaml", "replicaCount: 1\n", 0o640)
+	writeTestFile(t, staging, "workflows-chart.tgz", "workflows", 0o640)
+	writeTestFile(t, staging, "workflow-controller.oci.tar.zst", "controller", 0o640)
+	writeTestFile(t, staging, "workspace-provisioner.oci.tar.zst", "provisioner", 0o640)
+	writeTestFile(t, staging, "workflows.argoproj.io.yaml", "crd", 0o640)
+
+	_, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyPath := filepath.Join(staging, "release-signing.key")
+	if err := os.WriteFile(privateKeyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := releasebundle.Config{
+		SchemaVersion:         1,
+		BundleVersion:         "9.1.0",
+		ReleaseInputDir:       releaseInputDir,
+		BundleDir:             filepath.Join(t.TempDir(), "bundle-base"),
+		SigningKeyID:          "release-signing-key",
+		SigningPrivateKeyPath: privateKeyPath,
+		HostBaseline:          releasebundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+		Pack:                  releasebundle.PackBase,
+		Entries: []releasebundle.EntryConfig{
+			{SourcePath: filepath.Join(staging, "zonctl"), TargetPath: "zonctl", Component: "appliance", Executable: true},
+			{SourcePath: filepath.Join(staging, "k3s"), TargetPath: "k3s/binary/k3s", Component: "k3s-binary", Executable: true},
+			{SourcePath: filepath.Join(staging, "install.sh"), TargetPath: "k3s/install/install.sh", Component: "k3s-install", Executable: true},
+			{SourcePath: filepath.Join(staging, "k3s-airgap-images.tar"), TargetPath: "k3s/images/k3s-airgap-images.tar", Component: "k3s-images"},
+			{SourcePath: filepath.Join(staging, "control-plane.tar"), TargetPath: "oci-images/control-plane.tar", Component: "oci-images", ImageReference: "internal/control-plane:2.4.0"},
+			{SourcePath: filepath.Join(staging, "chart.tgz"), TargetPath: "charts/appliance-chart-2.4.0.tgz", Component: "chart"},
+			{SourcePath: filepath.Join(staging, "values.yaml"), TargetPath: "configuration/values.yaml", Component: "configuration"},
+			{SourcePath: filepath.Join(staging, "workflows-chart.tgz"), TargetPath: "charts/workflows-chart-1.0.0.tgz", Component: "chart"},
+			{SourcePath: filepath.Join(staging, "workflow-controller.oci.tar.zst"), TargetPath: "oci-images/workflow-controller.oci.tar.zst", Component: "oci-images", ImageReference: "quay.io/argoproj/workflow-controller:v3.5.0"},
+			{SourcePath: filepath.Join(staging, "workspace-provisioner.oci.tar.zst"), TargetPath: "oci-images/workspace-provisioner.oci.tar.zst", Component: "oci-images", ImageReference: "registry.local/workspace-provisioner@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+			{SourcePath: filepath.Join(staging, "workflows.argoproj.io.yaml"), TargetPath: "kubernetes/crds/workflows.argoproj.io.yaml", Component: "kubernetes-crds"},
+		},
+	}
+
+	result, err := releasebundle.Assemble(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("expected base pack assembly to succeed, got: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "charts", "workflows-chart-1.0.0.tgz")); !os.IsNotExist(err) {
+		t.Fatalf("base pack must exclude workflows chart, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-runtime.oci.tar.zst")); !os.IsNotExist(err) {
+		t.Fatalf("base pack must exclude inference image, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "appliance-ui.oci.tar.zst")); err != nil {
+		t.Fatalf("base pack must keep UI image: %v", err)
+	}
+}
+
+func TestAssemblePackInferenceOnly(t *testing.T) {
+	releaseInputDir := buildReleaseInputDir(t)
+	staging := t.TempDir()
+	writeTestFile(t, staging, "zonctl", "zonctl-binary", 0o750)
+	writeTestFile(t, staging, "k3s", "k3s-binary", 0o750)
+	writeTestFile(t, staging, "control-plane.tar", "app image", 0o640)
+	writeTestFile(t, staging, "chart.tgz", "chart", 0o640)
+	writeTestFile(t, staging, "values.yaml", "replicaCount: 1\n", 0o640)
+
+	_, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyPath := filepath.Join(staging, "release-signing.key")
+	if err := os.WriteFile(privateKeyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := releasebundle.Config{
+		SchemaVersion:         1,
+		BundleVersion:         "9.1.0",
+		ReleaseInputDir:       releaseInputDir,
+		BundleDir:             filepath.Join(t.TempDir(), "bundle-inference"),
+		SigningKeyID:          "release-signing-key",
+		SigningPrivateKeyPath: privateKeyPath,
+		HostBaseline:          releasebundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+		Pack:                  releasebundle.PackInference,
+		Entries: []releasebundle.EntryConfig{
+			{SourcePath: filepath.Join(staging, "zonctl"), TargetPath: "zonctl", Component: "appliance", Executable: true},
+			{SourcePath: filepath.Join(staging, "k3s"), TargetPath: "k3s/binary/k3s", Component: "k3s-binary", Executable: true},
+			{SourcePath: filepath.Join(staging, "control-plane.tar"), TargetPath: "oci-images/control-plane.tar", Component: "oci-images", ImageReference: "internal/control-plane:2.4.0"},
+			{SourcePath: filepath.Join(staging, "chart.tgz"), TargetPath: "charts/appliance-chart-2.4.0.tgz", Component: "chart"},
+			{SourcePath: filepath.Join(staging, "values.yaml"), TargetPath: "configuration/values.yaml", Component: "configuration"},
+		},
+	}
+
+	result, err := releasebundle.Assemble(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("expected inference pack assembly to succeed, got: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-runtime.oci.tar.zst")); err != nil {
+		t.Fatalf("inference pack must include runtime image: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "chart", "appliance-inference-0.6.5.tgz")); err != nil {
+		t.Fatalf("inference pack must include inference chart: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "zonctl")); !os.IsNotExist(err) {
+		t.Fatalf("inference pack must not include base appliance binary, stat err=%v", err)
+	}
+}

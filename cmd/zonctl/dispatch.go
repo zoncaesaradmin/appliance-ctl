@@ -228,7 +228,7 @@ func resolveInstallSource(opts cliOptions) (install.Source, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load release signing public key: %w", err)
 	}
-	return install.OfflineSource{BundleDir: opts.bundleDir, PublicKey: &pub}, nil
+	return install.OfflineSource{BundleDir: opts.bundleDir, PackDirs: append([]string(nil), opts.packDirs...), PublicKey: &pub}, nil
 }
 
 type resolvedInstallSource struct {

@@ -28,6 +28,7 @@ type bundleSpec struct {
 	k3sVersion       string
 	chartVersion     string
 	supportedSources []string
+	includeWorkflows bool
 }
 
 func healthyUpgradeHostFacts(host.Options) (host.Facts, error) {
@@ -74,10 +75,37 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image " + spec.bundleVersion, "internal/appliance-ui:" + spec.bundleVersion},
 		{"oci-images/appliance-host-agent.tar", "oci-images", "fake appliance host agent image " + spec.bundleVersion, "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		{"oci-images/dev-build.tar", "oci-images", "fake dev-build builder image " + spec.bundleVersion, "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"},
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image " + spec.bundleVersion, "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image " + spec.bundleVersion, "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image " + spec.bundleVersion, "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+	}
+	if spec.includeWorkflows {
+		entries = append(entries,
+			struct {
+				relPath        string
+				component      string
+				content        string
+				imageReference string
+			}{"charts/workflows-chart-3.5.10.tgz", "chart", "fake workflows chart", ""},
+			struct {
+				relPath        string
+				component      string
+				content        string
+				imageReference string
+			}{"kubernetes/crds/workflows.argoproj.io.yaml", "kubernetes-crds", "kind: CustomResourceDefinition\n", ""},
+			struct {
+				relPath        string
+				component      string
+				content        string
+				imageReference string
+			}{"oci-images/workflow-controller.tar", "oci-images", "fake workflow-controller image", "quay.io/argoproj/workflow-controller:v3.5.10"},
+			struct {
+				relPath        string
+				component      string
+				content        string
+				imageReference string
+			}{"oci-images/workflow-executor.tar", "oci-images", "fake workflow executor image", "quay.io/argoproj/argoexec:v3.5.10"},
+		)
 	}
 	entries = append(entries, struct {
 		relPath        string
@@ -136,6 +164,9 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		},
 		"signingKeyId": "release-signing-key",
 		"entries":      manifestEntries,
+	}
+	if spec.includeWorkflows {
+		doc["compatibility"].(map[string]any)["workflowsVersion"] = "3.5.10"
 	}
 	manifestBytes, err := json.Marshal(doc)
 	if err != nil {
@@ -480,6 +511,7 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
+		includeWorkflows: true,
 	})
 
 	fake := &fakeK3s{}
@@ -511,8 +543,8 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 			importCalls++
 		}
 	}
-	if importCalls != 6 {
-		t.Fatalf("expected 6 image import calls during same-version refresh (artifact-server + control-plane + UI + host agent + workspace provisioner + dev-build), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 7 {
+		t.Fatalf("expected 7 image import calls during same-version refresh (artifact-server + control-plane + UI + host agent + workspace provisioner + workflow controller/executor), got %d: %v", importCalls, fcli.calls)
 	}
 }
 
@@ -692,6 +724,7 @@ func TestUpgrade_HTTPSSourcesDoNotCreateSourceCredentialSecrets(t *testing.T) {
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
+		includeWorkflows: true,
 	})
 
 	fake := &fakeK3s{}
@@ -785,10 +818,11 @@ func TestUpgrade_ArtifactProfileUsesApplianceIdentityForRegistry(t *testing.T) {
 func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) {
 	for _, profile := range []string{"storage", "storage-landns"} {
 		t.Run(profile, func(t *testing.T) {
-			env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+			env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "builder")
 			bundleDir, pub := buildBundle(t, bundleSpec{
 				bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 				supportedSources: []string{"2.3.0"},
+				includeWorkflows: true,
 			})
 
 			fake := &fakeK3s{}
@@ -962,11 +996,10 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 	}
 
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:          {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:                 {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:          {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir: {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:        {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir: {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:  {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only core-profile log directory prep %v, got %v", wantOwnedPaths, ownedPaths)
@@ -1165,12 +1198,16 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
 	case "workspace-provisioner.tar":
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
-	case "dev-build.tar":
-		return []string{"registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"}
 	case "artifact-server.tar":
 		return []string{"registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	case "dns-server.tar":
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+	case "inference-runtime.tar":
+		return []string{"registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+	case "workflow-controller.tar":
+		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
+	case "workflow-executor.tar":
+		return []string{"quay.io/argoproj/argoexec:v3.5.10"}
 	default:
 		return nil
 	}
