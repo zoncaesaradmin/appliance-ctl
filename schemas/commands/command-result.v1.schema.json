@@ -362,7 +362,10 @@
                     "landns",
                     "storage-landns",
                     "builder-landns",
-                    "builder-storage-landns"
+                    "builder-storage-landns",
+                    "lanllm",
+                    "builder-lanllm",
+                    "builder-lanllm-storage-landns"
                   ]
                 },
                 "metadataVersion": {
@@ -655,7 +658,10 @@
                     "landns",
                     "storage-landns",
                     "builder-landns",
-                    "builder-storage-landns"
+                    "builder-storage-landns",
+                    "lanllm",
+                    "builder-lanllm",
+                    "builder-lanllm-storage-landns"
                   ]
                 },
                 "metadataVersion": {

@@ -42,7 +42,10 @@
         "landns",
         "storage-landns",
         "builder-landns",
-        "builder-storage-landns"
+        "builder-storage-landns",
+        "lanllm",
+        "builder-lanllm",
+        "builder-lanllm-storage-landns"
       ],
       "description": "Product-facing appliance profile selected for this installation."
     },
