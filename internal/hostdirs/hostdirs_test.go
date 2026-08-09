@@ -135,6 +135,25 @@ func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
 	t.Fatal("expected host agent log directory in ServiceLogDirs")
 }
 
+func TestServiceLogDirs_AlwaysIncludesAutomationRuntimeLogDirectory(t *testing.T) {
+	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false)
+	for _, dir := range dirs {
+		if dir.Path == hostdirs.AutomationRuntimeLogDir {
+			if dir.UID != hostdirs.AutomationRuntimeDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
+				t.Fatalf("automation runtime dir ownership = %d:%d, want %d:%d", dir.UID, dir.GID, hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID)
+			}
+			if dir.Mode != hostdirs.ServiceLogDirMode {
+				t.Fatalf("automation runtime dir mode = %o, want %o", dir.Mode, hostdirs.ServiceLogDirMode)
+			}
+			if dir.UID == hostdirs.InferenceDirOwnerUID {
+				t.Fatal("automation runtime must not reuse inference UID 10006")
+			}
+			return
+		}
+	}
+	t.Fatal("expected automation runtime log directory in ServiceLogDirs")
+}
+
 func TestServiceLogFiles_ArtifactApplicationLogReadable(t *testing.T) {
 	if files := hostdirs.ServiceLogFiles(false, true, true, true, true); len(files) != 1 || files[0].Path != hostdirs.HostAgentDaemonLog {
 		t.Fatalf("expected only host-agent daemon log without artifact capability, got %#v", files)

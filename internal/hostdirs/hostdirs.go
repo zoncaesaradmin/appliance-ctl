@@ -60,6 +60,10 @@ const (
 	// from HostAgentDirOwnerUID even though both are non-root appliance
 	// identities — never reuse service UIDs across components.
 	InferenceDirOwnerUID = 10006
+	// AutomationRuntimeDirOwnerUID is the fixed numeric identity for the
+	// automation-runtime pod (metadata-bundle + DSL execution). Distinct from
+	// InferenceDirOwnerUID — never reuse service UIDs across components.
+	AutomationRuntimeDirOwnerUID = 10007
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -98,6 +102,9 @@ const (
 	// InferenceLogDir is the host-visible inference runtime log directory
 	// under the shared appliance log tree.
 	InferenceLogDir = "/data/zon/logs/inference"
+	// AutomationRuntimeLogDir is the host-visible automation-runtime log
+	// directory under the shared appliance log tree.
+	AutomationRuntimeLogDir = "/data/zon/logs/automation-runtime"
 	// InferenceModelsDir is the host-visible model-weight tree mounted into
 	// the inference runtime at /models (filled by zonctl models-import).
 	InferenceModelsDir = "/data/zon/inference/models"
@@ -128,9 +135,10 @@ type OwnedDir struct {
 }
 
 // ServiceLogDirs returns the host-visible log directories the selected
-// capability set requires. Control-plane, UI, and the appliance host agent
-// always exist; registry logs, files API backing store, workflow-controller,
-// DNS, and inference logs are added only when those capabilities are enabled.
+// capability set requires. Control-plane, UI, host agent, and automation
+// runtime always exist; registry logs, files API backing store,
+// workflow-controller, DNS, and inference logs are added only when those
+// capabilities are enabled.
 func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool) []OwnedDir {
 	dirs := []OwnedDir{
 		{
@@ -151,6 +159,13 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS,
 			CheckID: "host-agent-log-directory-owned",
 			Path:    HostAgentLogDir,
 			UID:     HostAgentDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		},
+		{
+			CheckID: "automation-runtime-log-directory-owned",
+			Path:    AutomationRuntimeLogDir,
+			UID:     AutomationRuntimeDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
 		},

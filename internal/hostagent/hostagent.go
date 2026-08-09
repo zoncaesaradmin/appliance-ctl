@@ -202,7 +202,9 @@ func isMissingUnitError(err error) bool {
 		return false
 	}
 	text := err.Error()
-	return strings.Contains(text, "not loaded") || strings.Contains(text, "No such file")
+	return strings.Contains(text, "not loaded") ||
+		strings.Contains(text, "No such file") ||
+		strings.Contains(text, "does not exist")
 }
 
 type fileBackup struct {

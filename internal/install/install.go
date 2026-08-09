@@ -287,20 +287,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	// Host-visible metadata-bundle tree: extract before Helm so the control
-	// plane mounts a real initial active policy (not only the embedded
+	// Host-visible metadata-bundle tree: extract before Helm so Automation
+	// Runtime mounts a real initial active policy (not only the embedded
 	// fallback) and so the selected appliance profile is validated against
 	// the policy catalog fail-closed.
 	metadataBundlesDir := strings.TrimSpace(opts.MetadataBundlesDir)
 	if metadataBundlesDir == "" {
 		metadataBundlesDir = hostdirs.MetadataBundlesDir
 	}
-	if err := o.EnsureOwnedDir(metadataBundlesDir, hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
+	if err := o.EnsureOwnedDir(metadataBundlesDir, hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
 		return nil, checks, fmt.Errorf("install: prepare metadata-bundles directory: %w", err)
 	}
 	checks = append(checks, evidence.Check{
 		ID: "metadata-bundles-directory-owned", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("%s owned by %d:%d", metadataBundlesDir, hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+		Message:   fmt.Sprintf("%s owned by %d:%d", metadataBundlesDir, hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID),
 		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
 	metadataVersion, metadataDigest, err := stageMetadataBundle(
