@@ -73,6 +73,8 @@
           "$ref": "#/$defs/artifact",
           "description": "Signed appliance metadata-bundle archive (appliance-metadata-bundle-X.Y.Z.N.tar.zst)."
         },
+        "messageBrokerImage": { "$ref": "#/$defs/artifact", "description": "Pinned NATS JetStream OCI image archive." },
+        "messageBrokerChart": { "$ref": "#/$defs/artifact", "description": "Dedicated always-on message broker chart." },
         "configurationSchema": { "$ref": "#/$defs/artifact" },
         "compatibility": { "$ref": "#/$defs/artifact" },
         "checksums": { "$ref": "#/$defs/artifact" },

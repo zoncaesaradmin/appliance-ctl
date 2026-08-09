@@ -64,6 +64,8 @@ type Artifacts struct {
 	InferenceRuntimeImage   FileArtifact
 	InferenceChart          FileArtifact
 	MetadataBundle          FileArtifact
+	MessageBrokerImage      FileArtifact
+	MessageBrokerChart      FileArtifact
 	WorkflowsChart          FileArtifact
 	WorkflowControllerImage FileArtifact
 	WorkflowExecutorImage   FileArtifact
@@ -95,6 +97,8 @@ type doc struct {
 		InferenceRuntimeImage   fileArtifact   `json:"inferenceRuntimeImage"`
 		InferenceChart          fileArtifact   `json:"inferenceChart"`
 		MetadataBundle          fileArtifact   `json:"metadataBundle"`
+		MessageBrokerImage      fileArtifact   `json:"messageBrokerImage"`
+		MessageBrokerChart      fileArtifact   `json:"messageBrokerChart"`
 		WorkflowsChart          fileArtifact   `json:"workflowsChart"`
 		WorkflowControllerImage fileArtifact   `json:"workflowControllerImage"`
 		WorkflowExecutorImage   fileArtifact   `json:"workflowExecutorImage"`
@@ -161,6 +165,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			InferenceRuntimeImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceRuntimeImage),
 			InferenceChart:          toFileArtifact(rootDir, parsed.Artifacts.InferenceChart),
 			MetadataBundle:          toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
+			MessageBrokerImage:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerImage),
+			MessageBrokerChart:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerChart),
 			WorkflowsChart:          toFileArtifact(rootDir, parsed.Artifacts.WorkflowsChart),
 			WorkflowControllerImage: toFileArtifact(rootDir, parsed.Artifacts.WorkflowControllerImage),
 			WorkflowExecutorImage:   toFileArtifact(rootDir, parsed.Artifacts.WorkflowExecutorImage),
@@ -190,6 +196,12 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "configuration-schema", Path: input.Artifacts.ConfigurationSchema.Path, ExpectedDigest: input.Artifacts.ConfigurationSchema.Digest, ExpectedSizeBytes: input.Artifacts.ConfigurationSchema.SizeBytes},
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
 		{Name: "checksums", Path: input.Artifacts.Checksums.Path, ExpectedDigest: input.Artifacts.Checksums.Digest, ExpectedSizeBytes: input.Artifacts.Checksums.SizeBytes},
+	}
+	if input.Artifacts.MessageBrokerImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "message-broker-image", Path: input.Artifacts.MessageBrokerImage.Path, ExpectedDigest: input.Artifacts.MessageBrokerImage.Digest, ExpectedSizeBytes: input.Artifacts.MessageBrokerImage.SizeBytes})
+	}
+	if input.Artifacts.MessageBrokerChart.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "message-broker-chart", Path: input.Artifacts.MessageBrokerChart.Path, ExpectedDigest: input.Artifacts.MessageBrokerChart.Digest, ExpectedSizeBytes: input.Artifacts.MessageBrokerChart.SizeBytes})
 	}
 	if input.Artifacts.InferenceRuntimeImage.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{

@@ -232,6 +232,19 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 				Component:  "chart",
 			}
 		}
+		if input.Artifacts.MessageBrokerImage.Path != "" && input.Artifacts.MessageBrokerChart.Path != "" {
+			messageBrokerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.MessageBrokerImage.Path)
+			if _, exists := entryByTarget[messageBrokerImageTarget]; !exists {
+				if !isCanonicalMessageBrokerReference(input.Artifacts.MessageBrokerImage.ImageReference) {
+					return Result{}, fmt.Errorf("releasebundle: message broker imageReference must be registry.local/nats@sha256:<64 lowercase hex>, got %q", input.Artifacts.MessageBrokerImage.ImageReference)
+				}
+				entryByTarget[messageBrokerImageTarget] = EntryConfig{SourcePath: input.Artifacts.MessageBrokerImage.Path, TargetPath: messageBrokerImageTarget, Component: "oci-images", ImageReference: input.Artifacts.MessageBrokerImage.ImageReference}
+			}
+			messageBrokerChartTarget := "chart/" + filepath.Base(input.Artifacts.MessageBrokerChart.Path)
+			if _, exists := entryByTarget[messageBrokerChartTarget]; !exists {
+				entryByTarget[messageBrokerChartTarget] = EntryConfig{SourcePath: input.Artifacts.MessageBrokerChart.Path, TargetPath: messageBrokerChartTarget, Component: "chart"}
+			}
+		}
 		metadataBundleBase := filepath.Base(input.Artifacts.MetadataBundle.Path)
 		metadataBundleTarget := "artifacts/" + metadataBundleBase
 		if _, exists := entryByTarget[metadataBundleTarget]; !exists {
@@ -451,6 +464,19 @@ func isCanonicalDNSReference(ref string) bool {
 
 func isCanonicalInferenceRuntimeReference(ref string) bool {
 	const prefix = "registry.local/inference-runtime@sha256:"
+	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
+		return false
+	}
+	for _, c := range strings.TrimPrefix(ref, prefix) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCanonicalMessageBrokerReference(ref string) bool {
+	const prefix = "registry.local/nats@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}

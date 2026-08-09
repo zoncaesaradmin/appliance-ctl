@@ -82,14 +82,15 @@ type Options struct {
 }
 
 const (
-	registryReleaseName  = "appliance-registry"
-	registryNamespace    = "artifacts"
-	workflowsReleaseName = "appliance-workflows"
-	workflowsNamespace   = "workflows"
-	dnsReleaseName       = "appliance-dns"
-	dnsNamespace         = "dns"
-	inferenceReleaseName = "appliance-inference"
-	inferenceNamespace   = "inference"
+	registryReleaseName      = "appliance-registry"
+	messageBrokerReleaseName = "appliance-message-broker"
+	registryNamespace        = "artifacts"
+	workflowsReleaseName     = "appliance-workflows"
+	workflowsNamespace       = "workflows"
+	dnsReleaseName           = "appliance-dns"
+	dnsNamespace             = "dns"
+	inferenceReleaseName     = "appliance-inference"
+	inferenceNamespace       = "inference"
 )
 
 // Orchestrator holds the injectable adapters Upgrade drives.
@@ -570,6 +571,15 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
+	if resolved.MessageBrokerChartPath != "" {
+		messageBrokerCheck, messageBrokerErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: opts.ChartNamespace})
+		checks = append(checks, messageBrokerCheck)
+		if messageBrokerErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: message broker: %w", messageBrokerErr), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
 	if hadWorkflowsBefore && !targetWorkflows {
 		if err := applier.Uninstall(ctx, workflowsReleaseName); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: remove workflows capability: %w", err), rollback)

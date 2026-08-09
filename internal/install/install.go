@@ -39,6 +39,7 @@ const (
 	workflowsReleaseName        = "appliance-workflows"
 	workflowsNamespace          = "workflows"
 	registryReleaseName         = "appliance-registry"
+	messageBrokerReleaseName    = "appliance-message-broker"
 	registryNamespace           = "artifacts"
 	dnsReleaseName              = "appliance-dns"
 	dnsNamespace                = "dns"
@@ -582,6 +583,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikTimeoutErr), runRollbacks())
 	}
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
+	if resolved.MessageBrokerChartPath != "" {
+		messageBrokerPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: opts.ChartNamespace})
+		checks = append(checks, messageBrokerPrepared.Checks...)
+		if prepErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: prepare message broker: %w", prepErr), runRollbacks())
+		}
+		rollbacks = append(rollbacks, messageBrokerPrepared.Cleanup)
+		messageBrokerCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: opts.ChartNamespace})
+		checks = append(checks, messageBrokerCheck)
+		if applyErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: message broker: %w", applyErr), runRollbacks())
+		}
+		rollbacks = append(rollbacks, func() error { return applier.Rollback(ctx, messageBrokerReleaseName, true) })
+	}
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,

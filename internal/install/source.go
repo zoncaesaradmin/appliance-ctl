@@ -38,16 +38,17 @@ type Resolved struct {
 	// next to zonctl-real so status/verify work without the temp bundle PATH.
 	HelperBinaryPaths []string
 
-	K3sBinaryPath       string
-	ChartPath           string
-	RegistryChartPath   string
-	DNSChartPath        string
-	InferenceChartPath  string
-	WorkflowsChartPath  string
-	WorkflowsCRDPaths   []string
-	ConfigurationPath   string
-	HostAgentBinaryPath string
-	HostPackagesRootDir string
+	K3sBinaryPath          string
+	ChartPath              string
+	RegistryChartPath      string
+	DNSChartPath           string
+	InferenceChartPath     string
+	MessageBrokerChartPath string
+	WorkflowsChartPath     string
+	WorkflowsCRDPaths      []string
+	ConfigurationPath      string
+	HostAgentBinaryPath    string
+	HostPackagesRootDir    string
 	// MetadataBundleArchivePath is the signed base appliance metadata-bundle archive.
 	MetadataBundleArchivePath string
 	// WorkspaceProvisionerImageReference is the appliance-owned generic
@@ -67,7 +68,8 @@ type Resolved struct {
 	// InferenceImageReference is the bundled, digest-pinned
 	// registry.local/inference-runtime image reference used for the
 	// inference capability.
-	InferenceImageReference string
+	InferenceImageReference     string
+	MessageBrokerImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -211,6 +213,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
+	messageBrokerChartPath := optionalMessageBrokerChartPath(view)
 
 	var k3sImages, ociImages []images.Image
 	for _, e := range b.Entries("k3s-images") {
@@ -220,7 +223,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -255,6 +258,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the inference pack was not provided: %w", effectiveProfile, err)
 		}
 	}
+	messageBrokerImageReference := optionalMessageBrokerImageReference(view)
 
 	return Resolved{
 		BundleVersion:                      b.BundleVersion,
@@ -277,6 +281,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		RegistryChartPath:                  registryChartPath,
 		DNSChartPath:                       dnsChartPath,
 		InferenceChartPath:                 inferenceChartPath,
+		MessageBrokerChartPath:             messageBrokerChartPath,
 		WorkflowsChartPath:                 workflowsChartPath,
 		WorkflowsCRDPaths:                  workflowsCRDPaths,
 		ConfigurationPath:                  configurationPath,
@@ -289,6 +294,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ArtifactServerImageReference:       artifactServerImageReference,
 		DNSImageReference:                  dnsImageReference,
 		InferenceImageReference:            inferenceImageReference,
+		MessageBrokerImageReference:        messageBrokerImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
@@ -343,6 +349,24 @@ func isDNSImageReference(ref string) bool {
 
 func isInferenceRuntimeImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/inference-runtime@sha256:")
+}
+
+func isMessageBrokerImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/nats@sha256:")
+}
+
+func optionalMessageBrokerImageReference(b entrySource) string {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isMessageBrokerImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return ""
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	return found
 }
 
 func isWorkflowDependencyReference(ref string) bool {
@@ -539,6 +563,21 @@ func requiredInferenceChartPath(b entrySource) (string, error) {
 		return "", fmt.Errorf("bundle has no appliance-inference chart entry")
 	}
 	return found, nil
+}
+
+func optionalMessageBrokerChartPath(b entrySource) string {
+	var found string
+	for _, e := range b.Entries("chart") {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if !strings.HasPrefix(base, "appliance-message-broker-") {
+			continue
+		}
+		if found != "" {
+			return ""
+		}
+		found = e.Path
+	}
+	return found
 }
 
 func crdPaths(b entrySource) []string {
