@@ -36,13 +36,17 @@ func WriteMinimalArchive(destPath, metadataVersion string, profileIDs ...string)
 	files := map[string]string{
 		dirName + "/bundle.yaml": fmt.Sprintf(`apiVersion: metadata.zon/v1
 kind: ApplianceMetadataBundle
+schemaVersion: 1
 metadata:
   metadataVersion: %q
   softwareVersion: %q
   createdAt: "2026-01-01T00:00:00Z"
+sections:
+  - profiles
+  - capabilities
 `, metadataVersion, strings.TrimSuffix(metadataVersion, ".0")),
 		dirName + "/profiles/catalog.yaml":     profiles.String(),
-		dirName + "/capabilities/catalog.yaml": "capabilities:\n  base:\n    displayName: base\n",
+		dirName + "/capabilities/catalog.yaml": "capabilities:\n  base:\n    displayName: base\n  host:\n    displayName: host\n    requires: [base]\n",
 	}
 
 	var buf bytes.Buffer
