@@ -26,8 +26,21 @@ const (
 	registryPublicFile  = "registry_ed25519_public.pem"
 	apiTokenPepperFile  = "api_token_pepper.key"
 	refreshPepperFile   = "refresh_pepper.key"
+	cursorHMACFile      = "cursor_hmac.key"
 	pepperLength        = 32
 )
+
+// requiredKeysSecretFiles is the exact set control-plane LoadOrGenerate expects
+// under the mounted keys directory. Installer-managed secrets are read-only in
+// the pod, so every name here must be pre-generated; missing files crash the
+// process when it tries to generate into a read-only Secret volume.
+var requiredKeysSecretFiles = []string{
+	sessionPrivateFile,
+	registryPrivateFile,
+	apiTokenPepperFile,
+	refreshPepperFile,
+	cursorHMACFile,
+}
 
 type chartPrereqs struct {
 	KeysSecretName string
@@ -242,8 +255,13 @@ func ensureKeysSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace
 	deadline := time.Now().Add(namespaceReadyTimeout)
 	for {
 		if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "get", "secret", secretName); err == nil {
+			if err := ensureKeysSecretComplete(ctx, run, kubeconfig, namespace, secretName); err != nil {
+				check.Status = evidence.StatusFail
+				check.Message = err.Error()
+				return false, check, err
+			}
 			check.Status = evidence.StatusPass
-			check.Message = fmt.Sprintf("installer-managed keys secret %s already present", secretName)
+			check.Message = fmt.Sprintf("installer-managed keys secret %s already present with required key material", secretName)
 			return false, check, nil
 		} else if !secretNotFound(err) && !namespaceTerminating(err) && !isTransientKubeError(err) {
 			check.Status = evidence.StatusFail
@@ -275,22 +293,27 @@ func ensureKeysSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace
 				"--kubeconfig", kubeconfig,
 				"--namespace", namespace,
 				"create", "secret", "generic", secretName,
-				"--from-file=" + filepath.Join(tempDir, sessionPrivateFile),
-				"--from-file=" + filepath.Join(tempDir, registryPrivateFile),
-				"--from-file=" + filepath.Join(tempDir, apiTokenPepperFile),
-				"--from-file=" + filepath.Join(tempDir, refreshPepperFile),
+			}
+			for _, name := range requiredKeysSecretFiles {
+				args = append(args, "--from-file="+filepath.Join(tempDir, name))
 			}
 			_, err := run(ctx, "kubectl", args...)
 			return err
 		}()
 		if createErr == nil || secretAlreadyExists(createErr) {
-			check.Status = evidence.StatusPass
-			if createErr == nil {
-				check.Message = fmt.Sprintf("created installer-managed keys secret %s", secretName)
-				return true, check, nil
+			if secretAlreadyExists(createErr) {
+				if err := ensureKeysSecretComplete(ctx, run, kubeconfig, namespace, secretName); err != nil {
+					check.Status = evidence.StatusFail
+					check.Message = err.Error()
+					return false, check, err
+				}
+				check.Status = evidence.StatusPass
+				check.Message = fmt.Sprintf("installer-managed keys secret %s already present with required key material", secretName)
+				return false, check, nil
 			}
-			check.Message = fmt.Sprintf("installer-managed keys secret %s already present", secretName)
-			return false, check, nil
+			check.Status = evidence.StatusPass
+			check.Message = fmt.Sprintf("created installer-managed keys secret %s", secretName)
+			return true, check, nil
 		}
 		if !namespaceTerminating(createErr) && !isTransientKubeError(createErr) {
 			check.Status = evidence.StatusFail
@@ -310,6 +333,57 @@ func ensureKeysSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace
 	}
 }
 
+// ensureKeysSecretComplete loads the existing keys secret and patches in any
+// required files that an older installer omitted (for example cursor_hmac.key).
+// Existing key material is never rotated; only missing names are generated.
+func ensureKeysSecretComplete(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName string) error {
+	out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace,
+		"get", "secret", secretName, "-o", "json")
+	if err != nil {
+		return fmt.Errorf("helm: read installer-managed keys secret %s: %w", secretName, err)
+	}
+	payload, err := extractJSONObject(out)
+	if err != nil {
+		return fmt.Errorf("helm: parse installer-managed keys secret %s: %w", secretName, err)
+	}
+	var secret secretJSON
+	if err := json.Unmarshal(payload, &secret); err != nil {
+		return fmt.Errorf("helm: decode installer-managed keys secret %s: %w", secretName, err)
+	}
+	if secret.Data == nil {
+		secret.Data = map[string]string{}
+	}
+
+	missing := make([]string, 0, len(requiredKeysSecretFiles))
+	for _, name := range requiredKeysSecretFiles {
+		if strings.TrimSpace(secret.Data[name]) == "" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	patchData := make(map[string]string, len(missing))
+	for _, name := range missing {
+		raw, err := generateKeysSecretFileContent(name)
+		if err != nil {
+			return fmt.Errorf("helm: generate missing key material %s: %w", name, err)
+		}
+		// Secret.data values are base64-encoded file bytes.
+		patchData[name] = base64.StdEncoding.EncodeToString(raw)
+	}
+	body, err := json.Marshal(map[string]any{"data": patchData})
+	if err != nil {
+		return fmt.Errorf("helm: marshal keys secret patch: %w", err)
+	}
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace,
+		"patch", "secret", secretName, "--type", "merge", "-p", string(body)); err != nil {
+		return fmt.Errorf("helm: patch installer-managed keys secret %s with missing files %v: %w", secretName, missing, err)
+	}
+	return nil
+}
+
 func deleteSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName string) error {
 	if secretName == "" {
 		return nil
@@ -322,35 +396,35 @@ func deleteSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, se
 }
 
 func writeKeysSecretFiles(dir string) error {
-	sessionKey, err := generateEd25519Seed()
-	if err != nil {
-		return err
-	}
-	registryKey, err := generateEd25519Seed()
-	if err != nil {
-		return err
-	}
-	apiPepper, err := generateRandomBytes(pepperLength)
-	if err != nil {
-		return err
-	}
-	refreshPepper, err := generateRandomBytes(pepperLength)
-	if err != nil {
-		return err
-	}
-
-	files := map[string][]byte{
-		sessionPrivateFile:  []byte(base64.StdEncoding.EncodeToString(sessionKey)),
-		registryPrivateFile: []byte(base64.StdEncoding.EncodeToString(registryKey)),
-		apiTokenPepperFile:  []byte(base64.StdEncoding.EncodeToString(apiPepper)),
-		refreshPepperFile:   []byte(base64.StdEncoding.EncodeToString(refreshPepper)),
-	}
-	for name, content := range files {
+	for _, name := range requiredKeysSecretFiles {
+		content, err := generateKeysSecretFileContent(name)
+		if err != nil {
+			return err
+		}
 		if err := os.WriteFile(filepath.Join(dir, name), content, 0o600); err != nil {
 			return fmt.Errorf("write keys secret file %s: %w", name, err)
 		}
 	}
 	return nil
+}
+
+func generateKeysSecretFileContent(name string) ([]byte, error) {
+	switch name {
+	case sessionPrivateFile, registryPrivateFile:
+		seed, err := generateEd25519Seed()
+		if err != nil {
+			return nil, err
+		}
+		return []byte(base64.StdEncoding.EncodeToString(seed)), nil
+	case apiTokenPepperFile, refreshPepperFile, cursorHMACFile:
+		raw, err := generateRandomBytes(pepperLength)
+		if err != nil {
+			return nil, err
+		}
+		return []byte(base64.StdEncoding.EncodeToString(raw)), nil
+	default:
+		return nil, fmt.Errorf("unsupported keys secret file %q", name)
+	}
 }
 
 func generateEd25519Seed() ([]byte, error) {
