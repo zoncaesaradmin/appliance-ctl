@@ -39,7 +39,8 @@ const (
 	containerdReadyTimeout      = 60 * time.Second
 	containerdReadyPollInterval = 1 * time.Second
 	workflowsReleaseName        = "appliance-workflows"
-	workflowsNamespace          = "workflows"
+	workflowsNamespace          = productconfig.WorkflowsControllerNamespace
+	workflowsBuildNamespace     = productconfig.WorkflowsBuildNamespace
 	registryReleaseName         = "appliance-registry"
 	messageBrokerReleaseName    = "appliance-message-broker"
 	messageBrokerNamespace      = "ace-system"
@@ -907,6 +908,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if resolved.WorkflowsEnabled {
 		if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, workflowsNamespace, nil); err != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: prepare workflows namespace %s: %w", workflowsNamespace, err), cleanupOnFailure())
+		}
+		if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, workflowsBuildNamespace, helm.RestrictedNamespaceLabels()); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: prepare workflows build namespace %s: %w", workflowsBuildNamespace, err), cleanupOnFailure())
 		}
 	}
 

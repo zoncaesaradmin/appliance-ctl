@@ -1305,6 +1305,7 @@ func TestInstall_EndToEndSuccessWithOptionalWorkflowsBringup(t *testing.T) {
 
 	var sawCRDApply bool
 	var sawWorkflowsHelm bool
+	var sawBuildNamespacePrepare bool
 	for _, c := range fcli.calls {
 		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "apply -f") && strings.Contains(c, "workflows.argoproj.io.yaml") {
 			sawCRDApply = true
@@ -1312,12 +1313,18 @@ func TestInstall_EndToEndSuccessWithOptionalWorkflowsBringup(t *testing.T) {
 		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install appliance-workflows") {
 			sawWorkflowsHelm = true
 		}
+		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "get namespace "+productconfig.WorkflowsBuildNamespace) {
+			sawBuildNamespacePrepare = true
+		}
 	}
 	if !sawCRDApply {
 		t.Fatalf("expected Workflows CRDs to be applied, got calls: %v", fcli.calls)
 	}
 	if !sawWorkflowsHelm {
 		t.Fatalf("expected Workflows Helm release to be installed, got calls: %v", fcli.calls)
+	}
+	if !sawBuildNamespacePrepare {
+		t.Fatalf("expected workflows build namespace %s to be prepared, got calls: %v", productconfig.WorkflowsBuildNamespace, fcli.calls)
 	}
 }
 

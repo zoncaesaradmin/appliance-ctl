@@ -35,7 +35,11 @@ const (
 	ArtifactsNamespace = "artifacts"
 	DNSNamespace       = "dns"
 	InferenceNamespace = "inference"
-	WorkflowsNamespace = "workflows"
+	// WorkflowsControllerNamespace hosts the workflow-controller release.
+	WorkflowsControllerNamespace = "workflows"
+	// WorkflowsBuildNamespace hosts build/workspace PVCs, workflow jobs, and
+	// related control-plane RBAC for appliance-managed workflows.
+	WorkflowsBuildNamespace = "appliance-builds"
 
 	// ImagePullSecretName mirrors helm.ImagePullSecretName for chart values
 	// injection. Secrets are namespaced; when lab image-pull is configured,
@@ -59,7 +63,8 @@ func ProductNamespaces(controlPlaneNS string) []string {
 		ArtifactsNamespace,
 		DNSNamespace,
 		InferenceNamespace,
-		WorkflowsNamespace,
+		WorkflowsControllerNamespace,
+		WorkflowsBuildNamespace,
 	}
 }
 
