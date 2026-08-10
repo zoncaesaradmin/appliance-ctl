@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
@@ -24,6 +25,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/rolloutsets"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
@@ -47,6 +49,12 @@ const (
 	inferenceReleaseName        = "appliance-inference"
 	inferenceNamespace          = "inference"
 )
+
+type freshReleaseResult struct {
+	checks   []evidence.Check
+	rollback func() error
+	err      error
+}
 
 // Options fully parameterizes a fresh install. Every path is explicit
 // (no hidden defaults inside this package) so tests can point every
@@ -197,6 +205,21 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			}
 		}
 		return errors.Join(errs...)
+	}
+	runExtraRollbacks := func(extra []func() error) error {
+		var errs []error
+		for i := len(extra) - 1; i >= 0; i-- {
+			if err := extra[i](); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}
+	cleanupOnFailure := func(extra ...func() error) error {
+		if opts.PreserveFailedState {
+			return nil
+		}
+		return errors.Join(runExtraRollbacks(extra), runRollbacks())
 	}
 	failInstall := func(primary error, cleanup error) error {
 		if opts.PreserveFailedState {
@@ -584,34 +607,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikTimeoutErr), runRollbacks())
 	}
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
-	if resolved.MessageBrokerChartPath != "" {
-		messageBrokerPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: messageBrokerNamespace})
-		checks = append(checks, messageBrokerPrepared.Checks...)
-		if prepErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: prepare message broker: %w", prepErr), runRollbacks())
-		}
-		rollbacks = append(rollbacks, messageBrokerPrepared.Cleanup)
-		messageBrokerCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: messageBrokerNamespace})
-		checks = append(checks, messageBrokerCheck)
-		if applyErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: message broker: %w", applyErr), runRollbacks())
-		}
-		rollbacks = append(rollbacks, func() error {
-			return applier.RollbackInNamespace(ctx, messageBrokerReleaseName, messageBrokerNamespace, true)
-		})
-	}
-
-	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-		Name:       opts.ChartReleaseName,
-		ChartPath:  resolved.ChartPath,
-		Namespace:  opts.ChartNamespace,
-		ValuesPath: preparedValuesPath,
-	})
-	checks = append(checks, prepared.Checks...)
-	if err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
-	}
-	rollbacks = append(rollbacks, prepared.Cleanup)
 
 	// ui-server / host-agent / automation-runtime live in ace-apps (chart appsNamespace).
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
@@ -655,19 +650,43 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		rollbacks = append(rollbacks, imagePullSecrets.Cleanup)
 	}
 
-	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
-		ControlNamespace:  opts.ChartNamespace,
-		ArtifactNamespace: registryNamespace,
-		IncludeArtifacts:  resolved.ArtifactEnabled,
-		FQDN:              identity.FQDN,
-		NodeIPv4:          nodeIPv4,
-		ExtraSANs:         opts.TLSSANs,
-	})
-	checks = append(checks, tlsPrepared.Checks...)
-	if tlsErr != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: %w", tlsErr), runRollbacks())
+	aceSystemValuesPath, cleanupAceSystemValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.AceSystemOverlay())
+	if err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-system values: %w", err), runRollbacks())
 	}
-	rollbacks = append(rollbacks, tlsPrepared.Cleanup)
+	defer cleanupAceSystemValues()
+	aceAppsValuesPath, cleanupAceAppsValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.AceAppsOverlay())
+	if err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-apps values: %w", err), runRollbacks())
+	}
+	defer cleanupAceAppsValues()
+	applicationSupportValuesPath, cleanupApplicationSupportValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.ApplicationSupportOverlay())
+	if err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare application-support values: %w", err), runRollbacks())
+	}
+	defer cleanupApplicationSupportValues()
+
+	dnsSupportValuesPath := ""
+	cleanupDNSSupportValues := func() {}
+	if resolved.DNSEnabled {
+		var prepErr error
+		dnsSupportValuesPath, cleanupDNSSupportValues, prepErr = productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.DNSSupportOverlay())
+		if prepErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: prepare dns-support values: %w", prepErr), runRollbacks())
+		}
+		defer cleanupDNSSupportValues()
+	}
+
+	workflowsSupportValuesPath := ""
+	cleanupWorkflowsSupportValues := func() {}
+	if resolved.WorkflowsEnabled {
+		var prepErr error
+		workflowsSupportValuesPath, cleanupWorkflowsSupportValues, prepErr = productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.WorkflowsSupportOverlay())
+		if prepErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: prepare workflows-support values: %w", prepErr), runRollbacks())
+		}
+		defer cleanupWorkflowsSupportValues()
+	}
 
 	for _, dir := range hostdirs.ServiceLogDirs(
 		resolved.ArtifactEnabled,
@@ -745,194 +764,305 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	if resolved.ArtifactEnabled {
-		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
-			opts.ChartNamespace, "appliance-keys", registryNamespace, productconfig.DefaultRegistryPublicKeySecret)
-		checks = append(checks, registryKeys.Checks...)
-		if keyErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: %w", keyErr), runRollbacks())
-		}
-		rollbacks = append(rollbacks, registryKeys.Cleanup)
-		registryCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-			Name: registryReleaseName, ChartPath: resolved.RegistryChartPath, Namespace: registryNamespace, ValuesPath: registryValuesPath,
-		})
-		checks = append(checks, registryCheck)
-		if applyErr != nil {
-			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-				Name:       registryReleaseName,
-				ChartPath:  resolved.RegistryChartPath,
-				Namespace:  registryNamespace,
-				ValuesPath: registryValuesPath,
-			})...)
-			var cleanupErr error
-			if !opts.PreserveFailedState {
-				cleanupErr = errors.Join(applier.Uninstall(ctx, registryReleaseName), runRollbacks())
-			}
-			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
-		}
-		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, registryReleaseName) })
-	}
-
-	// LAN DNS installs before the control plane, just like the registry
-	// above: the control plane readiness probe polls dnsReadyURL and
-	// assumes the release already exists by the time CP pods start.
-	if resolved.DNSEnabled {
-		// Re-assert after any host-package dpkg postinst may have started
-		// stock dnsmasq. Safe if packages were not installed.
-		if err := hostpackages.QuiesceStockDaemonUnits(); err != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: free port 53 from stock DNS packages: %w", err), runRollbacks())
-		}
-		dnsCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
-			NamespaceLabels: helm.PrivilegedNamespaceLabels(),
-		})
-		checks = append(checks, dnsCheck)
-		if applyErr != nil {
-			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-				Name:       dnsReleaseName,
-				ChartPath:  resolved.DNSChartPath,
-				Namespace:  dnsNamespace,
-				ValuesPath: dnsValuesPath,
-			})...)
-			var cleanupErr error
-			if !opts.PreserveFailedState {
-				cleanupErr = errors.Join(applier.Uninstall(ctx, dnsReleaseName), runRollbacks())
-			}
-			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
-		}
-		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, dnsReleaseName) })
-	}
-
-	// Inference runtime installs before the control plane so CP can proxy
-	// /inference/v1 to the in-cluster gateway when the capability is on.
-	if resolved.InferenceEnabled {
-		inferenceCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-			Name: inferenceReleaseName, ChartPath: resolved.InferenceChartPath, Namespace: inferenceNamespace, ValuesPath: inferenceValuesPath,
-			NamespaceLabels: helm.RestrictedNamespaceLabels(),
-		})
-		checks = append(checks, inferenceCheck)
-		if applyErr != nil {
-			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-				Name:       inferenceReleaseName,
-				ChartPath:  resolved.InferenceChartPath,
-				Namespace:  inferenceNamespace,
-				ValuesPath: inferenceValuesPath,
-			})...)
-			var cleanupErr error
-			if !opts.PreserveFailedState {
-				cleanupErr = errors.Join(applier.Uninstall(ctx, inferenceReleaseName), runRollbacks())
-			}
-			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
-		}
-		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, inferenceReleaseName) })
-	}
-
 	clusterRun := o.ClusterRun
 	if clusterRun == nil {
 		clusterRun = cli.Exec
 	}
-	if resolved.WorkflowsEnabled && len(resolved.WorkflowsCRDPaths) > 0 {
-		workflowsCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.WorkflowsCRDPaths, "workflows-crd")
-		checks = append(checks, workflowsCRDChecks...)
-		if applyErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), runRollbacks())
-		}
-	}
 
-	if resolved.WorkflowsEnabled && resolved.WorkflowsChartPath != "" {
-		workflowsPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-			Name:      workflowsReleaseName,
-			ChartPath: resolved.WorkflowsChartPath,
-			Namespace: workflowsNamespace,
-		})
-		checks = append(checks, workflowsPrepared.Checks...)
-		if prepErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: %w", prepErr), runRollbacks())
-		}
-		rollbacks = append(rollbacks, workflowsPrepared.Cleanup)
-
-		workflowsChartCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-			Name:      workflowsReleaseName,
-			ChartPath: resolved.WorkflowsChartPath,
-			Namespace: workflowsNamespace,
-		})
-		checks = append(checks, workflowsChartCheck)
-		if applyErr != nil {
-			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-				Name:      workflowsReleaseName,
-				ChartPath: resolved.WorkflowsChartPath,
-				Namespace: workflowsNamespace,
-			})...)
-			var cleanupErr error
-			if !opts.PreserveFailedState {
-				cleanupErr = errors.Join(applier.Rollback(ctx, workflowsReleaseName, true), runRollbacks())
-			}
-			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
-		}
-		rollbacks = append(rollbacks, func() error {
-			return applier.Rollback(ctx, workflowsReleaseName, true)
-		})
-	}
-
-	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+	aceSystemRelease := helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  resolved.ChartPath,
 		Namespace:  opts.ChartNamespace,
-		ValuesPath: preparedValuesPath,
+		ValuesPath: aceSystemValuesPath,
+	}
+	aceAppsRelease := helm.ChartRelease{
+		Name:       rolloutsets.AceAppsReleaseName,
+		ChartPath:  resolved.ChartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: aceAppsValuesPath,
+	}
+	applicationSupportRelease := helm.ChartRelease{
+		Name:       rolloutsets.ApplicationSupportReleaseName,
+		ChartPath:  resolved.ChartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: applicationSupportValuesPath,
+	}
+	dnsSupportRelease := helm.ChartRelease{
+		Name:       rolloutsets.DNSSupportReleaseName,
+		ChartPath:  resolved.ChartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: dnsSupportValuesPath,
+	}
+	workflowsSupportRelease := helm.ChartRelease{
+		Name:       rolloutsets.WorkflowsSupportReleaseName,
+		ChartPath:  resolved.ChartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: workflowsSupportValuesPath,
+	}
+
+	set1Releases := []helm.ChartRelease{aceSystemRelease}
+	if resolved.MessageBrokerChartPath != "" {
+		set1Releases = append(set1Releases, helm.ChartRelease{
+			Name:      messageBrokerReleaseName,
+			ChartPath: resolved.MessageBrokerChartPath,
+			Namespace: messageBrokerNamespace,
+		})
+	}
+	set1Results := make(chan freshReleaseResult, len(set1Releases))
+	var set1WG sync.WaitGroup
+	for _, rel := range set1Releases {
+		rel := rel
+		set1WG.Add(1)
+		go func() {
+			defer set1WG.Done()
+			set1Results <- applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, rel)
+		}()
+	}
+	set1WG.Wait()
+	close(set1Results)
+	var set1Rollbacks []func() error
+	var set1Err error
+	for result := range set1Results {
+		checks = append(checks, result.checks...)
+		if result.rollback != nil {
+			set1Rollbacks = append(set1Rollbacks, result.rollback)
+		}
+		if result.err != nil && set1Err == nil {
+			set1Err = result.err
+		}
+	}
+	if set1Err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", set1Err), cleanupOnFailure(set1Rollbacks...))
+	}
+	rollbacks = append(rollbacks, set1Rollbacks...)
+
+	ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, "controlplane", "appliance-controlplane-ready")
+	checks = append(checks, ready)
+	if waitErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: wait for controlplane: %w", waitErr), cleanupOnFailure())
+	}
+	if resolved.MessageBrokerChartPath != "" {
+		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, messageBrokerNamespace, "appliance-message-broker", "appliance-message-broker-ready")
+		checks = append(checks, ready)
+		if waitErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: wait for message broker: %w", waitErr), cleanupOnFailure())
+		}
+	}
+
+	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
+		ControlNamespace:  opts.ChartNamespace,
+		ArtifactNamespace: registryNamespace,
+		IncludeArtifacts:  resolved.ArtifactEnabled,
+		FQDN:              identity.FQDN,
+		NodeIPv4:          nodeIPv4,
+		ExtraSANs:         opts.TLSSANs,
 	})
-	checks = append(checks, chartCheck)
-	if err != nil {
-		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-			Name:       opts.ChartReleaseName,
-			ChartPath:  resolved.ChartPath,
-			Namespace:  opts.ChartNamespace,
-			ValuesPath: preparedValuesPath,
-		})...)
-		var cleanupErr error
-		if !opts.PreserveFailedState {
-			cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
-			cleanupErr = errors.Join(cleanupErr, runRollbacks())
-		}
-		return nil, checks, failInstall(fmt.Errorf("install: %w", err), cleanupErr)
+	checks = append(checks, tlsPrepared.Checks...)
+	if tlsErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", tlsErr), cleanupOnFailure())
 	}
-	// InstallOrUpgrade is async (no --wait). Block briefly until product Deployments
-	// are Available so we do not report success while pods are still creating.
+	rollbacks = append(rollbacks, tlsPrepared.Cleanup)
+
+	set2Result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppsRelease)
+	checks = append(checks, set2Result.checks...)
+	if set2Result.err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", set2Result.err), cleanupOnFailure(set2Result.rollback))
+	}
+	if set2Result.rollback != nil {
+		rollbacks = append(rollbacks, set2Result.rollback)
+	}
 	for _, wait := range []struct {
-		ns, deploy, id string
+		deploy string
+		id     string
 	}{
-		{opts.ChartNamespace, "controlplane", "appliance-controlplane-ready"},
-		{productconfig.ControlPlaneAppsNamespace, "ui-server", "appliance-ui-ready"},
-		{productconfig.ControlPlaneAppsNamespace, "automation-runtime", "appliance-automation-runtime-ready"},
+		{deploy: "ui-server", id: "appliance-ui-ready"},
+		{deploy: "automation-runtime", id: "appliance-automation-runtime-ready"},
 	} {
-		ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, wait.ns, wait.deploy, wait.id)
+		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, wait.deploy, wait.id)
 		checks = append(checks, ready)
 		if waitErr != nil {
-			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-				Name:       opts.ChartReleaseName,
-				ChartPath:  resolved.ChartPath,
-				Namespace:  opts.ChartNamespace,
-				ValuesPath: preparedValuesPath,
-			})...)
-			var cleanupErr error
-			if !opts.PreserveFailedState {
-				cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
-				cleanupErr = errors.Join(cleanupErr, runRollbacks())
-			}
-			return nil, checks, failInstall(fmt.Errorf("install: wait for %s/%s: %w", wait.ns, wait.deploy, waitErr), cleanupErr)
+			return nil, checks, failInstall(fmt.Errorf("install: wait for %s: %w", wait.deploy, waitErr), cleanupOnFailure())
 		}
 	}
-	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityHost) {
-		ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "host-agent", "appliance-host-agent-ready")
+	if resolved.HostEnabled {
+		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "host-agent", "appliance-host-agent-ready")
 		checks = append(checks, ready)
 		if waitErr != nil {
-			var cleanupErr error
-			if !opts.PreserveFailedState {
-				cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
-				cleanupErr = errors.Join(cleanupErr, runRollbacks())
-			}
-			return nil, checks, failInstall(fmt.Errorf("install: wait for host-agent: %w", waitErr), cleanupErr)
+			return nil, checks, failInstall(fmt.Errorf("install: wait for host-agent: %w", waitErr), cleanupOnFailure())
 		}
 	}
+
+	type parallelSetResult struct {
+		checks    []evidence.Check
+		rollbacks []func() error
+		err       error
+	}
+
+	taskCount := 1
+	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled {
+		taskCount++
+	}
+	if resolved.WorkflowsEnabled {
+		taskCount++
+	}
+
+	parallelResults := make(chan parallelSetResult, taskCount)
+	var parallelWG sync.WaitGroup
+
+	parallelWG.Add(1)
+	go func() {
+		defer parallelWG.Done()
+		result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, applicationSupportRelease)
+		out := parallelSetResult{checks: result.checks, err: result.err}
+		if result.rollback != nil {
+			out.rollbacks = append(out.rollbacks, result.rollback)
+		}
+		parallelResults <- out
+	}()
+
+	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled {
+		parallelWG.Add(1)
+		go func() {
+			defer parallelWG.Done()
+			var out parallelSetResult
+			if resolved.ArtifactEnabled {
+				registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
+					opts.ChartNamespace, "appliance-keys", registryNamespace, productconfig.DefaultRegistryPublicKeySecret)
+				out.checks = append(out.checks, registryKeys.Checks...)
+				if keyErr != nil {
+					out.err = keyErr
+					parallelResults <- out
+					return
+				}
+				if cleanup := registryKeys.Cleanup; cleanup != nil {
+					out.rollbacks = append(out.rollbacks, cleanup)
+				}
+				result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, helm.ChartRelease{
+					Name:       registryReleaseName,
+					ChartPath:  resolved.RegistryChartPath,
+					Namespace:  registryNamespace,
+					ValuesPath: registryValuesPath,
+				})
+				out.checks = append(out.checks, result.checks...)
+				if result.rollback != nil {
+					out.rollbacks = append(out.rollbacks, result.rollback)
+				}
+				if result.err != nil {
+					out.err = result.err
+					parallelResults <- out
+					return
+				}
+			}
+			if resolved.DNSEnabled {
+				result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, dnsSupportRelease)
+				out.checks = append(out.checks, result.checks...)
+				if result.rollback != nil {
+					out.rollbacks = append(out.rollbacks, result.rollback)
+				}
+				if result.err != nil {
+					out.err = result.err
+					parallelResults <- out
+					return
+				}
+				if err := hostpackages.QuiesceStockDaemonUnits(); err != nil {
+					out.err = err
+					parallelResults <- out
+					return
+				}
+				result = applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, helm.ChartRelease{
+					Name:            dnsReleaseName,
+					ChartPath:       resolved.DNSChartPath,
+					Namespace:       dnsNamespace,
+					ValuesPath:      dnsValuesPath,
+					NamespaceLabels: helm.PrivilegedNamespaceLabels(),
+				})
+				out.checks = append(out.checks, result.checks...)
+				if result.rollback != nil {
+					out.rollbacks = append(out.rollbacks, result.rollback)
+				}
+				if result.err != nil {
+					out.err = result.err
+					parallelResults <- out
+					return
+				}
+			}
+			if resolved.InferenceEnabled {
+				result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, helm.ChartRelease{
+					Name:            inferenceReleaseName,
+					ChartPath:       resolved.InferenceChartPath,
+					Namespace:       inferenceNamespace,
+					ValuesPath:      inferenceValuesPath,
+					NamespaceLabels: helm.RestrictedNamespaceLabels(),
+				})
+				out.checks = append(out.checks, result.checks...)
+				if result.rollback != nil {
+					out.rollbacks = append(out.rollbacks, result.rollback)
+				}
+				if result.err != nil {
+					out.err = result.err
+					parallelResults <- out
+					return
+				}
+			}
+			parallelResults <- out
+		}()
+	}
+
+	if resolved.WorkflowsEnabled {
+		parallelWG.Add(1)
+		go func() {
+			defer parallelWG.Done()
+			var out parallelSetResult
+			result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, workflowsSupportRelease)
+			out.checks = append(out.checks, result.checks...)
+			if result.rollback != nil {
+				out.rollbacks = append(out.rollbacks, result.rollback)
+			}
+			if result.err != nil {
+				out.err = result.err
+				parallelResults <- out
+				return
+			}
+			workflowsCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.WorkflowsCRDPaths, "workflows-crd")
+			out.checks = append(out.checks, workflowsCRDChecks...)
+			if applyErr != nil {
+				out.err = applyErr
+				parallelResults <- out
+				return
+			}
+			result = applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, helm.ChartRelease{
+				Name:      workflowsReleaseName,
+				ChartPath: resolved.WorkflowsChartPath,
+				Namespace: workflowsNamespace,
+			})
+			out.checks = append(out.checks, result.checks...)
+			if result.rollback != nil {
+				out.rollbacks = append(out.rollbacks, result.rollback)
+			}
+			if result.err != nil {
+				out.err = result.err
+				parallelResults <- out
+				return
+			}
+			parallelResults <- out
+		}()
+	}
+
+	parallelWG.Wait()
+	close(parallelResults)
+	var parallelRollbacks []func() error
+	var parallelErr error
+	for result := range parallelResults {
+		checks = append(checks, result.checks...)
+		parallelRollbacks = append(parallelRollbacks, result.rollbacks...)
+		if result.err != nil && parallelErr == nil {
+			parallelErr = result.err
+		}
+	}
+	if parallelErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", parallelErr), cleanupOnFailure(parallelRollbacks...))
+	}
+	rollbacks = append(rollbacks, parallelRollbacks...)
 
 	// Re-attach image-pull secrets to ServiceAccounts created by charts after the
 	// first pass (for example workflow-controller SA in the workflows namespace).
@@ -941,12 +1071,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			productconfig.ProductNamespaces(opts.ChartNamespace)...)
 		checks = append(checks, reconcilePull.Checks...)
 		if reconcileErr != nil {
-			var cleanupErr error
-			if !opts.PreserveFailedState {
-				cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
-				cleanupErr = errors.Join(cleanupErr, runRollbacks())
-			}
-			return nil, checks, failInstall(fmt.Errorf("install: reconcile image-pull secrets: %w", reconcileErr), cleanupErr)
+			return nil, checks, failInstall(fmt.Errorf("install: reconcile image-pull secrets: %w", reconcileErr), cleanupOnFailure())
 		}
 	}
 
@@ -1146,6 +1271,32 @@ func wipeK3sDataDir(dataDir string) error {
 		return err
 	}
 	return nil
+}
+
+func applyFreshRelease(ctx context.Context, run cli.Runner, kubeconfig string, applier *helm.Applier, rel helm.ChartRelease) freshReleaseResult {
+	prepared, err := helm.EnsureReleasePrereqs(ctx, run, kubeconfig, rel)
+	if err != nil {
+		return freshReleaseResult{checks: prepared.Checks, err: err}
+	}
+
+	checks := append([]evidence.Check{}, prepared.Checks...)
+	rollback := func() error {
+		return errors.Join(
+			applier.RollbackInNamespace(ctx, rel.Name, rel.Namespace, true),
+			prepared.Cleanup(),
+		)
+	}
+	chartCheck, err := applier.InstallOrUpgrade(ctx, rel)
+	checks = append(checks, chartCheck)
+	if err != nil {
+		checks = append(checks, helm.CollectFailureDiagnostics(ctx, run, kubeconfig, rel)...)
+		return freshReleaseResult{checks: checks, rollback: rollback, err: err}
+	}
+
+	return freshReleaseResult{
+		checks:   checks,
+		rollback: rollback,
+	}
 }
 
 func newApplianceInstanceID() string {

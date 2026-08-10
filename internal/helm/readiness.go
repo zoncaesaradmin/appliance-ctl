@@ -187,6 +187,53 @@ func WaitDeploymentAvailable(ctx context.Context, run cli.Runner, kubeconfig, na
 	return waitDeploymentAvailable(ctx, run, kubeconfig, namespace, deployment, checkID)
 }
 
+// WaitStatefulSetAvailable polls until the named StatefulSet has at least one
+// ready replica.
+func WaitStatefulSetAvailable(ctx context.Context, run cli.Runner, kubeconfig, namespace, statefulSet, checkID string) (evidence.Check, error) {
+	check := evidence.Check{
+		ID:              checkID,
+		Category:        "k3s",
+		Timestamp:       time.Now().UTC(),
+		Idempotent:      true,
+		SecretsRedacted: true,
+	}
+
+	deadline := time.Now().Add(clusterReadyTimeout)
+	var lastState string
+	for {
+		out, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "get", "statefulset", statefulSet, "-o", "jsonpath={.status.readyReplicas}")
+		if err == nil {
+			value := strings.TrimSpace(out)
+			if value == "" {
+				lastState = fmt.Sprintf("%s/%s statefulset exists but has no ready replicas yet", namespace, statefulSet)
+			} else if replicas, convErr := strconv.Atoi(value); convErr == nil && replicas > 0 {
+				check.Status = evidence.StatusPass
+				check.Message = fmt.Sprintf("%s/%s is ready with %d replica(s)", namespace, statefulSet, replicas)
+				return check, nil
+			} else {
+				lastState = fmt.Sprintf("%s/%s has %q ready replicas", namespace, statefulSet, value)
+			}
+		} else if !namespaceNotFound(err) && !isTransientKubeError(err) {
+			check.Status = evidence.StatusFail
+			check.Message = err.Error()
+			return check, fmt.Errorf("helm: wait for %s/%s: %w", namespace, statefulSet, err)
+		} else {
+			lastState = err.Error()
+		}
+
+		if time.Now().After(deadline) {
+			check.Status = evidence.StatusFail
+			check.Message = lastState
+			return check, fmt.Errorf("helm: wait for %s/%s: %s", namespace, statefulSet, lastState)
+		}
+		if err := waitClusterRetry(ctx); err != nil {
+			check.Status = evidence.StatusFail
+			check.Message = err.Error()
+			return check, err
+		}
+	}
+}
+
 func waitDeploymentAvailable(ctx context.Context, run cli.Runner, kubeconfig, namespace, deployment, checkID string) (evidence.Check, error) {
 	check := evidence.Check{
 		ID:              checkID,

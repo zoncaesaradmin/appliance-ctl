@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -329,6 +330,7 @@ func (f *fakeK3s) ops() k3s.Ops {
 
 // fakeCLI simulates ctr/helm/kubectl for the images and helm adapters.
 type fakeCLI struct {
+	mu             sync.Mutex
 	failOn         map[string]bool // substring of the joined args -> fail
 	kubectlNodes   string          // `kubectl get nodes` output, for cluster-adoption tests
 	kubectlPods    string          // `kubectl get pods` output, for cluster-adoption tests
@@ -340,6 +342,9 @@ type fakeCLI struct {
 }
 
 func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	call := name + " " + strings.Join(args, " ")
 	f.calls = append(f.calls, call)
 
@@ -1014,8 +1019,9 @@ func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
 		t.Fatalf("appliance profile = %q, want builder", installed.ApplianceProfile)
 	}
 
-	if !strings.Contains(fcli.lastHelmValues, "applianceProfile: builder") {
-		t.Fatalf("prepared values file missing builder profile: %s", fcli.lastHelmValues)
+	controlPlaneValues := fcli.helmValues[opts.ChartReleaseName]
+	if !strings.Contains(controlPlaneValues, "applianceProfile: builder") {
+		t.Fatalf("control-plane values missing builder profile:\n%s", controlPlaneValues)
 	}
 }
 
@@ -1044,8 +1050,9 @@ func TestInstall_ArtifactProfileUsesApplianceIdentityForRegistry(t *testing.T) {
 	if strings.Contains(registryValues, "host: 192.168.1.101") {
 		t.Fatalf("registry ingress host should remain empty by default so /v2 matches appliance IP access too:\n%s", registryValues)
 	}
-	if !strings.Contains(fcli.lastHelmValues, "canonicalOrigin: https://registry1.appliance.internal") {
-		t.Fatalf("prepared values file missing canonical origin override:\n%s", fcli.lastHelmValues)
+	controlPlaneValues := fcli.helmValues[opts.ChartReleaseName]
+	if !strings.Contains(controlPlaneValues, "canonicalOrigin: https://registry1.appliance.internal") {
+		t.Fatalf("control-plane values missing canonical origin override:\n%s", controlPlaneValues)
 	}
 	if strings.Contains(registryValues, "host: "+productconfig.DefaultLANDNSZone) {
 		t.Fatalf("registry values should not fall back to %s:\n%s", productconfig.DefaultLANDNSZone, registryValues)
