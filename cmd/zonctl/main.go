@@ -42,7 +42,7 @@ const (
 	defaultK3sUnitName         = "k3s.service"
 	defaultPublicKeyPath       = "/etc/zon/keys/release-signing.pub"
 	defaultChartReleaseName    = "appliance"
-	defaultChartNamespace      = "ace-apps"
+	defaultChartNamespace      = "ace-system"
 	defaultWorkspaceRootDir    = "/data/zon/workspaces"
 )
 

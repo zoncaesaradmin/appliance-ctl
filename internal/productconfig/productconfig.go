@@ -488,12 +488,12 @@ func PrepareRegistryValuesFile(baseDir, artifactServerImageReference, fqdn strin
 		"networkPolicy": map[string]any{
 			"enabled": true,
 			"controlPlaneNamespaceLabel": map[string]any{
-				"kubernetes.io/metadata.name": "ace-apps",
+				"kubernetes.io/metadata.name": "ace-system",
 			},
 			"controlPlanePodLabels": map[string]any{
 				// Matches appliance-control-plane chart selectorLabels
-				// (api-server Deployment), not the chart/image name.
-				"app.kubernetes.io/name": "api-server",
+				// (controlplane Deployment), not the chart/image name.
+				"app.kubernetes.io/name": "controlplane",
 			},
 			// K3s ships Traefik in kube-system; empty selectors leave /v2 unreachable.
 			"traefikNamespaceLabel": map[string]any{

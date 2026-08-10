@@ -41,7 +41,7 @@ func TestEnsureReleasePrereqsCreatesKeysSecretWithCursorHMAC(t *testing.T) {
 	}
 
 	prepared, err := helm.EnsureReleasePrereqs(context.Background(), run, "/kubeconfig", helm.ChartRelease{
-		Namespace:  "ace-apps",
+		Namespace:  "ace-system",
 		ValuesPath: valuesPath,
 	})
 	if err != nil {
@@ -111,7 +111,7 @@ func TestEnsureReleasePrereqsPatchesMissingCursorHMAC(t *testing.T) {
 	}
 
 	if _, err := helm.EnsureReleasePrereqs(context.Background(), run, "/kubeconfig", helm.ChartRelease{
-		Namespace:  "ace-apps",
+		Namespace:  "ace-system",
 		ValuesPath: valuesPath,
 	}); err != nil {
 		t.Fatal(err)

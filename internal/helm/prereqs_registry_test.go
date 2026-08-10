@@ -53,7 +53,7 @@ func TestEnsureRegistryPublicKeySecretPublishesOnlyDerivedPublicMaterial(t *test
 	}
 
 	prepared, err := helm.EnsureRegistryPublicKeySecret(context.Background(), run, "/kubeconfig",
-		"ace-apps", "appliance-keys", "artifacts", "appliance-registry-verification-key")
+		"ace-system", "appliance-keys", "artifacts", "appliance-registry-verification-key")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestEnsureRegistryPublicKeySecretAcceptsRawSeedBytes(t *testing.T) {
 	}
 
 	if _, err := helm.EnsureRegistryPublicKeySecret(context.Background(), run, "/kubeconfig",
-		"ace-apps", "appliance-keys", "artifacts", "appliance-registry-verification-key"); err != nil {
+		"ace-system", "appliance-keys", "artifacts", "appliance-registry-verification-key"); err != nil {
 		t.Fatal(err)
 	}
 	if !created {

@@ -80,7 +80,7 @@ func TestEvaluate_HealthyInstallButNoIngressRoute(t *testing.T) {
 		InstalledState: &state.InstalledState{InstalledVersion: "2.4.0", Components: state.Components{MetadataVersion: "2.4.0.0", MetadataDigest: "sha256:deadbeef"}},
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
 		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance is deployed"},
-		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace ace-apps"},
+		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace ace-system"},
 	})
 	if got := statusOf(t, checks, "chart-release-health"); got != evidence.StatusPass {
 		t.Errorf("expected chart-release-health pass, got %s", got)
@@ -119,7 +119,7 @@ func TestEvaluate_ChartAndIngressChecksSatisfyEvidenceSchema(t *testing.T) {
 		K3sHealth:      k3s.HealthStatus{Healthy: true},
 		ChartHealth:    diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance is deployed"},
 		RegistryHealth: diagnostics.ChartHealth{Checked: true, Healthy: true, Message: "release appliance-registry is deployed"},
-		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace ace-apps"},
+		IngressHealth:  diagnostics.IngressHealth{Checked: true, Present: false, Message: "no ingress route found in namespace ace-system"},
 	})
 	if _, err := evidence.BuildReport("status", "2.4.0", "evidence-test", checks, time.Now()); err != nil {
 		t.Fatalf("BuildReport rejected checks with real schema validation: %v", err)

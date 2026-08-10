@@ -532,7 +532,7 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		HostAgentSocketPath:     filepath.Join(stateDir, "run", "zon", "host-agent", "agent.sock"),
 		HostAgentLogPath:        filepath.Join(stateDir, "logs", "host-agent", "host-agentd.log"),
 		ChartReleaseName:        "appliance",
-		ChartNamespace:          "ace-apps",
+		ChartNamespace:          "ace-system",
 		TransactionID:           "txn-test-0000000000000000000000",
 	}
 }
@@ -1322,7 +1322,7 @@ func TestInstall_AutoAdoptsSafeExistingCluster(t *testing.T) {
 	}
 	fcli := &fakeCLI{
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
-		kubectlPods:  "kube-system\nace-apps\n",
+		kubectlPods:  "kube-system\nace-system\n",
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
@@ -1423,7 +1423,7 @@ func TestInstall_AutoAdoptsSafeExistingClusterWhenK3SPortsAreAlreadyBound(t *tes
 	}
 	fcli := &fakeCLI{
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
-		kubectlPods:  "kube-system\ntraefik\nace-apps\n",
+		kubectlPods:  "kube-system\ntraefik\nace-system\n",
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFactsWithK3SPortsInUse, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 

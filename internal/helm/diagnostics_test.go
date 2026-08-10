@@ -16,7 +16,7 @@ func TestCollectFailureDiagnostics_SatisfiesEvidenceSchema(t *testing.T) {
 
 	checks := helm.CollectFailureDiagnostics(context.Background(), run, "kubeconfig", helm.ChartRelease{
 		Name:      "appliance",
-		Namespace: "ace-apps",
+		Namespace: "ace-system",
 	})
 	if len(checks) == 0 {
 		t.Fatal("expected non-empty diagnostics checks")

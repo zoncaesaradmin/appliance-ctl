@@ -35,9 +35,9 @@ func containsArg(args []string, want string) bool {
 
 func TestInspectCluster_HealthyNoForeignWorkloads(t *testing.T) {
 	nodes := "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n"
-	pods := "kube-system\nkube-system\nace-apps\n"
+	pods := "kube-system\nkube-system\nace-system\n"
 
-	healthy, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	healthy, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,9 +51,9 @@ func TestInspectCluster_HealthyNoForeignWorkloads(t *testing.T) {
 
 func TestInspectCluster_TreatsTraefikAsSystemNamespace(t *testing.T) {
 	nodes := "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n"
-	pods := "kube-system\ntraefik\nace-apps\n"
+	pods := "kube-system\ntraefik\nace-system\n"
 
-	healthy, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	healthy, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,9 +67,9 @@ func TestInspectCluster_TreatsTraefikAsSystemNamespace(t *testing.T) {
 
 func TestInspectCluster_DetectsForeignWorkloads(t *testing.T) {
 	nodes := "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n"
-	pods := "kube-system\ncustomer-app\ncustomer-app\nace-apps\n"
+	pods := "kube-system\ncustomer-app\ncustomer-app\nace-system\n"
 
-	_, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	_, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestInspectCluster_DetectsForeignWorkloads(t *testing.T) {
 
 func TestInspectCluster_UnhealthyWhenNodeNotReady(t *testing.T) {
 	nodes := "node1   NotReady    control-plane,master   10d   v1.30.4+k3s1\n"
-	healthy, _, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, "", nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	healthy, _, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, "", nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestInspectCluster_UnhealthyWhenNodeNotReady(t *testing.T) {
 }
 
 func TestInspectCluster_UnhealthyWhenNoNodesReported(t *testing.T) {
-	healthy, _, err := k3s.InspectCluster(context.Background(), fakeKubectl("", "", nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	healthy, _, err := k3s.InspectCluster(context.Background(), fakeKubectl("", "", nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestInspectCluster_UnhealthyWhenNoNodesReported(t *testing.T) {
 }
 
 func TestInspectCluster_PropagatesKubectlFailure(t *testing.T) {
-	_, _, err := k3s.InspectCluster(context.Background(), fakeKubectl("", "", errors.New("connection refused"), nil), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	_, _, err := k3s.InspectCluster(context.Background(), fakeKubectl("", "", errors.New("connection refused"), nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err == nil || !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("expected the kubectl failure to propagate, got: %v", err)
 	}
@@ -122,9 +122,9 @@ func TestIngressRouteExists_UsesTraefikIOAPIGroup(t *testing.T) {
 			return "", errors.New("unexpected binary")
 		}
 		got = append([]string(nil), args...)
-		return "api-server", nil
+		return "controlplane", nil
 	}
-	present, err := k3s.IngressRouteExists(context.Background(), run, "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	present, err := k3s.IngressRouteExists(context.Background(), run, "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestIngressRouteExists_UsesTraefikIOAPIGroup(t *testing.T) {
 // traffic can reach the appliance pod. IngressRouteExists is what lets
 // zonctl status/verify catch it.
 func TestIngressRouteExists_ReportsAbsence(t *testing.T) {
-	present, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("", nil), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	present, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("", nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestIngressRouteExists_ReportsAbsence(t *testing.T) {
 }
 
 func TestIngressRouteExists_ReportsPresence(t *testing.T) {
-	present, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("api-server", nil), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	present, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("controlplane", nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestIngressRouteExists_ReportsPresence(t *testing.T) {
 }
 
 func TestIngressRouteExists_PropagatesKubectlFailure(t *testing.T) {
-	_, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("", errors.New("connection refused")), "/etc/rancher/k3s/k3s.yaml", "ace-apps")
+	_, err := k3s.IngressRouteExists(context.Background(), fakeIngressRoutes("", errors.New("connection refused")), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err == nil || !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("expected the kubectl failure to propagate, got: %v", err)
 	}
