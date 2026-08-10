@@ -35,7 +35,8 @@ func containsArg(args []string, want string) bool {
 
 func TestInspectCluster_HealthyNoForeignWorkloads(t *testing.T) {
 	nodes := "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n"
-	pods := "kube-system\nkube-system\nace-system\n"
+	// controlplane in ace-system; apps + message-broker product namespaces.
+	pods := "kube-system\nkube-system\nace-system\nace-apps\n"
 
 	healthy, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
@@ -51,7 +52,7 @@ func TestInspectCluster_HealthyNoForeignWorkloads(t *testing.T) {
 
 func TestInspectCluster_TreatsTraefikAsSystemNamespace(t *testing.T) {
 	nodes := "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n"
-	pods := "kube-system\ntraefik\nace-system\n"
+	pods := "kube-system\ntraefik\nace-apps\n"
 
 	healthy, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {
@@ -67,7 +68,7 @@ func TestInspectCluster_TreatsTraefikAsSystemNamespace(t *testing.T) {
 
 func TestInspectCluster_DetectsForeignWorkloads(t *testing.T) {
 	nodes := "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n"
-	pods := "kube-system\ncustomer-app\ncustomer-app\nace-system\n"
+	pods := "kube-system\ncustomer-app\ncustomer-app\nace-apps\n"
 
 	_, foreign, err := k3s.InspectCluster(context.Background(), fakeKubectl(nodes, pods, nil, nil), "/etc/rancher/k3s/k3s.yaml", "ace-system")
 	if err != nil {

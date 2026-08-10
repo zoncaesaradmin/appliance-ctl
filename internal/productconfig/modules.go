@@ -83,7 +83,7 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 			RequiredCapabilities: []Capability{CapabilityHost},
 			ExecutionMode:        ExecutionModeHostAgent,
 			EntitlementKey:       ModuleNameHostAgent,
-			BaseURL:              "http://host-agent.ace-system.svc.cluster.local:8080",
+			BaseURL:              "http://host-agent.ace-apps.svc.cluster.local:8080",
 			SecurityClass:        SecurityClassHostPrivileged,
 			Routes: []ModuleRoute{
 				{Method: "GET", ExternalPath: "/api/v1/host/info", UpstreamPath: "/internal/v1/host/info", Permission: "host.read"},

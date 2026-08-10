@@ -21,6 +21,11 @@ const (
 	ProfileLANLLM                     = "lanllm"
 	ProfileBuilderLANLLM              = "builder-lanllm"
 	ProfileBuilderLANLLMStorageLANDNS = "builder-lanllm-storage-landns"
+
+	// ControlPlaneAppsNamespace hosts ui-server, host-agent, and
+	// automation-runtime. controlplane itself uses defaultChartNamespace
+	// (ace-system).
+	ControlPlaneAppsNamespace = "ace-apps"
 )
 
 // Capability is the granular unit appliance behavior should actually be
@@ -362,6 +367,14 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	config["buildCatalog"] = map[string]any{}
 	delete(config, "allowedGitSourceHosts")
 	values["config"] = config
+
+	// controlplane lives in the Helm release namespace (zonctl defaultChartNamespace =
+	// ace-system). Co-packaged apps go in ace-apps.
+	values["namespace"] = map[string]any{"create": false}
+	values["appsNamespace"] = map[string]any{
+		"create": false,
+		"name":   ControlPlaneAppsNamespace,
+	}
 
 	networkPolicy, _ := values["networkPolicy"].(map[string]any)
 	if networkPolicy == nil {

@@ -1322,7 +1322,7 @@ func TestInstall_AutoAdoptsSafeExistingCluster(t *testing.T) {
 	}
 	fcli := &fakeCLI{
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
-		kubectlPods:  "kube-system\nace-system\n",
+		kubectlPods:  "kube-system\nace-apps\n",
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
@@ -1423,7 +1423,7 @@ func TestInstall_AutoAdoptsSafeExistingClusterWhenK3SPortsAreAlreadyBound(t *tes
 	}
 	fcli := &fakeCLI{
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
-		kubectlPods:  "kube-system\ntraefik\nace-system\n",
+		kubectlPods:  "kube-system\ntraefik\nace-apps\n",
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFactsWithK3SPortsInUse, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 

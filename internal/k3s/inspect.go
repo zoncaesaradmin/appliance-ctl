@@ -18,12 +18,26 @@ var systemNamespaces = map[string]bool{
 	"traefik":         true,
 }
 
+// platformNamespaces are product-owned namespaces that install places
+// alongside the control-plane ChartNamespace (default ace-system). The
+// apps package (ui, host-agent, automation-runtime) lives in ace-apps;
+// message broker also uses ace-system; registry/DNS/inference/workflows
+// each have fixed names.
+var platformNamespaces = map[string]bool{
+	"ace-apps":   true,
+	"ace-system": true,
+	"artifacts":  true,
+	"dns":        true,
+	"inference":  true,
+	"workflows":  true,
+}
+
 // InspectCluster queries an already-active K3s cluster via kubectl for
 // node health and any foreign (non-system, non-Zon) workload
 // namespaces. It never mutates the cluster — this is read-only
 // diagnostic input to DecideOwnership. ownedNamespace is the platform's
-// own namespace (e.g. "ace-system"), excluded from the foreign-namespace
-// result.
+// controlplane namespace (e.g. "ace-system"); other product namespaces
+// listed in platformNamespaces are also excluded from the foreign result.
 func InspectCluster(ctx context.Context, run cli.Runner, kubeconfig, ownedNamespace string) (healthy bool, foreignNamespaces []string, err error) {
 	nodesOut, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "get", "nodes", "--no-headers")
 	if err != nil {
@@ -78,7 +92,7 @@ func IngressRouteExists(ctx context.Context, run cli.Runner, kubeconfig, namespa
 func foreignNamespacesFrom(output, ownedNamespace string) []string {
 	seen := map[string]bool{}
 	for _, ns := range strings.Fields(output) {
-		if ns == "" || systemNamespaces[ns] || ns == ownedNamespace {
+		if ns == "" || systemNamespaces[ns] || platformNamespaces[ns] || ns == ownedNamespace {
 			continue
 		}
 		seen[ns] = true

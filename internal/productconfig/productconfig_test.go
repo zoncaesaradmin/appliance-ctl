@@ -69,7 +69,8 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 		"nodeIPv4: 192.0.2.10",
 		"name: host-agent",
 		"capability: host",
-		"baseURL: http://host-agent.ace-system.svc.cluster.local:8080",
+		"baseURL: http://host-agent.ace-apps.svc.cluster.local:8080",
+		"name: ace-apps", // appsNamespace
 		"externalPath: /api/v1/host/info",
 		"externalPath: /api/v1/host/stats",
 		"externalPath: /api/v1/host/health",
@@ -364,7 +365,7 @@ func TestPrepareValuesFile_InjectsApplianceCatalog(t *testing.T) {
       "requiredCapabilities": ["host"],
       "executionMode": "host-agent",
       "entitlementKey": "host-agent",
-      "baseURL": "http://host-agent.ace-system.svc.cluster.local:8080",
+      "baseURL": "http://host-agent.ace-apps.svc.cluster.local:8080",
       "routes": [
         {"method": "GET", "externalPath": "/api/v1/host/info", "upstreamPath": "/internal/v1/host/info", "permission": "host.read"}
       ],

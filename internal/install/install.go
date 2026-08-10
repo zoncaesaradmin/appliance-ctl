@@ -613,6 +613,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, prepared.Cleanup)
 
+	// ui-server / host-agent / automation-runtime live in ace-apps (chart appsNamespace).
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), runRollbacks())
+	}
+
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
 		ArtifactNamespace: registryNamespace,

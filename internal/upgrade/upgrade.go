@@ -521,6 +521,15 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, failErr
 	}
 
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), func() []evidence.Check {
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
+	}
+
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
 		ArtifactNamespace: registryNamespace,
