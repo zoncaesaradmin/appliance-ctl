@@ -22,6 +22,12 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
+    # UI/host-agent live in ace-apps while the main IngressRoute stays with
+    # controlplane in ace-system. Traefik must resolve cross-namespace Service
+    # references on that IngressRoute.
+    providers:
+      kubernetesCRD:
+        allowCrossNamespace: true
     ports:
       web:
         transport:
@@ -39,7 +45,9 @@ spec:
 
 // EnsureTraefikTransferTimeouts applies a HelmChartConfig so K3s Traefik does
 // not cut multi-GB /api/v1/files transfers with default entrypoint timeouts
-// (client often sees curl HTTP/2 PROTOCOL_ERROR / 502).
+// (client often sees curl HTTP/2 PROTOCOL_ERROR / 502) and can route
+// IngressRoutes to Services outside the IngressRoute namespace (ui-server in
+// ace-apps while the route lives in ace-system).
 func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconfig string) (evidence.Check, error) {
 	check := evidence.Check{
 		ID:              "traefik-transfer-timeouts",
@@ -80,6 +88,6 @@ func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconf
 		return check, fmt.Errorf("helm: apply traefik transfer timeouts: %w", err)
 	}
 	check.Status = evidence.StatusPass
-	check.Message = fmt.Sprintf("traefik entrypoint respondingTimeouts set to %s", traefikTransferTimeout)
+	check.Message = fmt.Sprintf("traefik entrypoint respondingTimeouts set to %s; allowCrossNamespace enabled", traefikTransferTimeout)
 	return check, nil
 }

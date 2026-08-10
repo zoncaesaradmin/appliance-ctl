@@ -30,6 +30,8 @@ func TestEnsureTraefikTransferTimeoutsAppliesManifest(t *testing.T) {
 					"writeTimeout: 30m",
 					"readTimeout: 30m",
 					"websecure:",
+					"allowCrossNamespace: true",
+					"kubernetesCRD:",
 				} {
 					if !strings.Contains(text, want) {
 						t.Fatalf("manifest missing %q:\n%s", want, text)

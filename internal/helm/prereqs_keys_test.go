@@ -130,3 +130,58 @@ func TestEnsureReleasePrereqsPatchesMissingCursorHMAC(t *testing.T) {
 		t.Fatal("must not rotate existing session key when only cursor_hmac is missing")
 	}
 }
+
+func TestEnsureKeysSecretReplicaCopiesMaterialToAppsNamespace(t *testing.T) {
+	sourceData := map[string]string{
+		"session_ed25519_private.key":  base64.StdEncoding.EncodeToString([]byte("session-seed")),
+		"registry_ed25519_private.key": base64.StdEncoding.EncodeToString([]byte("registry-seed")),
+		"api_token_pepper.key":         base64.StdEncoding.EncodeToString([]byte("api-pepper")),
+		"refresh_pepper.key":           base64.StdEncoding.EncodeToString([]byte("refresh-pepper")),
+		"cursor_hmac.key":              base64.StdEncoding.EncodeToString([]byte("cursor-secret")),
+	}
+	var createArgs []string
+	run := func(_ context.Context, name string, args ...string) (string, error) {
+		call := name + " " + strings.Join(args, " ")
+		switch {
+		case strings.Contains(call, "get namespace"):
+			return "Active", nil
+		case strings.Contains(call, "create namespace"):
+			return "", nil
+		case strings.Contains(call, "label namespace"):
+			return "", nil
+		case strings.Contains(call, "get secret appliance-keys") && strings.Contains(call, "ace-system") && contains(args, "json"):
+			payload, _ := json.Marshal(map[string]any{"data": sourceData})
+			return string(payload), nil
+		case strings.Contains(call, "get secret appliance-keys") && strings.Contains(call, "ace-apps"):
+			return "", fmt.Errorf(`Error from server (NotFound): secrets "appliance-keys" not found`)
+		case strings.Contains(call, "create secret generic appliance-keys") && strings.Contains(call, "ace-apps"):
+			createArgs = append([]string{}, args...)
+			return "secret/appliance-keys created", nil
+		default:
+			return "", fmt.Errorf("unexpected call: %s", call)
+		}
+	}
+
+	prepared, err := helm.EnsureKeysSecretReplica(context.Background(), run, "/kubeconfig", "ace-system", "ace-apps", "appliance-keys")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(createArgs) == 0 {
+		t.Fatal("expected create secret in ace-apps")
+	}
+	if !strings.Contains(strings.Join(createArgs, " "), "--namespace") {
+		// namespace is in args before create
+	}
+	foundNS := false
+	for i, a := range createArgs {
+		if a == "--namespace" && i+1 < len(createArgs) && createArgs[i+1] == "ace-apps" {
+			foundNS = true
+		}
+	}
+	if !foundNS {
+		t.Fatalf("expected --namespace ace-apps, got %v", createArgs)
+	}
+	if err := prepared.Cleanup(); err != nil {
+		_ = err
+	}
+}

@@ -395,6 +395,177 @@ func deleteSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, se
 	return nil
 }
 
+// EnsureKeysSecretReplica copies the control-plane keys Secret into targetNamespace
+// so co-packaged apps that mount keysSecretName (automation-runtime in ace-apps)
+// can attach volumes. Material is cloned from source, never regenerated, so
+// pods across namespaces see the same signing seeds and peppers.
+//
+// If the target already exists, any missing required key is filled from the
+// source; conflicting values (same name, different content) fail closed.
+func EnsureKeysSecretReplica(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, targetNamespace, secretName string) (PreparedRelease, error) {
+	prepared := PreparedRelease{}
+	check := evidence.Check{
+		ID:              "chart-prereq-secret-replica-" + evidence.SanitizeIDSegment(secretName),
+		Category:        "chart",
+		Timestamp:       time.Now().UTC(),
+		Idempotent:      true,
+		SecretsRedacted: true,
+	}
+	secretName = strings.TrimSpace(secretName)
+	sourceNamespace = strings.TrimSpace(sourceNamespace)
+	targetNamespace = strings.TrimSpace(targetNamespace)
+	if secretName == "" || sourceNamespace == "" || targetNamespace == "" {
+		check.Status = evidence.StatusSkipped
+		check.Message = "keys secret replica not requested"
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, nil
+	}
+	if sourceNamespace == targetNamespace {
+		check.Status = evidence.StatusSkipped
+		check.Message = "keys secret replica not needed; source and target namespaces match"
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, nil
+	}
+
+	if err := EnsureNamespace(ctx, run, kubeconfig, targetNamespace, nil); err != nil {
+		check.Status, check.Message = evidence.StatusFail, err.Error()
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, err
+	}
+
+	sourceOut, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", sourceNamespace,
+		"get", "secret", secretName, "-o", "json")
+	if err != nil {
+		check.Status, check.Message = evidence.StatusFail, err.Error()
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, fmt.Errorf("helm: read source keys secret %s/%s for replica: %w", sourceNamespace, secretName, err)
+	}
+	sourcePayload, err := extractJSONObject(sourceOut)
+	if err != nil {
+		return prepared, fmt.Errorf("helm: parse source keys secret %s: %w", secretName, err)
+	}
+	var sourceSecret secretJSON
+	if err := json.Unmarshal(sourcePayload, &sourceSecret); err != nil {
+		return prepared, fmt.Errorf("helm: decode source keys secret %s: %w", secretName, err)
+	}
+	if sourceSecret.Data == nil {
+		sourceSecret.Data = map[string]string{}
+	}
+	for _, name := range requiredKeysSecretFiles {
+		if strings.TrimSpace(sourceSecret.Data[name]) == "" {
+			check.Status = evidence.StatusFail
+			check.Message = fmt.Sprintf("source keys secret %s is missing %s", secretName, name)
+			prepared.Checks = append(prepared.Checks, check)
+			return prepared, fmt.Errorf("helm: source keys secret %s missing required file %s", secretName, name)
+		}
+	}
+
+	targetOut, targetErr := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace,
+		"get", "secret", secretName, "-o", "json")
+	if targetErr == nil {
+		targetPayload, parseErr := extractJSONObject(targetOut)
+		if parseErr != nil {
+			return prepared, fmt.Errorf("helm: parse target keys secret %s: %w", secretName, parseErr)
+		}
+		var targetSecret secretJSON
+		if err := json.Unmarshal(targetPayload, &targetSecret); err != nil {
+			return prepared, fmt.Errorf("helm: decode target keys secret %s: %w", secretName, err)
+		}
+		if targetSecret.Data == nil {
+			targetSecret.Data = map[string]string{}
+		}
+		patchData := map[string]string{}
+		for _, name := range requiredKeysSecretFiles {
+			want := strings.TrimSpace(sourceSecret.Data[name])
+			have := strings.TrimSpace(targetSecret.Data[name])
+			if have == "" {
+				patchData[name] = want
+				continue
+			}
+			if have != want {
+				check.Status = evidence.StatusFail
+				check.Message = fmt.Sprintf("keys secret %s in %s conflicts with control-plane copy for %s", secretName, targetNamespace, name)
+				prepared.Checks = append(prepared.Checks, check)
+				return prepared, fmt.Errorf("helm: keys secret replica conflict for %s in %s", name, targetNamespace)
+			}
+		}
+		if len(patchData) > 0 {
+			body, err := json.Marshal(map[string]any{"data": patchData})
+			if err != nil {
+				return prepared, fmt.Errorf("helm: marshal keys secret replica patch: %w", err)
+			}
+			if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace,
+				"patch", "secret", secretName, "--type", "merge", "-p", string(body)); err != nil {
+				check.Status, check.Message = evidence.StatusFail, err.Error()
+				prepared.Checks = append(prepared.Checks, check)
+				return prepared, fmt.Errorf("helm: patch keys secret replica %s: %w", secretName, err)
+			}
+			check.Status = evidence.StatusPass
+			check.Message = fmt.Sprintf("patched keys secret replica %s in %s from control-plane secret", secretName, targetNamespace)
+			prepared.Checks = append(prepared.Checks, check)
+			return prepared, nil
+		}
+		check.Status = evidence.StatusPass
+		check.Message = fmt.Sprintf("keys secret replica %s already present in %s", secretName, targetNamespace)
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, nil
+	}
+	if !secretNotFound(targetErr) {
+		check.Status, check.Message = evidence.StatusFail, targetErr.Error()
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, fmt.Errorf("helm: inspect keys secret replica %s: %w", secretName, targetErr)
+	}
+
+	tempDir, err := os.MkdirTemp("", "appliance-keys-replica-*")
+	if err != nil {
+		check.Status, check.Message = evidence.StatusFail, err.Error()
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, fmt.Errorf("helm: create temp dir for keys secret replica: %w", err)
+	}
+	created := false
+	createErr := func() error {
+		defer os.RemoveAll(tempDir)
+		for _, name := range requiredKeysSecretFiles {
+			raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sourceSecret.Data[name]))
+			if err != nil {
+				return fmt.Errorf("decode source keys secret file %s: %w", name, err)
+			}
+			if err := os.WriteFile(filepath.Join(tempDir, name), raw, 0o600); err != nil {
+				return fmt.Errorf("write replica key file %s: %w", name, err)
+			}
+		}
+		args := []string{
+			"--kubeconfig", kubeconfig,
+			"--namespace", targetNamespace,
+			"create", "secret", "generic", secretName,
+		}
+		for _, name := range requiredKeysSecretFiles {
+			args = append(args, "--from-file="+filepath.Join(tempDir, name))
+		}
+		_, err := run(ctx, "kubectl", args...)
+		return err
+	}()
+	if createErr != nil && !secretAlreadyExists(createErr) {
+		check.Status, check.Message = evidence.StatusFail, createErr.Error()
+		prepared.Checks = append(prepared.Checks, check)
+		return prepared, fmt.Errorf("helm: create keys secret replica %s in %s: %w", secretName, targetNamespace, createErr)
+	}
+	if createErr == nil {
+		created = true
+		prepared.cleanups = append(prepared.cleanups, func() error {
+			return deleteSecret(ctx, run, kubeconfig, targetNamespace, secretName)
+		})
+	}
+	check.Status = evidence.StatusPass
+	if created {
+		check.Message = fmt.Sprintf("created keys secret replica %s in %s from control-plane secret", secretName, targetNamespace)
+	} else {
+		check.Message = fmt.Sprintf("keys secret replica %s already present in %s", secretName, targetNamespace)
+	}
+	prepared.Checks = append(prepared.Checks, check)
+	return prepared, nil
+}
+
 func writeKeysSecretFiles(dir string) error {
 	for _, name := range requiredKeysSecretFiles {
 		content, err := generateKeysSecretFileContent(name)

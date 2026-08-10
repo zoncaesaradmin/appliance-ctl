@@ -618,6 +618,16 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), runRollbacks())
 	}
 
+	// automation-runtime mounts secrets.keysSecretName in the apps namespace; K8s
+	// Secrets are namespaced, so mirror the control-plane keys Secret there.
+	keysReplica, keysReplicaErr := helm.EnsureKeysSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+		opts.ChartNamespace, productconfig.ControlPlaneAppsNamespace, "appliance-keys")
+	checks = append(checks, keysReplica.Checks...)
+	if keysReplicaErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", keysReplicaErr), runRollbacks())
+	}
+	rollbacks = append(rollbacks, keysReplica.Cleanup)
+
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
 		ArtifactNamespace: registryNamespace,
@@ -858,6 +868,45 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		return nil, checks, failInstall(fmt.Errorf("install: %w", err), cleanupErr)
 	}
+	// InstallOrUpgrade is async (no --wait). Block briefly until product Deployments
+	// are Available so we do not report success while pods are still creating.
+	for _, wait := range []struct {
+		ns, deploy, id string
+	}{
+		{opts.ChartNamespace, "controlplane", "appliance-controlplane-ready"},
+		{productconfig.ControlPlaneAppsNamespace, "ui-server", "appliance-ui-ready"},
+		{productconfig.ControlPlaneAppsNamespace, "automation-runtime", "appliance-automation-runtime-ready"},
+	} {
+		ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, wait.ns, wait.deploy, wait.id)
+		checks = append(checks, ready)
+		if waitErr != nil {
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
+				Name:       opts.ChartReleaseName,
+				ChartPath:  resolved.ChartPath,
+				Namespace:  opts.ChartNamespace,
+				ValuesPath: preparedValuesPath,
+			})...)
+			var cleanupErr error
+			if !opts.PreserveFailedState {
+				cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
+				cleanupErr = errors.Join(cleanupErr, runRollbacks())
+			}
+			return nil, checks, failInstall(fmt.Errorf("install: wait for %s/%s: %w", wait.ns, wait.deploy, waitErr), cleanupErr)
+		}
+	}
+	if productconfig.HasCapability(effectiveProfile, productconfig.CapabilityHost) {
+		ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "host-agent", "appliance-host-agent-ready")
+		checks = append(checks, ready)
+		if waitErr != nil {
+			var cleanupErr error
+			if !opts.PreserveFailedState {
+				cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
+				cleanupErr = errors.Join(cleanupErr, runRollbacks())
+			}
+			return nil, checks, failInstall(fmt.Errorf("install: wait for host-agent: %w", waitErr), cleanupErr)
+		}
+	}
+
 	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
 		SourceBinaryPath:  resolved.ZonctlBinaryPath,
 		RealDestPath:      opts.ZonctlRealDestPath,

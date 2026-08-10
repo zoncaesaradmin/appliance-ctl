@@ -530,6 +530,19 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, failErr
 	}
 
+	keysReplica, keysReplicaErr := helm.EnsureKeysSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+		opts.ChartNamespace, productconfig.ControlPlaneAppsNamespace, "appliance-keys")
+	checks = append(checks, keysReplica.Checks...)
+	if keysReplicaErr != nil {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", keysReplicaErr), func() []evidence.Check {
+			_ = keysReplica.Cleanup()
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
+	}
+
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
 		ArtifactNamespace: registryNamespace,

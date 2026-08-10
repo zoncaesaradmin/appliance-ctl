@@ -375,9 +375,14 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") &&
 		(strings.Contains(call, "appliance-keys") || strings.Contains(call, "registry_ed25519_private.key")) {
 		seedFile := base64.StdEncoding.EncodeToString(make([]byte, ed25519.SeedSize))
+		// Full keys payload for EnsureKeysSecretReplica (and registry seed reads).
 		payload, _ := json.Marshal(map[string]any{
 			"data": map[string]string{
+				"session_ed25519_private.key":  base64.StdEncoding.EncodeToString([]byte(seedFile)),
 				"registry_ed25519_private.key": base64.StdEncoding.EncodeToString([]byte(seedFile)),
+				"api_token_pepper.key":         base64.StdEncoding.EncodeToString([]byte("api-pepper")),
+				"refresh_pepper.key":           base64.StdEncoding.EncodeToString([]byte("refresh-pepper")),
+				"cursor_hmac.key":              base64.StdEncoding.EncodeToString([]byte("cursor-hmac")),
 			},
 		})
 		return string(payload), nil

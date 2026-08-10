@@ -1120,7 +1120,11 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 			seedFile := base64.StdEncoding.EncodeToString(make([]byte, ed25519.SeedSize))
 			payload, _ := json.Marshal(map[string]any{
 				"data": map[string]string{
+					"session_ed25519_private.key":  base64.StdEncoding.EncodeToString([]byte(seedFile)),
 					"registry_ed25519_private.key": base64.StdEncoding.EncodeToString([]byte(seedFile)),
+					"api_token_pepper.key":         base64.StdEncoding.EncodeToString([]byte("api-pepper")),
+					"refresh_pepper.key":           base64.StdEncoding.EncodeToString([]byte("refresh-pepper")),
+					"cursor_hmac.key":              base64.StdEncoding.EncodeToString([]byte("cursor-hmac")),
 				},
 			})
 			return string(payload), nil
