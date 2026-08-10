@@ -552,6 +552,45 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, failErr
 	}
 
+	if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
+		if err := productconfig.InjectImagePullSecrets(preparedValuesPath, productconfig.ImagePullSecretName); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: inject image-pull secrets into values: %w", err), func() []evidence.Check {
+				_ = keysReplica.Cleanup()
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		for _, valuesPath := range []string{registryValuesPath, dnsValuesPath, inferenceValuesPath} {
+			if strings.TrimSpace(valuesPath) == "" {
+				continue
+			}
+			if err := productconfig.InjectImagePullSecrets(valuesPath, productconfig.ImagePullSecretName); err != nil {
+				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: inject image-pull secrets into %s: %w", valuesPath, err), func() []evidence.Check {
+					_ = keysReplica.Cleanup()
+					_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+					return rollback()
+				})
+				checks = append(checks, rollbackChecks...)
+				return nil, checks, failErr
+			}
+		}
+		imagePullSecrets, imagePullErr := helm.EnsureImagePullSecrets(ctx, o.HelmRun, opts.KubeconfigPath, opts.ImagePullRegistry,
+			productconfig.ProductNamespaces(opts.ChartNamespace)...)
+		checks = append(checks, imagePullSecrets.Checks...)
+		if imagePullErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", imagePullErr), func() []evidence.Check {
+				_ = imagePullSecrets.Cleanup()
+				_ = keysReplica.Cleanup()
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
 		ArtifactNamespace: registryNamespace,
@@ -841,6 +880,24 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
 	}
+
+	// Re-attach image-pull secrets after charts may have created new SAs.
+	if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
+		reconcilePull, reconcileErr := helm.EnsureImagePullSecrets(ctx, o.HelmRun, opts.KubeconfigPath, opts.ImagePullRegistry,
+			productconfig.ProductNamespaces(opts.ChartNamespace)...)
+		checks = append(checks, reconcilePull.Checks...)
+		if reconcileErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: reconcile image-pull secrets: %w", reconcileErr), func() []evidence.Check {
+				_ = prepared.Cleanup()
+				_ = applier.Rollback(ctx, opts.ChartReleaseName, false)
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+
 	zonctlRollback, err := zonctlhost.Install(zonctlhost.InstallSpec{
 		SourceBinaryPath:  resolved.ZonctlBinaryPath,
 		RealDestPath:      opts.ZonctlRealDestPath,

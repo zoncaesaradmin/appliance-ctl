@@ -29,7 +29,39 @@ const (
 	// ApplicationNamespace is permanently provisioned for user-managed
 	// application workloads and is independent from co-packaged services.
 	ApplicationNamespace = "apps"
+
+	// Fixed product namespaces for capability-scoped charts (in addition to
+	// the control-plane release namespace and ControlPlaneAppsNamespace).
+	ArtifactsNamespace = "artifacts"
+	DNSNamespace       = "dns"
+	InferenceNamespace = "inference"
+	WorkflowsNamespace = "workflows"
+
+	// ImagePullSecretName mirrors helm.ImagePullSecretName for chart values
+	// injection. Secrets are namespaced; when lab image-pull is configured,
+	// zonctl places this secret in every product namespace (not kube-system).
+	ImagePullSecretName = "appliance-image-pull"
 )
+
+// ProductNamespaces returns every appliance-owned namespace that may run product
+// pods. controlPlaneNS is the chart release namespace for controlplane and the
+// message broker (default ace-system). kube-system and other K3s system
+// namespaces are intentionally excluded.
+func ProductNamespaces(controlPlaneNS string) []string {
+	controlPlaneNS = strings.TrimSpace(controlPlaneNS)
+	if controlPlaneNS == "" {
+		controlPlaneNS = "ace-system"
+	}
+	return []string{
+		controlPlaneNS,
+		ControlPlaneAppsNamespace,
+		ApplicationNamespace,
+		ArtifactsNamespace,
+		DNSNamespace,
+		InferenceNamespace,
+		WorkflowsNamespace,
+	}
+}
 
 // Capability is the granular unit appliance behavior should actually be
 // gated on, not the profile name itself. A profile is just a named bundle
@@ -379,6 +411,11 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		"create": false,
 		"name":   ControlPlaneAppsNamespace,
 	}
+	// Default empty: lab install injects appliance-image-pull via
+	// InjectImagePullSecrets when --image-pull-registry is set.
+	if _, has := values["imagePullSecrets"]; !has {
+		values["imagePullSecrets"] = []any{}
+	}
 	values["applicationNamespace"] = map[string]any{
 		"create": true,
 		"name":   ApplicationNamespace,
@@ -471,6 +508,38 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		_ = os.Remove(tmp.Name())
 	}
 	return tmp.Name(), cleanup, nil
+}
+
+// InjectImagePullSecrets rewrites a prepared values file so Helm deployments
+// reference the installer-managed dockerconfig secret. No-op when secretName
+// is empty.
+func InjectImagePullSecrets(valuesPath, secretName string) error {
+	secretName = strings.TrimSpace(secretName)
+	if secretName == "" {
+		return nil
+	}
+	data, err := os.ReadFile(valuesPath)
+	if err != nil {
+		return fmt.Errorf("product config: read values for image-pull secrets: %w", err)
+	}
+	var values map[string]any
+	if err := yaml.Unmarshal(data, &values); err != nil {
+		return fmt.Errorf("product config: parse values for image-pull secrets: %w", err)
+	}
+	if values == nil {
+		values = map[string]any{}
+	}
+	values["imagePullSecrets"] = []any{
+		map[string]any{"name": secretName},
+	}
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return fmt.Errorf("product config: render image-pull secrets values: %w", err)
+	}
+	if err := os.WriteFile(valuesPath, rendered, 0o600); err != nil {
+		return fmt.Errorf("product config: write image-pull secrets values: %w", err)
+	}
+	return nil
 }
 
 // PrepareRegistryValuesFile renders the small installer-owned values layer

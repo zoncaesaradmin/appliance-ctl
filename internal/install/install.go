@@ -631,6 +631,30 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, keysReplica.Cleanup)
 
+	// Private LAN registry credentials are namespaced. Mirror dockerconfig into
+	// every product namespace (controlplane, apps, applications, artifacts, dns,
+	// inference, workflows — never kube-system) and wire chart imagePullSecrets.
+	if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
+		if err := productconfig.InjectImagePullSecrets(preparedValuesPath, productconfig.ImagePullSecretName); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: inject image-pull secrets into values: %w", err), runRollbacks())
+		}
+		for _, valuesPath := range []string{registryValuesPath, dnsValuesPath, inferenceValuesPath} {
+			if strings.TrimSpace(valuesPath) == "" {
+				continue
+			}
+			if err := productconfig.InjectImagePullSecrets(valuesPath, productconfig.ImagePullSecretName); err != nil {
+				return nil, checks, failInstall(fmt.Errorf("install: inject image-pull secrets into %s: %w", valuesPath, err), runRollbacks())
+			}
+		}
+		imagePullSecrets, imagePullErr := helm.EnsureImagePullSecrets(ctx, o.HelmRun, opts.KubeconfigPath, opts.ImagePullRegistry,
+			productconfig.ProductNamespaces(opts.ChartNamespace)...)
+		checks = append(checks, imagePullSecrets.Checks...)
+		if imagePullErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", imagePullErr), runRollbacks())
+		}
+		rollbacks = append(rollbacks, imagePullSecrets.Cleanup)
+	}
+
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
 		ArtifactNamespace: registryNamespace,
@@ -907,6 +931,22 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 				cleanupErr = errors.Join(cleanupErr, runRollbacks())
 			}
 			return nil, checks, failInstall(fmt.Errorf("install: wait for host-agent: %w", waitErr), cleanupErr)
+		}
+	}
+
+	// Re-attach image-pull secrets to ServiceAccounts created by charts after the
+	// first pass (for example workflow-controller SA in the workflows namespace).
+	if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
+		reconcilePull, reconcileErr := helm.EnsureImagePullSecrets(ctx, o.HelmRun, opts.KubeconfigPath, opts.ImagePullRegistry,
+			productconfig.ProductNamespaces(opts.ChartNamespace)...)
+		checks = append(checks, reconcilePull.Checks...)
+		if reconcileErr != nil {
+			var cleanupErr error
+			if !opts.PreserveFailedState {
+				cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
+				cleanupErr = errors.Join(cleanupErr, runRollbacks())
+			}
+			return nil, checks, failInstall(fmt.Errorf("install: reconcile image-pull secrets: %w", reconcileErr), cleanupErr)
 		}
 	}
 
