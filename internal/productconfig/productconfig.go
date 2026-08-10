@@ -26,6 +26,9 @@ const (
 	// automation-runtime. controlplane itself uses defaultChartNamespace
 	// (ace-system).
 	ControlPlaneAppsNamespace = "ace-apps"
+	// ApplicationNamespace is permanently provisioned for user-managed
+	// application workloads and is independent from co-packaged services.
+	ApplicationNamespace = "apps"
 )
 
 // Capability is the granular unit appliance behavior should actually be
@@ -40,14 +43,15 @@ const (
 type Capability string
 
 const (
-	CapabilityBase      Capability = "base"
-	CapabilityHost      Capability = "host"
-	CapabilityWorkflows Capability = "workflows"
-	CapabilityBuild     Capability = "build"
-	CapabilityFiles     Capability = "files"
-	CapabilityArtifact  Capability = "artifact"
-	CapabilityDNS       Capability = "dns"
-	CapabilityInference Capability = "inference"
+	CapabilityBase         Capability = "base"
+	CapabilityHost         Capability = "host"
+	CapabilityWorkflows    Capability = "workflows"
+	CapabilityBuild        Capability = "build"
+	CapabilityFiles        Capability = "files"
+	CapabilityArtifact     Capability = "artifact"
+	CapabilityDNS          Capability = "dns"
+	CapabilityInference    Capability = "inference"
+	CapabilityApplications Capability = "applications"
 )
 
 type ProfileDefinition struct {
@@ -57,16 +61,16 @@ type ProfileDefinition struct {
 type ProfileCatalog map[string]ProfileDefinition
 
 var builtInProfileCatalog = ProfileCatalog{
-	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles}},
-	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
-	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact}},
-	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityDNS}},
-	ProfileStorageLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityDNS}},
-	ProfileBuilderLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
-	ProfileBuilderStorageLANDNS:       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
-	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityInference}},
-	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference}},
-	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference}},
+	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityApplications}},
+	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityApplications}},
+	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityApplications}},
+	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityDNS, CapabilityApplications}},
+	ProfileStorageLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
+	ProfileBuilderLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
+	ProfileBuilderStorageLANDNS:       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
+	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityInference, CapabilityApplications}},
+	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference, CapabilityApplications}},
+	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference, CapabilityApplications}},
 }
 
 var builtInProfileOrder = []string{
@@ -374,6 +378,10 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	values["appsNamespace"] = map[string]any{
 		"create": false,
 		"name":   ControlPlaneAppsNamespace,
+	}
+	values["applicationNamespace"] = map[string]any{
+		"create": true,
+		"name":   ApplicationNamespace,
 	}
 
 	networkPolicy, _ := values["networkPolicy"].(map[string]any)
