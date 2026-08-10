@@ -515,6 +515,15 @@ func helmReleaseNameFromCall(call string) string {
 	return ""
 }
 
+func findCallIndex(calls []string, match func(string) bool) int {
+	for i, call := range calls {
+		if match(call) {
+			return i
+		}
+	}
+	return -1
+}
+
 func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.Options {
 	t.Helper()
 	stateDir := t.TempDir()
@@ -1022,6 +1031,40 @@ func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
 	controlPlaneValues := fcli.helmValues[opts.ChartReleaseName]
 	if !strings.Contains(controlPlaneValues, "applianceProfile: builder") {
 		t.Fatalf("control-plane values missing builder profile:\n%s", controlPlaneValues)
+	}
+}
+
+func TestInstall_ReplicatesAppsKeysOnlyAfterAceSystemRelease(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+
+	set0Index := findCallIndex(fcli.calls, func(call string) bool {
+		return strings.Contains(call, "helm") &&
+			strings.Contains(call, "upgrade --install "+opts.ChartReleaseName+" ") &&
+			strings.Contains(call, "--namespace "+opts.ChartNamespace)
+	})
+	if set0Index < 0 {
+		t.Fatalf("missing ace-system helm install call in %v", fcli.calls)
+	}
+
+	replicaIndex := findCallIndex(fcli.calls, func(call string) bool {
+		return strings.Contains(call, "kubectl") &&
+			strings.Contains(call, "--namespace "+productconfig.ControlPlaneAppsNamespace) &&
+			strings.Contains(call, "get secret appliance-keys -o json")
+	})
+	if replicaIndex < 0 {
+		t.Fatalf("missing ace-apps keys replica lookup in %v", fcli.calls)
+	}
+	if replicaIndex <= set0Index {
+		t.Fatalf("expected ace-apps keys replica after ace-system release, got release index %d and replica index %d\ncalls: %v", set0Index, replicaIndex, fcli.calls)
 	}
 }
 

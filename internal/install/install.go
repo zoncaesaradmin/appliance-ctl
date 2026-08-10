@@ -608,24 +608,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 
-	// ui-server / host-agent / automation-runtime live in ace-apps (chart appsNamespace).
-	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), runRollbacks())
-	}
-	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, helm.RestrictedNamespaceLabels()); err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: prepare application namespace %s: %w", productconfig.ApplicationNamespace, err), runRollbacks())
-	}
-
-	// automation-runtime mounts secrets.keysSecretName in the apps namespace; K8s
-	// Secrets are namespaced, so mirror the control-plane keys Secret there.
-	keysReplica, keysReplicaErr := helm.EnsureKeysSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath,
-		opts.ChartNamespace, productconfig.ControlPlaneAppsNamespace, "appliance-keys")
-	checks = append(checks, keysReplica.Checks...)
-	if keysReplicaErr != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: %w", keysReplicaErr), runRollbacks())
-	}
-	rollbacks = append(rollbacks, keysReplica.Cleanup)
-
 	// Private LAN registry credentials are namespaced. Mirror dockerconfig into
 	// every product namespace (controlplane, apps, applications, artifacts, dns,
 	// inference, workflows — never kube-system) and wire chart imagePullSecrets.
@@ -863,6 +845,22 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, tlsPrepared.Cleanup)
 
+	// ui-server / host-agent / automation-runtime live in ace-apps (chart appsNamespace).
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), cleanupOnFailure())
+	}
+
+	// automation-runtime mounts secrets.keysSecretName in the apps namespace; K8s
+	// Secrets are namespaced, so mirror the control-plane keys Secret only after
+	// the ace-system release has created the source namespace/secret.
+	keysReplica, keysReplicaErr := helm.EnsureKeysSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+		opts.ChartNamespace, productconfig.ControlPlaneAppsNamespace, "appliance-keys")
+	checks = append(checks, keysReplica.Checks...)
+	if keysReplicaErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", keysReplicaErr), cleanupOnFailure())
+	}
+	rollbacks = append(rollbacks, keysReplica.Cleanup)
+
 	set2Result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppsRelease)
 	checks = append(checks, set2Result.checks...)
 	if set2Result.err != nil {
@@ -896,6 +894,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		checks    []evidence.Check
 		rollbacks []func() error
 		err       error
+	}
+
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, helm.RestrictedNamespaceLabels()); err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare application namespace %s: %w", productconfig.ApplicationNamespace, err), cleanupOnFailure())
+	}
+	if resolved.DNSEnabled {
+		if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, dnsNamespace, nil); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: prepare dns namespace %s: %w", dnsNamespace, err), cleanupOnFailure())
+		}
+	}
+	if resolved.WorkflowsEnabled {
+		if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, workflowsNamespace, nil); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: prepare workflows namespace %s: %w", workflowsNamespace, err), cleanupOnFailure())
+		}
 	}
 
 	taskCount := 1
