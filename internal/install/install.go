@@ -617,7 +617,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), runRollbacks())
 	}
-	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, nil); err != nil {
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, helm.RestrictedNamespaceLabels()); err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare application namespace %s: %w", productconfig.ApplicationNamespace, err), runRollbacks())
 	}
 

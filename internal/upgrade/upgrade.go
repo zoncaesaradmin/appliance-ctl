@@ -530,7 +530,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, failErr
 	}
 
-	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, nil); err != nil {
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, helm.RestrictedNamespaceLabels()); err != nil {
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare application namespace %s: %w", productconfig.ApplicationNamespace, err), func() []evidence.Check {
 			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
 			return rollback()
