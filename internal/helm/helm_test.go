@@ -155,6 +155,9 @@ func TestInstallOrUpgrade_UsesUpgradeInstall(t *testing.T) {
 	if strings.Contains(call, "--create-namespace") {
 		t.Errorf("expected namespace handling outside Helm, got: %s", call)
 	}
+	if strings.Contains(call, "--wait") || strings.Contains(call, "--timeout") {
+		t.Errorf("runtime chart apply must not wait for readiness, got: %s", call)
+	}
 }
 
 func TestInstallOrUpgrade_CreatesNamespaceWhenMissing(t *testing.T) {

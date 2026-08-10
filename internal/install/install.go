@@ -40,6 +40,7 @@ const (
 	workflowsNamespace          = "workflows"
 	registryReleaseName         = "appliance-registry"
 	messageBrokerReleaseName    = "appliance-message-broker"
+	messageBrokerNamespace      = "ace-system"
 	registryNamespace           = "artifacts"
 	dnsReleaseName              = "appliance-dns"
 	dnsNamespace                = "dns"
@@ -584,18 +585,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	if resolved.MessageBrokerChartPath != "" {
-		messageBrokerPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: opts.ChartNamespace})
+		messageBrokerPrepared, prepErr := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: messageBrokerNamespace})
 		checks = append(checks, messageBrokerPrepared.Checks...)
 		if prepErr != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: prepare message broker: %w", prepErr), runRollbacks())
 		}
 		rollbacks = append(rollbacks, messageBrokerPrepared.Cleanup)
-		messageBrokerCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: opts.ChartNamespace})
+		messageBrokerCheck, applyErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: messageBrokerNamespace})
 		checks = append(checks, messageBrokerCheck)
 		if applyErr != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: message broker: %w", applyErr), runRollbacks())
 		}
-		rollbacks = append(rollbacks, func() error { return applier.Rollback(ctx, messageBrokerReleaseName, true) })
+		rollbacks = append(rollbacks, func() error {
+			return applier.RollbackInNamespace(ctx, messageBrokerReleaseName, messageBrokerNamespace, true)
+		})
 	}
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
@@ -756,20 +759,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
 		}
 		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, dnsReleaseName) })
-		// Wait until appliance CoreDNS is available so host :53 is claimed
-		// before management Wi-Fi AP starts (DHCP-only bind-probe path).
-		dnsWaitRun := o.ClusterRun
-		if dnsWaitRun == nil {
-			dnsWaitRun = o.HelmRun
-		}
-		if dnsWaitRun == nil {
-			dnsWaitRun = cli.Exec
-		}
-		dnsReadyCheck, readyErr := helm.WaitDeploymentAvailable(ctx, dnsWaitRun, opts.KubeconfigPath, dnsNamespace, "dns-server", "appliance-dns-ready")
-		checks = append(checks, dnsReadyCheck)
-		if readyErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: wait for appliance-dns: %w", readyErr), runRollbacks())
-		}
 	}
 
 	// Inference runtime installs before the control plane so CP can proxy
@@ -794,18 +783,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, failInstall(fmt.Errorf("install: %w", applyErr), cleanupErr)
 		}
 		rollbacks = append(rollbacks, func() error { return applier.Uninstall(ctx, inferenceReleaseName) })
-		inferenceWaitRun := o.ClusterRun
-		if inferenceWaitRun == nil {
-			inferenceWaitRun = o.HelmRun
-		}
-		if inferenceWaitRun == nil {
-			inferenceWaitRun = cli.Exec
-		}
-		inferenceReadyCheck, readyErr := helm.WaitDeploymentAvailable(ctx, inferenceWaitRun, opts.KubeconfigPath, inferenceNamespace, "inference-gateway", "appliance-inference-ready")
-		checks = append(checks, inferenceReadyCheck)
-		if readyErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: wait for appliance-inference: %w", readyErr), runRollbacks())
-		}
 	}
 
 	clusterRun := o.ClusterRun

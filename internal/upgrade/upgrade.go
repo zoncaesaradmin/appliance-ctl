@@ -84,6 +84,7 @@ type Options struct {
 const (
 	registryReleaseName      = "appliance-registry"
 	messageBrokerReleaseName = "appliance-message-broker"
+	messageBrokerNamespace   = "ace-system"
 	registryNamespace        = "artifacts"
 	workflowsReleaseName     = "appliance-workflows"
 	workflowsNamespace       = "workflows"
@@ -572,7 +573,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 	if resolved.MessageBrokerChartPath != "" {
-		messageBrokerCheck, messageBrokerErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: opts.ChartNamespace})
+		messageBrokerCheck, messageBrokerErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: messageBrokerNamespace})
 		checks = append(checks, messageBrokerCheck)
 		if messageBrokerErr != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: message broker: %w", messageBrokerErr), rollback)
@@ -736,18 +737,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
-		// Wait until appliance CoreDNS is available when landns is selected.
-		dnsWaitRun := o.HelmRun
-		if dnsWaitRun == nil {
-			dnsWaitRun = cli.Exec
-		}
-		dnsReadyCheck, readyErr := helm.WaitDeploymentAvailable(ctx, dnsWaitRun, opts.KubeconfigPath, dnsNamespace, "dns-server", "appliance-dns-ready")
-		checks = append(checks, dnsReadyCheck)
-		if readyErr != nil {
-			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: wait for appliance-dns: %w", readyErr), rollback)
-			checks = append(checks, rollbackChecks...)
-			return nil, checks, failErr
-		}
 	}
 	if targetInference {
 		inferenceCheck, inferenceErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
@@ -771,17 +760,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				}
 				return rollback()
 			})
-			checks = append(checks, rollbackChecks...)
-			return nil, checks, failErr
-		}
-		inferenceWaitRun := o.HelmRun
-		if inferenceWaitRun == nil {
-			inferenceWaitRun = cli.Exec
-		}
-		inferenceReadyCheck, readyErr := helm.WaitDeploymentAvailable(ctx, inferenceWaitRun, opts.KubeconfigPath, inferenceNamespace, "inference-gateway", "appliance-inference-ready")
-		checks = append(checks, inferenceReadyCheck)
-		if readyErr != nil {
-			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: wait for appliance-inference: %w", readyErr), rollback)
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}

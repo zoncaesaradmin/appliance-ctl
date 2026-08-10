@@ -532,7 +532,7 @@ func baseOptions(t *testing.T, bundleDir string, pub verify.PublicKey) install.O
 		HostAgentSocketPath:     filepath.Join(stateDir, "run", "zon", "host-agent", "agent.sock"),
 		HostAgentLogPath:        filepath.Join(stateDir, "logs", "host-agent", "host-agentd.log"),
 		ChartReleaseName:        "appliance",
-		ChartNamespace:          "control",
+		ChartNamespace:          "ace-apps",
 		TransactionID:           "txn-test-0000000000000000000000",
 	}
 }
@@ -695,7 +695,7 @@ func TestInstall_StagesHostPackagesWithoutEnablingServices(t *testing.T) {
 	}
 }
 
-func TestInstall_LandnsAwaitsDNSWithoutWifiAP(t *testing.T) {
+func TestInstall_LandnsDoesNotWaitForDNSWithoutWifiAP(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "landns"
@@ -723,16 +723,12 @@ func TestInstall_LandnsAwaitsDNSWithoutWifiAP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("landns install: %v", err)
 	}
-	dnsHelmIdx, dnsReadyIdx := -1, -1
+	dnsHelmIdx := -1
 	for i, check := range checks {
 		switch check.ID {
 		case "helm-release-appliance-dns":
 			if check.Status == evidence.StatusPass {
 				dnsHelmIdx = i
-			}
-		case "appliance-dns-ready":
-			if check.Status == evidence.StatusPass {
-				dnsReadyIdx = i
 			}
 		case "host-wifi-ap-applied":
 			t.Fatalf("landns install must not apply wifi-ap: %+v", check)
@@ -741,12 +737,6 @@ func TestInstall_LandnsAwaitsDNSWithoutWifiAP(t *testing.T) {
 	if dnsHelmIdx < 0 {
 		t.Fatalf("missing helm-release-appliance-dns pass: %+v", checks)
 	}
-	if dnsReadyIdx < 0 {
-		t.Fatalf("missing appliance-dns-ready pass: %+v", checks)
-	}
-	if !(dnsHelmIdx < dnsReadyIdx) {
-		t.Fatalf("expected DNS helm before ready, got helm=%d ready=%d", dnsHelmIdx, dnsReadyIdx)
-	}
 	var sawDNSDeploy bool
 	for _, call := range fcli.calls {
 		if strings.Contains(call, "get deployment dns-server") || (strings.Contains(call, "deployment") && strings.Contains(call, "dns-server")) {
@@ -754,8 +744,8 @@ func TestInstall_LandnsAwaitsDNSWithoutWifiAP(t *testing.T) {
 			break
 		}
 	}
-	if !sawDNSDeploy {
-		t.Fatalf("expected kubectl get deployment dns-server wait; calls=%v", fcli.calls)
+	if sawDNSDeploy {
+		t.Fatalf("install must not wait for dns-server readiness; calls=%v", fcli.calls)
 	}
 }
 
@@ -1332,7 +1322,7 @@ func TestInstall_AutoAdoptsSafeExistingCluster(t *testing.T) {
 	}
 	fcli := &fakeCLI{
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
-		kubectlPods:  "kube-system\ncontrol\n",
+		kubectlPods:  "kube-system\nace-apps\n",
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
@@ -1433,7 +1423,7 @@ func TestInstall_AutoAdoptsSafeExistingClusterWhenK3SPortsAreAlreadyBound(t *tes
 	}
 	fcli := &fakeCLI{
 		kubectlNodes: "node1   Ready    control-plane,master   10d   v1.30.4+k3s1\n",
-		kubectlPods:  "kube-system\ntraefik\ncontrol\n",
+		kubectlPods:  "kube-system\ntraefik\nace-apps\n",
 	}
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFactsWithK3SPortsInUse, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 

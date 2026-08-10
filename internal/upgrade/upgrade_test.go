@@ -339,7 +339,7 @@ func (env environment) options(targetVersion string) upgrade.Options {
 		HostAgentSocketPath:     filepath.Join(env.stateDir, "run", "zon", "host-agent", "agent.sock"),
 		HostAgentLogPath:        filepath.Join(env.stateDir, "logs", "host-agent", "host-agentd.log"),
 		ChartReleaseName:        "appliance",
-		ChartNamespace:          "control",
+		ChartNamespace:          "ace-apps",
 		BackupRoot:              env.backupRoot,
 		TransactionID:           "txn-upgrade-test",
 	}
@@ -676,7 +676,7 @@ func TestUpgrade_RecreatesNamespaceAfterPriorTermination(t *testing.T) {
 
 	var sawNamespaceCreate bool
 	for _, call := range fcli.calls {
-		if strings.Contains(call, "create namespace control") {
+		if strings.Contains(call, "create namespace ace-apps") {
 			sawNamespaceCreate = true
 			break
 		}

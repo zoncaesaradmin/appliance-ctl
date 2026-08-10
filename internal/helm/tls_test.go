@@ -95,7 +95,7 @@ func TestEnsureApplianceTLSSecrets_CreatesCAAndTLSInControlAndArtifacts(t *testi
 	}
 
 	prepared, err := helm.EnsureApplianceTLSSecrets(context.Background(), run, "/kubeconfig", helm.ApplianceTLSOptions{
-		ControlNamespace:  "control",
+		ControlNamespace:  "ace-apps",
 		ArtifactNamespace: "artifacts",
 		IncludeArtifacts:  true,
 		FQDN:              "artifact-dns-1.appliance.internal",
@@ -118,7 +118,7 @@ func TestEnsureApplianceTLSSecrets_CreatesCAAndTLSInControlAndArtifacts(t *testi
 	leafPEM, err := os.ReadFile(leafCertPath)
 	if err != nil {
 		// leaf path was under temp dir already removed; read from secret map
-		leafPEM = secrets["control/appliance-tls"]["tls.crt"]
+		leafPEM = secrets["ace-apps/appliance-tls"]["tls.crt"]
 	}
 	block, _ := pem.Decode(leafPEM)
 	if block == nil {
@@ -139,7 +139,7 @@ func TestEnsureApplianceTLSSecrets_CreatesCAAndTLSInControlAndArtifacts(t *testi
 	caCreated = false
 	tlsCreated = nil
 	prepared, err = helm.EnsureApplianceTLSSecrets(context.Background(), run, "/kubeconfig", helm.ApplianceTLSOptions{
-		ControlNamespace:  "control",
+		ControlNamespace:  "ace-apps",
 		ArtifactNamespace: "artifacts",
 		IncludeArtifacts:  true,
 		FQDN:              "artifact-dns-1.appliance.internal",

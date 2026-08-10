@@ -22,13 +22,12 @@ type ChartRelease struct {
 	NamespaceLabels map[string]string
 }
 
-const chartApplyTimeout = 10 * time.Minute
-
 // InstallOrUpgrade applies rel via `helm upgrade --install`, which is
 // idempotent by construction: a fresh cluster gets an install, an
 // existing release gets an upgrade, and re-running it with unchanged
-// inputs is a safe no-op. It fails closed if the chart or values file is
-// missing.
+// inputs is a safe no-op. It deliberately does not use Helm --wait: runtime
+// services must reconnect asynchronously instead of blocking unrelated
+// installs.
 func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evidence.Check, error) {
 	check := evidence.Check{
 		ID:              "helm-release-" + evidence.SanitizeIDSegment(rel.Name),
@@ -60,8 +59,6 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 		"--kubeconfig", a.Kubeconfig,
 		"upgrade", "--install", rel.Name, rel.ChartPath,
 		"--namespace", rel.Namespace,
-		"--wait",
-		"--timeout", chartApplyTimeout.String(),
 	}
 	if strings.TrimSpace(rel.ValuesPath) != "" {
 		args = append(args, "--values", rel.ValuesPath)
@@ -82,11 +79,20 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 // existing release that failed to upgrade is rolled back to its prior
 // revision instead, per "the declared N-1 rollback."
 func (a *Applier) Rollback(ctx context.Context, releaseName string, wasFreshInstall bool) error {
+	return a.RollbackInNamespace(ctx, releaseName, "", wasFreshInstall)
+}
+
+// RollbackInNamespace rolls back or removes a release in its owning namespace.
+func (a *Applier) RollbackInNamespace(ctx context.Context, releaseName, namespace string, wasFreshInstall bool) error {
 	if wasFreshInstall {
-		return a.Uninstall(ctx, releaseName)
+		return a.UninstallInNamespace(ctx, releaseName, namespace)
 	}
 
-	if _, err := a.Run(ctx, "helm", "--kubeconfig", a.Kubeconfig, "rollback", releaseName); err != nil {
+	args := []string{"--kubeconfig", a.Kubeconfig, "rollback", releaseName}
+	if strings.TrimSpace(namespace) != "" {
+		args = append(args, "--namespace", namespace)
+	}
+	if _, err := a.Run(ctx, "helm", args...); err != nil {
 		if helmReleaseMissing(err) {
 			return nil
 		}
@@ -98,7 +104,16 @@ func (a *Applier) Rollback(ctx context.Context, releaseName string, wasFreshInst
 // Uninstall removes a Helm release and tolerates missing-release results so
 // callers can use it for capability cleanup and failed fresh installs.
 func (a *Applier) Uninstall(ctx context.Context, releaseName string) error {
-	if _, err := a.Run(ctx, "helm", "--kubeconfig", a.Kubeconfig, "uninstall", releaseName); err != nil {
+	return a.UninstallInNamespace(ctx, releaseName, "")
+}
+
+// UninstallInNamespace removes a release from its owning namespace.
+func (a *Applier) UninstallInNamespace(ctx context.Context, releaseName, namespace string) error {
+	args := []string{"--kubeconfig", a.Kubeconfig, "uninstall", releaseName}
+	if strings.TrimSpace(namespace) != "" {
+		args = append(args, "--namespace", namespace)
+	}
+	if _, err := a.Run(ctx, "helm", args...); err != nil {
 		if helmReleaseMissing(err) {
 			return nil
 		}

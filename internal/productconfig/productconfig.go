@@ -488,7 +488,7 @@ func PrepareRegistryValuesFile(baseDir, artifactServerImageReference, fqdn strin
 		"networkPolicy": map[string]any{
 			"enabled": true,
 			"controlPlaneNamespaceLabel": map[string]any{
-				"kubernetes.io/metadata.name": "control",
+				"kubernetes.io/metadata.name": "ace-apps",
 			},
 			"controlPlanePodLabels": map[string]any{
 				// Matches appliance-control-plane chart selectorLabels

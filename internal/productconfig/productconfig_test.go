@@ -69,7 +69,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 		"nodeIPv4: 192.0.2.10",
 		"name: host-agent",
 		"capability: host",
-		"baseURL: http://host-agent.control.svc.cluster.local:8080",
+		"baseURL: http://host-agent.ace-apps.svc.cluster.local:8080",
 		"externalPath: /api/v1/host/info",
 		"externalPath: /api/v1/host/stats",
 		"externalPath: /api/v1/host/health",
@@ -174,7 +174,7 @@ func TestPrepareRegistryValuesFile_DigestPinAndPersistence(t *testing.T) {
 		!strings.Contains(text, "repository: registry.local/artifact-server") ||
 		!strings.Contains(text, "accessMode: ReadWriteOnce") ||
 		!strings.Contains(text, productconfig.DefaultRegistryPublicKeySecret) ||
-		!strings.Contains(text, "kubernetes.io/metadata.name: control") ||
+		!strings.Contains(text, "kubernetes.io/metadata.name: ace-apps") ||
 		!strings.Contains(text, "app.kubernetes.io/name: api-server") ||
 		!strings.Contains(text, "hostPath: /data/zon/logs/artifactserver") {
 		t.Fatalf("unexpected registry values:\n%s", text)
@@ -364,7 +364,7 @@ func TestPrepareValuesFile_InjectsApplianceCatalog(t *testing.T) {
       "requiredCapabilities": ["host"],
       "executionMode": "host-agent",
       "entitlementKey": "host-agent",
-      "baseURL": "http://host-agent.control.svc.cluster.local:8080",
+      "baseURL": "http://host-agent.ace-apps.svc.cluster.local:8080",
       "routes": [
         {"method": "GET", "externalPath": "/api/v1/host/info", "upstreamPath": "/internal/v1/host/info", "permission": "host.read"}
       ],
