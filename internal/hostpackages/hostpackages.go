@@ -71,7 +71,7 @@ var stockDaemonUnitsToQuiesce = []string{
 }
 
 // InstallRequiredPackages installs missing offline .deb files under the bundle
-// host-packages tree for this OS/arch (mdns + wifi-ap closures in the
+// host-packages tree for this OS/arch (mdns + wifi-client + wifi-ap closures in the
 // complete product super-set). Packages already install-ok on the host are
 // skipped so reinstall/e2e cycles do not re-run dpkg over libc/apt and similar
 // transitive closures (slow, and previously hit a short command timeout).

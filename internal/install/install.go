@@ -101,7 +101,7 @@ type Options struct {
 	ApplianceName      string
 	DNSZone            string
 	// Host packages from the super-set bundle are always staged when present so
-	// day-2 host APIs can enable mDNS / Wi-Fi AP. Services are not enabled here.
+	// day-2 host APIs can enable mDNS / client Wi-Fi / Wi-Fi AP. Services are not enabled here.
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -166,7 +166,7 @@ type Orchestrator struct {
 	RestoreHostDNS      func() error
 	InstallHostAgent    func(hostagent.InstallSpec) (func() error, error)
 	InstallHostPackages func(hostpackages.InstallSpec) (func() error, error)
-	// EnsureDay2FeaturesDisabled resets mDNS/Wi-Fi AP desired=off and tears down
+	// EnsureDay2FeaturesDisabled resets mDNS/client Wi-Fi/Wi-Fi AP desired=off and tears down
 	// residual host services after host-agent install. Nil uses
 	// hostagent.EnsureDay2FeaturesDisabled.
 	EnsureDay2FeaturesDisabled func(context.Context, string) error
@@ -438,12 +438,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if baselineCheck.Status != evidence.StatusPass {
 		return nil, checks, failInstall(fmt.Errorf("install: target host does not match the signed bundle baseline"), runRollbacks())
 	}
-	// Install offline host packages (mdns + wifi-ap debs) for every profile.
+	// Install offline host packages (mdns + wifi-client + wifi-ap debs) for every profile.
 	// Core capability: package bits on disk so Admin/API day-2 enable never needs
-	// apt. Do not enable avahi or apply Wi-Fi AP here.
+	// apt. Do not enable avahi, client Wi-Fi, or Wi-Fi AP here.
 	// NewOrchestrator wires InstallRequiredPackages; unit tests inject stubs.
 	if resolved.HostPackagesRootDir == "" {
-		return nil, checks, failInstall(fmt.Errorf("install: host-packages are required in the signed bundle (mdns + wifi-ap)"), runRollbacks())
+		return nil, checks, failInstall(fmt.Errorf("install: host-packages are required in the signed bundle (mdns + wifi-client + wifi-ap)"), runRollbacks())
 	}
 	installHostPackages := o.InstallHostPackages
 	if installHostPackages == nil {
@@ -456,7 +456,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		OS:        facts.OS,
 		OSVersion: facts.OSVersion,
 		Arch:      facts.Arch,
-		// Empty ServiceName: install packages only; no mDNS/Wi-Fi AP enable.
+		// Empty ServiceName: install packages only; no mDNS/client Wi-Fi/Wi-Fi AP enable.
 	})
 	if err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: install host packages: %w", err), runRollbacks())
@@ -464,7 +464,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	rollbacks = append(rollbacks, hostPackagesRollback)
 	checks = append(checks, evidence.Check{
 		ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
+		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS, client Wi-Fi, and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
 		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
 
@@ -730,7 +730,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
-		// Fresh install never enables mDNS / Wi-Fi AP. Apply desired=false (host
+		// Fresh install never enables mDNS / client Wi-Fi / Wi-Fi AP. Apply desired=false (host
 		// teardown) and clear durable state left by a prior enable so Admin
 		// shows Off / Enable. Day-2 Admin UI enables features after first admin login.
 		ensureDay2Off := o.EnsureDay2FeaturesDisabled
@@ -742,7 +742,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		checks = append(checks, evidence.Check{
 			ID: "host-day2-features-off", Category: "host", Status: evidence.StatusPass,
-			Message:   "host mDNS and Wi-Fi AP disabled (desired off; enable via Admin UI after first admin login)",
+			Message:   "host mDNS, client Wi-Fi, and Wi-Fi AP disabled (desired off; enable via Admin UI after first admin login)",
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}

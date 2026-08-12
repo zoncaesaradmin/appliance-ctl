@@ -207,7 +207,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	hostPackagesRootDir := componentRootDir(b, "host-packages")
 	if hostPackagesRootDir == "" {
-		return Resolved{}, checks, fmt.Errorf("install: signed bundle is missing required host-packages (mdns + wifi-ap offline debs for day-2 enablement)")
+		return Resolved{}, checks, fmt.Errorf("install: signed bundle is missing required host-packages (mdns + wifi-client + wifi-ap offline debs for day-2 enablement)")
 	}
 	metadataBundleArchivePath, err := requiredMetadataBundleArchivePath(b)
 	if err != nil {

@@ -35,9 +35,10 @@ func TestEnsureDay2FeaturesDisabled_NoAgentDoesNotHang(t *testing.T) {
 func TestLocalStateRemovalPattern(t *testing.T) {
 	// Mirrors ClearDay2FeatureState semantics without touching production paths.
 	root := t.TempDir()
+	wifiClientState := filepath.Join(root, "wifi-client")
 	wifiState := filepath.Join(root, "wifi-ap")
 	mdnsState := filepath.Join(root, "mdns")
-	for _, dir := range []string{wifiState, mdnsState} {
+	for _, dir := range []string{wifiClientState, wifiState, mdnsState} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -45,7 +46,7 @@ func TestLocalStateRemovalPattern(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, dir := range []string{wifiState, mdnsState} {
+	for _, dir := range []string{wifiClientState, wifiState, mdnsState} {
 		if err := os.RemoveAll(dir); err != nil {
 			t.Fatal(err)
 		}

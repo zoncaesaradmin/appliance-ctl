@@ -59,7 +59,7 @@ type Options struct {
 	ApplianceName      string
 	DNSZone            string
 	// Host packages from the super-set bundle are staged when present so day-2
-	// host APIs can enable mDNS / Wi-Fi AP. Services are not enabled here.
+	// host APIs can enable mDNS / client Wi-Fi / Wi-Fi AP. Services are not enabled here.
 	TLSSANs                []string
 	ZonctlRealDestPath     string
 	ZonctlLauncherDestPath string
@@ -474,11 +474,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	checks = append(checks, binaryCheck)
-	// Install offline host packages for every profile (day-2 mDNS / Wi-Fi AP);
+	// Install offline host packages for every profile (day-2 mDNS / client Wi-Fi / Wi-Fi AP);
 	// do not enable those features here. NewOrchestrator wires the real dpkg
 	// installer; unit tests inject stubs.
 	if resolved.HostPackagesRootDir == "" {
-		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: host-packages are required in the signed bundle (mdns + wifi-ap)"), rollback)
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: host-packages are required in the signed bundle (mdns + wifi-client + wifi-ap)"), rollback)
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
 	}
@@ -501,7 +501,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 	checks = append(checks, evidence.Check{
 		ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
+		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS, client Wi-Fi, and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
 		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
 

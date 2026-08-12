@@ -710,7 +710,7 @@ func TestInstall_StagesHostPackagesWithoutEnablingServices(t *testing.T) {
 		t.Fatal("expected host-packages-installed evidence")
 	}
 	if sawWifi || sawMDNS {
-		t.Fatal("install must not enable mDNS or Wi-Fi AP (day-2 API only)")
+		t.Fatal("install must not enable mDNS, client Wi-Fi, or Wi-Fi AP (day-2 API only)")
 	}
 }
 
@@ -804,7 +804,7 @@ func TestInstall_InstallsHostPackagesForCoreProfile(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 	if !called {
-		t.Fatal("core profile must install host packages (mdns+wifi-ap debs) without enabling services")
+		t.Fatal("core profile must install host packages (mdns+wifi-client+wifi-ap debs) without enabling services")
 	}
 	var saw bool
 	for _, check := range checks {

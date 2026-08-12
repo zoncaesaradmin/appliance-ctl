@@ -104,8 +104,8 @@ func TestServiceRegistryConfigBuildsHostAgentRoutes(t *testing.T) {
 	if !ok {
 		t.Fatalf("routes = %#v, want []map[string]any", service["routes"])
 	}
-	if len(routes) != 7 {
-		t.Fatalf("len(routes) = %d, want 7", len(routes))
+	if len(routes) != 11 {
+		t.Fatalf("len(routes) = %d, want 11", len(routes))
 	}
 	pathSet := map[string]bool{}
 	for _, route := range routes {
@@ -114,6 +114,10 @@ func TestServiceRegistryConfigBuildsHostAgentRoutes(t *testing.T) {
 		pathSet[method+" "+path] = true
 	}
 	for _, want := range []string{
+		"GET /api/v1/host/wifi",
+		"PUT /api/v1/host/wifi/enable",
+		"PUT /api/v1/host/wifi",
+		"GET /api/v1/host/wifi/scan",
 		"GET /api/v1/host/wifi-ap",
 		"PUT /api/v1/host/wifi-ap",
 		"GET /api/v1/host/mdns",

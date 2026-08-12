@@ -45,6 +45,20 @@ type WifiAPApplyRequest struct {
 	SSIDBase string `json:"ssidBase,omitempty"`
 }
 
+// WifiStatus mirrors the host-agentd client Wi-Fi status JSON (no secrets).
+type WifiStatus struct {
+	Desired      bool   `json:"desired"`
+	Actual       string `json:"actual"`
+	Reason       string `json:"reason,omitempty"`
+	RadioEnabled bool   `json:"radioEnabled"`
+	Message      string `json:"message,omitempty"`
+}
+
+// WifiApplyRequest is the shared body for client Wi-Fi connect/disconnect.
+type WifiApplyRequest struct {
+	Desired bool `json:"desired"`
+}
+
 // Client talks to appliance-host-agentd over its Unix socket.
 type Client struct {
 	SocketPath string
@@ -103,6 +117,15 @@ func (c *Client) GetWifiAP(ctx context.Context) (WifiAPStatus, error) {
 	var status WifiAPStatus
 	if err := c.do(ctx, http.MethodGet, "/internal/v1/host/wifi-ap", nil, &status); err != nil {
 		return WifiAPStatus{}, err
+	}
+	return status, nil
+}
+
+// ApplyWifi calls PUT /internal/v1/host/wifi on host-agentd.
+func (c *Client) ApplyWifi(ctx context.Context, req WifiApplyRequest) (WifiStatus, error) {
+	var status WifiStatus
+	if err := c.do(ctx, http.MethodPut, "/internal/v1/host/wifi", req, &status); err != nil {
+		return WifiStatus{}, err
 	}
 	return status, nil
 }

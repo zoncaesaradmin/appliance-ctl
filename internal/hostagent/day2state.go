@@ -9,17 +9,20 @@ import (
 	"time"
 )
 
-// Default day-2 host feature paths (wifi-ap and mdns). Desired state lives
+// Default day-2 host feature paths (wifi-client, wifi-ap, and mdns). Desired state lives
 // here and survives package install; must not default "on" after a fresh install.
 const (
-	DefaultWifiAPStateDir   = "/var/lib/zon/wifi-ap"
-	DefaultWifiAPConfigDir  = "/etc/zon/wifi-ap"
-	DefaultWifiAPRuntimeDir = "/run/zon/wifi-ap"
-	DefaultMDNSStateDir     = "/var/lib/zon/mdns"
-	mdnsSystemdUnit         = "avahi-daemon.service"
+	DefaultWifiAPStateDir       = "/var/lib/zon/wifi-ap"
+	DefaultWifiAPConfigDir      = "/etc/zon/wifi-ap"
+	DefaultWifiAPRuntimeDir     = "/run/zon/wifi-ap"
+	DefaultWifiClientStateDir   = "/var/lib/zon/wifi-client"
+	DefaultWifiClientConfigDir  = "/etc/zon/wifi-client"
+	DefaultWifiClientRuntimeDir = "/run/zon/wifi-client"
+	DefaultMDNSStateDir         = "/var/lib/zon/mdns"
+	mdnsSystemdUnit             = "avahi-daemon.service"
 )
 
-// EnsureDay2FeaturesDisabled forces mDNS and Wi-Fi AP to desired=off and tears
+// EnsureDay2FeaturesDisabled forces client Wi-Fi, mDNS, and Wi-Fi AP to desired=off and tears
 // down residual host configuration/services. Order:
 //  1. Prefer host-agent apply(desired=false) so shared production teardown runs
 //     (hostapd/dnsmasq/avahi stop, interface addresses cleaned).
@@ -31,7 +34,7 @@ func EnsureDay2FeaturesDisabled(ctx context.Context, socketPath string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// Host-agent apply uses production wifiap/mdns teardown (iface addr, pkill, etc.).
+	// Host-agent apply uses production Wi-Fi/mDNS teardown (iface addr, pkill, etc.).
 	if err := applyDay2DisabledViaAgent(ctx, socketPath); err != nil {
 		// Do not fail install/uninstall solely because the agent is cold;
 		// file clear + systemctl/pkill below still resets desired off.
@@ -42,7 +45,7 @@ func EnsureDay2FeaturesDisabled(ctx context.Context, socketPath string) error {
 	}
 	// After state wipe (or when the agent was unavailable), still quiet residual services.
 	bestEffortStopMDNS(ctx)
-	bestEffortStopWifiAPProcesses()
+	bestEffortStopWifiProcesses()
 	return nil
 }
 
@@ -56,6 +59,9 @@ func applyDay2DisabledViaAgent(ctx context.Context, socketPath string) error {
 	}
 	if err := client.WaitReady(ctx, readyTimeout); err != nil {
 		return err
+	}
+	if _, err := client.ApplyWifi(ctx, WifiApplyRequest{Desired: false}); err != nil {
+		return fmt.Errorf("hostagent: disable wifi-client: %w", err)
 	}
 	if _, err := client.ApplyWifiAP(ctx, WifiAPApplyRequest{Desired: false}); err != nil {
 		return fmt.Errorf("hostagent: disable wifi-ap: %w", err)
@@ -83,11 +89,14 @@ func testingShortSocketPath(socketPath string) bool {
 		strings.HasPrefix(p, "/tmp/")
 }
 
-// ClearDay2FeatureState removes durable host mDNS / Wi-Fi AP desired-state
+// ClearDay2FeatureState removes durable host mDNS / client Wi-Fi / Wi-Fi AP desired-state
 // (and config/runtime trees) so Status reports desired=off. Idempotent if
 // paths are absent.
 func ClearDay2FeatureState() error {
 	return clearDay2Paths([]string{
+		DefaultWifiClientStateDir,
+		DefaultWifiClientConfigDir,
+		DefaultWifiClientRuntimeDir,
 		DefaultWifiAPStateDir,
 		DefaultWifiAPConfigDir,
 		DefaultWifiAPRuntimeDir,
@@ -118,8 +127,10 @@ func bestEffortStopMDNS(ctx context.Context) {
 	_ = cmd.Run()
 }
 
-func bestEffortStopWifiAPProcesses() {
+func bestEffortStopWifiProcesses() {
 	// Match managed conf path; pkill exit 1 = no process is fine.
+	_ = exec.Command("pkill", "-f", "wpa_supplicant.*/etc/zon/wifi-client/wpa_supplicant.conf").Run()
+	_ = exec.Command("pkill", "-f", "dhclient.*/var/lib/zon/wifi-client/dhclient.leases").Run()
 	_ = exec.Command("pkill", "-f", "hostapd.*/etc/zon/wifi-ap/hostapd.conf").Run()
 	_ = exec.Command("pkill", "-f", "dnsmasq.*/etc/zon/wifi-ap/dnsmasq.conf").Run()
 }
