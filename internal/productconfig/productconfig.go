@@ -112,7 +112,7 @@ var builtInProfileCatalog = ProfileCatalog{
 	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityInference, CapabilityApplications}},
 	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference, CapabilityApplications}},
 	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference, CapabilityApplications}},
-	ProfileTraining:                   {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityApplications, CapabilityVideo}},
+	ProfileTraining:                   {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityVideo}},
 }
 
 var builtInProfileOrder = []string{
