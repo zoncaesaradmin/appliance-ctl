@@ -90,6 +90,11 @@
           "minLength": 1,
           "description": "Installed inference runtime version when the inference capability is enabled."
         },
+        "videoVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Installed video runtime version when the video capability is enabled."
+        },
         "metadataVersion": {
           "type": "string",
           "minLength": 1,

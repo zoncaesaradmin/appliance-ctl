@@ -31,6 +31,7 @@ type Resolved struct {
 	ArtifactEnabled  bool
 	DNSEnabled       bool
 	InferenceEnabled bool
+	VideoEnabled     bool
 	BuildEnabled     bool
 	WorkflowsEnabled bool
 	ZonctlBinaryPath string
@@ -43,6 +44,7 @@ type Resolved struct {
 	RegistryChartPath      string
 	DNSChartPath           string
 	InferenceChartPath     string
+	VideoChartPath         string
 	MessageBrokerChartPath string
 	WorkflowsChartPath     string
 	WorkflowsCRDPaths      []string
@@ -68,7 +70,11 @@ type Resolved struct {
 	// InferenceImageReference is the bundled, digest-pinned
 	// registry.local/inference-runtime image reference used for the
 	// inference capability.
-	InferenceImageReference     string
+	InferenceImageReference string
+	// VideoImageReference is the bundled, digest-pinned
+	// registry.local/video-runtime image reference used for the
+	// video capability.
+	VideoImageReference         string
 	MessageBrokerImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
@@ -94,7 +100,7 @@ type Source interface {
 type OfflineSource struct {
 	BundleDir string
 	// PackDirs are additional signed pack bundle directories (developer,
-	// inference) verified with the same public key and merged into Resolved.
+	// inference, video) verified with the same public key and merged into Resolved.
 	PackDirs  []string
 	PublicKey *verify.PublicKey
 }
@@ -159,6 +165,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	filesEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameFiles)
 	dnsEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameLANDNS)
 	inferenceEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameInferenceRuntime)
+	videoEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameVideoRuntime)
 	buildEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameBuild)
 	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, catalog.Profiles)
 
@@ -198,6 +205,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the inference pack was not provided: %w", effectiveProfile, err)
 		}
 	}
+	videoChartPath := ""
+	if videoEnabled && strings.TrimSpace(compat.VideoVersion) != "" {
+		videoChartPath, err = requiredVideoChartPath(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires video capability but the video pack was not provided: %w", effectiveProfile, err)
+		}
+	}
 	hostAgentBinaryPath := ""
 	if hostEnabled {
 		hostAgentBinaryPath, err = applianceBinaryPath(b, "appliance-host-agentd")
@@ -223,7 +237,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isVideoRuntimeImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -258,6 +272,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the inference pack was not provided: %w", effectiveProfile, err)
 		}
 	}
+	videoImageReference := ""
+	if videoEnabled && strings.TrimSpace(compat.VideoVersion) != "" {
+		videoImageReference, err = requiredVideoImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires video capability but the video pack was not provided: %w", effectiveProfile, err)
+		}
+	}
 	messageBrokerImageReference := optionalMessageBrokerImageReference(view)
 
 	return Resolved{
@@ -272,6 +293,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ArtifactEnabled:                    artifactEnabled,
 		DNSEnabled:                         dnsEnabled,
 		InferenceEnabled:                   inferenceEnabled,
+		VideoEnabled:                       videoEnabled,
 		BuildEnabled:                       buildEnabled,
 		WorkflowsEnabled:                   workflowsEnabled,
 		ZonctlBinaryPath:                   zonctlBinaryPath,
@@ -281,6 +303,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		RegistryChartPath:                  registryChartPath,
 		DNSChartPath:                       dnsChartPath,
 		InferenceChartPath:                 inferenceChartPath,
+		VideoChartPath:                     videoChartPath,
 		MessageBrokerChartPath:             messageBrokerChartPath,
 		WorkflowsChartPath:                 workflowsChartPath,
 		WorkflowsCRDPaths:                  workflowsCRDPaths,
@@ -294,6 +317,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ArtifactServerImageReference:       artifactServerImageReference,
 		DNSImageReference:                  dnsImageReference,
 		InferenceImageReference:            inferenceImageReference,
+		VideoImageReference:                videoImageReference,
 		MessageBrokerImageReference:        messageBrokerImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
@@ -329,6 +353,9 @@ func mergeCompatibility(primary *bundle.Bundle, packs []*bundle.Bundle) bundle.C
 		if strings.TrimSpace(compat.InferenceVersion) == "" {
 			compat.InferenceVersion = p.Compatibility.InferenceVersion
 		}
+		if strings.TrimSpace(compat.VideoVersion) == "" {
+			compat.VideoVersion = p.Compatibility.VideoVersion
+		}
 		if strings.TrimSpace(compat.ArtifactServerVersion) == "" {
 			compat.ArtifactServerVersion = p.Compatibility.ArtifactServerVersion
 		}
@@ -349,6 +376,10 @@ func isDNSImageReference(ref string) bool {
 
 func isInferenceRuntimeImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/inference-runtime@sha256:")
+}
+
+func isVideoRuntimeImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/video-runtime@sha256:")
 }
 
 func isMessageBrokerImageReference(ref string) bool {
@@ -444,6 +475,23 @@ func requiredInferenceImageReference(b entrySource) (string, error) {
 	}
 	if found == "" {
 		return "", fmt.Errorf("bundle has no canonical registry.local/inference-runtime@sha256 image entry")
+	}
+	return found, nil
+}
+
+func requiredVideoImageReference(b entrySource) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isVideoRuntimeImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple video-runtime image entries")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no canonical registry.local/video-runtime@sha256 image entry")
 	}
 	return found, nil
 }
@@ -565,6 +613,24 @@ func requiredInferenceChartPath(b entrySource) (string, error) {
 	return found, nil
 }
 
+func requiredVideoChartPath(b entrySource) (string, error) {
+	var found string
+	for _, e := range b.Entries("chart") {
+		base := strings.ToLower(filepath.Base(e.Path))
+		if !strings.HasPrefix(base, "appliance-video-") {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple appliance-video chart entries")
+		}
+		found = e.Path
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no appliance-video chart entry")
+	}
+	return found, nil
+}
+
 func optionalMessageBrokerChartPath(b entrySource) string {
 	var found string
 	for _, e := range b.Entries("chart") {
@@ -682,6 +748,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 			if strings.HasPrefix(image.Name, "registry.local/inference-runtime@") && !r.InferenceEnabled {
 				continue
 			}
+			if strings.HasPrefix(image.Name, "registry.local/video-runtime@") && !r.VideoEnabled {
+				continue
+			}
 		}
 		out = append(out, image)
 	}
@@ -704,6 +773,13 @@ func (r Resolved) DNSComponentVersion(version string) string {
 
 func (r Resolved) InferenceComponentVersion(version string) string {
 	if r.InferenceEnabled {
+		return version
+	}
+	return ""
+}
+
+func (r Resolved) VideoComponentVersion(version string) string {
+	if r.VideoEnabled {
 		return version
 	}
 	return ""

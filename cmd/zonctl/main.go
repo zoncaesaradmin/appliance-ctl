@@ -159,9 +159,9 @@ func run(args []string) int {
 	configPath := fs.String("config", "", "path to a bundle assembly config JSON file (required for assemble-bundle)")
 	bundleDir := fs.String("bundle-dir", "", "path to an extracted signed appliance bundle directory (required for install/upgrade)")
 	var packDirs stringListFlag
-	fs.Var(&packDirs, "pack-dir", "additional signed pack bundle directory to merge (developer, inference); repeatable")
+	fs.Var(&packDirs, "pack-dir", "additional signed pack bundle directory to merge (developer, inference, video); repeatable")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
-	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage, landns, storage-landns, builder-landns, builder-storage-landns, lanllm, builder-lanllm, builder-lanllm-storage-landns); install defaults to core and upgrade preserves the installed profile when omitted")
+	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile to pass into the control plane (core, builder, storage, landns, storage-landns, builder-landns, builder-storage-landns, lanllm, builder-lanllm, builder-lanllm-storage-landns, training); install defaults to core and upgrade preserves the installed profile when omitted")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
 	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN becomes <name>.<dns-zone> for TLS and canonical origin (required for install; upgrade preserves installed value when omitted)")
 	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")

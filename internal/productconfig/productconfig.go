@@ -21,6 +21,7 @@ const (
 	ProfileLANLLM                     = "lanllm"
 	ProfileBuilderLANLLM              = "builder-lanllm"
 	ProfileBuilderLANLLMStorageLANDNS = "builder-lanllm-storage-landns"
+	ProfileTraining                   = "training"
 
 	// ControlPlaneAppsNamespace hosts ui-server, host-agent, and
 	// automation-runtime. controlplane itself uses defaultChartNamespace
@@ -35,6 +36,7 @@ const (
 	ArtifactsNamespace = "artifacts"
 	DNSNamespace       = "dns"
 	InferenceNamespace = "inference"
+	VideoNamespace     = "video"
 	// WorkflowsControllerNamespace hosts the workflow-controller release.
 	WorkflowsControllerNamespace = "workflows"
 	// WorkflowsBuildNamespace hosts build/workspace PVCs, workflow jobs, and
@@ -63,6 +65,7 @@ func ProductNamespaces(controlPlaneNS string) []string {
 		ArtifactsNamespace,
 		DNSNamespace,
 		InferenceNamespace,
+		VideoNamespace,
 		WorkflowsControllerNamespace,
 		WorkflowsBuildNamespace,
 	}
@@ -88,6 +91,7 @@ const (
 	CapabilityArtifact     Capability = "artifact"
 	CapabilityDNS          Capability = "dns"
 	CapabilityInference    Capability = "inference"
+	CapabilityVideo        Capability = "video"
 	CapabilityApplications Capability = "applications"
 )
 
@@ -108,6 +112,7 @@ var builtInProfileCatalog = ProfileCatalog{
 	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityInference, CapabilityApplications}},
 	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference, CapabilityApplications}},
 	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference, CapabilityApplications}},
+	ProfileTraining:                   {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityApplications, CapabilityVideo}},
 }
 
 var builtInProfileOrder = []string{
@@ -121,6 +126,7 @@ var builtInProfileOrder = []string{
 	ProfileLANLLM,
 	ProfileBuilderLANLLM,
 	ProfileBuilderLANLLMStorageLANDNS,
+	ProfileTraining,
 }
 
 func BuiltInProfileCatalog() ProfileCatalog {
@@ -146,6 +152,9 @@ const (
 	// gateway Service used when the inference capability is enabled. The
 	// control plane authenticates and reverse-proxies /inference/v1/* here.
 	DefaultInferenceGatewayBaseURL = "http://inference-gateway.inference.svc.cluster.local:8080"
+	// DefaultVideoGatewayBaseURL is the in-cluster video runtime Service used
+	// when the video capability is enabled (Slice B install injects this).
+	DefaultVideoGatewayBaseURL = "http://video-gateway.video.svc.cluster.local:8096"
 	// DefaultLANDNSZone is the CoreDNS local-zone suffix for LAN A records.
 	// Must not be ".local" — systemd-resolved (and dig) treat .local as
 	// Multicast DNS and will never send those queries to unicast DNS.
@@ -162,6 +171,9 @@ func RequiredPacks(profile string) []string {
 	}
 	if HasCapability(profile, CapabilityInference) {
 		packs = append(packs, "inference")
+	}
+	if HasCapability(profile, CapabilityVideo) {
+		packs = append(packs, "video")
 	}
 	return packs
 }
@@ -300,6 +312,7 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
 	inferenceEnabled := ModuleEnabled(resolvedModules, ModuleNameInferenceRuntime)
+	videoEnabled := ModuleEnabled(resolvedModules, ModuleNameVideoRuntime)
 	buildEnabled := ModuleEnabled(resolvedModules, ModuleNameBuild)
 	identity, err := ResolveApplianceIdentity(applianceName, dnsZone)
 	if err != nil {
@@ -388,6 +401,11 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	} else {
 		delete(config, "inferenceGatewayBaseURL")
 	}
+	if videoEnabled {
+		config["videoGatewayBaseURL"] = DefaultVideoGatewayBaseURL
+	} else {
+		delete(config, "videoGatewayBaseURL")
+	}
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
 	} else {
@@ -469,7 +487,20 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		delete(networkPolicy, "inferencePodLabels")
 		delete(networkPolicy, "inferencePort")
 	}
-	if artifactEnabled || dnsEnabled || inferenceEnabled {
+	if videoEnabled {
+		networkPolicy["videoNamespaceLabel"] = map[string]any{
+			"kubernetes.io/metadata.name": "video",
+		}
+		networkPolicy["videoPodLabels"] = map[string]any{
+			"app.kubernetes.io/name": "video-gateway",
+		}
+		networkPolicy["videoPort"] = 8096
+	} else {
+		delete(networkPolicy, "videoNamespaceLabel")
+		delete(networkPolicy, "videoPodLabels")
+		delete(networkPolicy, "videoPort")
+	}
+	if artifactEnabled || dnsEnabled || inferenceEnabled || videoEnabled {
 		values["networkPolicy"] = networkPolicy
 	}
 
@@ -731,6 +762,39 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string) 
 	return tmp.Name(), cleanup, nil
 }
 
+func PrepareVideoValuesFile(baseDir, videoRuntimeImageReference string) (string, func(), error) {
+	if !validVideoRuntimeImageDigest(videoRuntimeImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid video-runtime image reference %q", videoRuntimeImageReference)
+	}
+	values := map[string]any{
+		"namespace": map[string]any{"create": false, "name": "video"},
+		"image": map[string]any{
+			"repository": "registry.local/video-runtime",
+			"digest":     strings.TrimPrefix(strings.TrimSpace(videoRuntimeImageReference), "registry.local/video-runtime@"),
+			"pullPolicy": "IfNotPresent",
+		},
+	}
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: render video values: %w", err)
+	}
+	tmp, err := os.CreateTemp(baseDir, ".zonctl-video-values-*.yaml")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: create video values file: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(tmp.Name()) }
+	if _, err := tmp.Write(rendered); err != nil {
+		tmp.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: write video values file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: close video values file: %w", err)
+	}
+	return tmp.Name(), cleanup, nil
+}
+
 func validBuilderImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !sha256ImageDigestRE.MatchString(image) {
@@ -761,6 +825,15 @@ func validDNSImageDigest(image string) bool {
 func validInferenceRuntimeImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/inference-runtime@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
+}
+
+func validVideoRuntimeImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/video-runtime@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

@@ -37,6 +37,7 @@ const (
 	PackFoundation = "foundation"
 	PackDeveloper  = "developer"
 	PackInference  = "inference"
+	PackVideo      = "video"
 )
 
 type Config struct {
@@ -50,7 +51,7 @@ type Config struct {
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
 	// Empty means legacy full bundle (everything). PackFoundation excludes
-	// developer and inference artifacts.
+	// developer, inference, and video artifacts.
 	Pack string `json:"pack,omitempty"`
 }
 
@@ -103,9 +104,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackDeveloper, PackInference:
+	case "", PackFoundation, PackDeveloper, PackInference, PackVideo:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, or %q", PackFoundation, PackDeveloper, PackInference)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, or %q", PackFoundation, PackDeveloper, PackInference, PackVideo)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -146,9 +147,10 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 
 	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
 	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackInference
+	includeVideoAutoAdd := cfg.Pack == "" || cfg.Pack == PackVideo
 	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackFoundation
-	if cfg.Pack == PackInference {
-		// Inference pack is auto-add only; drop any leftover cfg entries.
+	if cfg.Pack == PackInference || cfg.Pack == PackVideo {
+		// Inference/video packs are auto-add only; drop any leftover cfg entries.
 		entryByTarget = map[string]EntryConfig{}
 	}
 
@@ -311,6 +313,39 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 	}
 
+	if includeVideoAutoAdd {
+		if input.Artifacts.VideoRuntimeImage.Path == "" || input.Artifacts.VideoChart.Path == "" {
+			if cfg.Pack == PackVideo {
+				return Result{}, fmt.Errorf("releasebundle: video pack requires release-input videoRuntimeImage and videoChart")
+			}
+		} else {
+			videoImageTarget := "oci-images/" + filepath.Base(input.Artifacts.VideoRuntimeImage.Path)
+			if _, exists := entryByTarget[videoImageTarget]; !exists {
+				if !isCanonicalVideoRuntimeReference(input.Artifacts.VideoRuntimeImage.ImageReference) {
+					return Result{}, fmt.Errorf("releasebundle: video-runtime imageReference must be registry.local/video-runtime@sha256:<64 lowercase hex>, got %q", input.Artifacts.VideoRuntimeImage.ImageReference)
+				}
+				entryByTarget[videoImageTarget] = EntryConfig{
+					SourcePath:     input.Artifacts.VideoRuntimeImage.Path,
+					TargetPath:     videoImageTarget,
+					Component:      "oci-images",
+					ImageReference: input.Artifacts.VideoRuntimeImage.ImageReference,
+				}
+			}
+			videoChartBase := filepath.Base(input.Artifacts.VideoChart.Path)
+			if !strings.HasPrefix(strings.ToLower(videoChartBase), "appliance-video-") {
+				videoChartBase = "appliance-video-" + videoChartBase
+			}
+			videoChartTarget := "chart/" + videoChartBase
+			if _, exists := entryByTarget[videoChartTarget]; !exists {
+				entryByTarget[videoChartTarget] = EntryConfig{
+					SourcePath: input.Artifacts.VideoChart.Path,
+					TargetPath: videoChartTarget,
+					Component:  "chart",
+				}
+			}
+		}
+	}
+
 	publicKeyTarget := "public-keys/release-signing.pub"
 	publicKeyBytes, err := encodePublicKeyPEM(priv.Public().(ed25519.PublicKey))
 	if err != nil {
@@ -380,6 +415,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 	if strings.TrimSpace(input.Compatibility.InferenceVersion) != "" {
 		compatibility["inferenceVersion"] = input.Compatibility.InferenceVersion
+	}
+	if strings.TrimSpace(input.Compatibility.VideoVersion) != "" {
+		compatibility["videoVersion"] = input.Compatibility.VideoVersion
 	}
 	if strings.TrimSpace(input.Compatibility.WorkflowsVersion) != "" {
 		compatibility["workflowsVersion"] = input.Compatibility.WorkflowsVersion
@@ -464,6 +502,19 @@ func isCanonicalDNSReference(ref string) bool {
 
 func isCanonicalInferenceRuntimeReference(ref string) bool {
 	const prefix = "registry.local/inference-runtime@sha256:"
+	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
+		return false
+	}
+	for _, c := range strings.TrimPrefix(ref, prefix) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCanonicalVideoRuntimeReference(ref string) bool {
+	const prefix = "registry.local/video-runtime@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}
@@ -691,6 +742,30 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			return fmt.Errorf("releasebundle: inference pack is missing inference-runtime image")
 		}
 		return nil
+	case PackVideo:
+		if counts["chart"] == 0 {
+			return fmt.Errorf("releasebundle: video pack is missing appliance-video chart")
+		}
+		if counts["oci-images"] == 0 {
+			return fmt.Errorf("releasebundle: video pack must include the video-runtime image")
+		}
+		var hasVideoChart, hasVideoImage bool
+		for _, entry := range entries {
+			base := strings.ToLower(filepath.Base(entry.Path))
+			if entry.Component == "chart" && strings.HasPrefix(base, "appliance-video-") {
+				hasVideoChart = true
+			}
+			if entry.Component == "oci-images" && isCanonicalVideoRuntimeReference(entry.ImageReference) {
+				hasVideoImage = true
+			}
+		}
+		if !hasVideoChart {
+			return fmt.Errorf("releasebundle: video pack is missing appliance-video chart")
+		}
+		if !hasVideoImage {
+			return fmt.Errorf("releasebundle: video pack is missing video-runtime image")
+		}
+		return nil
 	}
 
 	requiredSingles := []string{"appliance", "k3s-binary", "chart", "configuration"}
@@ -715,11 +790,13 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	case "":
 		return true
 	case PackFoundation:
-		return !entryIsDeveloper(entry) && !entryIsInference(entry)
+		return !entryIsDeveloper(entry) && !entryIsInference(entry) && !entryIsVideo(entry)
 	case PackDeveloper:
 		return entryIsDeveloper(entry)
 	case PackInference:
 		return entryIsInference(entry)
+	case PackVideo:
+		return entryIsVideo(entry)
 	default:
 		return false
 	}
@@ -762,6 +839,23 @@ func entryIsInference(entry EntryConfig) bool {
 	}
 	if entry.Component == "chart" && (strings.HasPrefix(base, "appliance-inference-") ||
 		strings.HasPrefix(sourceBase, "appliance-inference-") || strings.Contains(base, "inference")) {
+		return true
+	}
+	return false
+}
+
+func entryIsVideo(entry EntryConfig) bool {
+	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
+	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
+	base := strings.ToLower(filepath.Base(target))
+	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
+
+	if strings.Contains(ref, "video-runtime") || strings.Contains(target, "video-runtime") ||
+		strings.Contains(sourceBase, "video-runtime") {
+		return true
+	}
+	if entry.Component == "chart" && (strings.HasPrefix(base, "appliance-video-") ||
+		strings.HasPrefix(sourceBase, "appliance-video-") || strings.Contains(base, "video")) {
 		return true
 	}
 	return false

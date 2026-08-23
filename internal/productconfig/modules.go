@@ -16,6 +16,7 @@ const (
 	ModuleNameLANDNS           = "lan-dns"
 	ModuleNameBuild            = "build"
 	ModuleNameInferenceRuntime = "inference-runtime"
+	ModuleNameVideoRuntime     = "video-runtime"
 )
 
 type ExecutionMode string
@@ -142,6 +143,20 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 			Routes: []ModuleRoute{
 				{Method: "GET", ExternalPath: "/inference/v1/models", UpstreamPath: "/v1/models", Permission: "inference.models.read"},
 				{Method: "POST", ExternalPath: "/inference/v1/chat/completions", UpstreamPath: "/v1/chat/completions", Permission: "inference.use"},
+			},
+		},
+		{
+			Name:                 ModuleNameVideoRuntime,
+			Kind:                 ModuleKindPlatform,
+			RequiredCapabilities: []Capability{CapabilityVideo},
+			ExecutionMode:        ExecutionModeClusterService,
+			EntitlementKey:       ModuleNameVideoRuntime,
+			BaseURL:              DefaultVideoGatewayBaseURL,
+			SecurityClass:        SecurityClassRestricted,
+			Routes: []ModuleRoute{
+				{Method: "GET", ExternalPath: "/video/v1/library", UpstreamPath: "/Items", Permission: "video.library.read"},
+				{Method: "POST", ExternalPath: "/video/v1/library", UpstreamPath: "/Library/VirtualFolders", Permission: "video.library.write"},
+				{Method: "GET", ExternalPath: "/video/v1/play", UpstreamPath: "/Videos", Permission: "video.play"},
 			},
 		},
 	}

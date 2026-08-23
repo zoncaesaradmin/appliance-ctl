@@ -150,7 +150,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		if e.relPath == "artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst" {
 			if err := metadatabundle.WriteMinimalArchive(full, "2.4.0.0",
 				"core", "builder", "storage", "landns", "storage-landns", "builder-landns", "builder-storage-landns",
-				"lanllm", "builder-lanllm", "builder-lanllm-storage-landns",
+				"lanllm", "builder-lanllm", "builder-lanllm-storage-landns", "training",
 			); err != nil {
 				t.Fatal(err)
 			}

@@ -34,6 +34,7 @@ type Compatibility struct {
 	ArtifactServerVersion   string
 	DnsVersion              string
 	InferenceVersion        string
+	VideoVersion            string
 	SupportedUpgradeSources []string
 }
 
@@ -63,6 +64,8 @@ type Artifacts struct {
 	DnsChart                FileArtifact
 	InferenceRuntimeImage   FileArtifact
 	InferenceChart          FileArtifact
+	VideoRuntimeImage       FileArtifact
+	VideoChart              FileArtifact
 	MetadataBundle          FileArtifact
 	MessageBrokerImage      FileArtifact
 	MessageBrokerChart      FileArtifact
@@ -96,6 +99,8 @@ type doc struct {
 		DnsChart                fileArtifact   `json:"dnsChart"`
 		InferenceRuntimeImage   fileArtifact   `json:"inferenceRuntimeImage"`
 		InferenceChart          fileArtifact   `json:"inferenceChart"`
+		VideoRuntimeImage       fileArtifact   `json:"videoRuntimeImage"`
+		VideoChart              fileArtifact   `json:"videoChart"`
 		MetadataBundle          fileArtifact   `json:"metadataBundle"`
 		MessageBrokerImage      fileArtifact   `json:"messageBrokerImage"`
 		MessageBrokerChart      fileArtifact   `json:"messageBrokerChart"`
@@ -164,6 +169,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			DnsChart:                toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
 			InferenceRuntimeImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceRuntimeImage),
 			InferenceChart:          toFileArtifact(rootDir, parsed.Artifacts.InferenceChart),
+			VideoRuntimeImage:       toFileArtifact(rootDir, parsed.Artifacts.VideoRuntimeImage),
+			VideoChart:              toFileArtifact(rootDir, parsed.Artifacts.VideoChart),
 			MetadataBundle:          toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
 			MessageBrokerImage:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerImage),
 			MessageBrokerChart:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerChart),
@@ -217,6 +224,22 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			Path:              input.Artifacts.InferenceChart.Path,
 			ExpectedDigest:    input.Artifacts.InferenceChart.Digest,
 			ExpectedSizeBytes: input.Artifacts.InferenceChart.SizeBytes,
+		})
+	}
+	if input.Artifacts.VideoRuntimeImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "video-runtime-image",
+			Path:              input.Artifacts.VideoRuntimeImage.Path,
+			ExpectedDigest:    input.Artifacts.VideoRuntimeImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.VideoRuntimeImage.SizeBytes,
+		})
+	}
+	if input.Artifacts.VideoChart.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "video-chart",
+			Path:              input.Artifacts.VideoChart.Path,
+			ExpectedDigest:    input.Artifacts.VideoChart.Digest,
+			ExpectedSizeBytes: input.Artifacts.VideoChart.SizeBytes,
 		})
 	}
 	if input.Artifacts.WorkflowsChart.Path != "" {

@@ -27,6 +27,7 @@ func TestRequiredPacks(t *testing.T) {
 		{productconfig.ProfileStorage, nil},
 		{productconfig.ProfileLANDNS, nil},
 		{productconfig.ProfileStorageLANDNS, nil},
+		{productconfig.ProfileTraining, []string{"video"}},
 		{productconfig.ProfileLANLLM, []string{"inference"}},
 		{productconfig.ProfileBuilder, []string{"developer"}},
 		{productconfig.ProfileBuilderLANDNS, []string{"developer"}},
@@ -232,6 +233,36 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("inference values unexpectedly contain %q:\n%s", forbidden, text)
+		}
+	}
+}
+
+func TestPrepareVideoValuesFile_DigestPinOnly(t *testing.T) {
+	videoRuntimeImage := "registry.local/video-runtime@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	path, cleanup, err := productconfig.PrepareVideoValuesFile(t.TempDir(), videoRuntimeImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "repository: registry.local/video-runtime") ||
+		!strings.Contains(text, "digest: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") ||
+		!strings.Contains(text, "name: video") ||
+		!strings.Contains(text, "create: false") {
+		t.Fatalf("unexpected video values:\n%s", text)
+	}
+	for _, forbidden := range []string{
+		"hostPath:",
+		"/data/zon/logs/video",
+		"/data/zon/video/library",
+		"persistence:",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("video values unexpectedly contain %q:\n%s", forbidden, text)
 		}
 	}
 }

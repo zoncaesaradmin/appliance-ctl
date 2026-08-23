@@ -69,6 +69,8 @@
         "dnsChart": { "$ref": "#/$defs/artifact" },
         "inferenceRuntimeImage": { "$ref": "#/$defs/artifact" },
         "inferenceChart": { "$ref": "#/$defs/artifact" },
+        "videoRuntimeImage": { "$ref": "#/$defs/artifact" },
+        "videoChart": { "$ref": "#/$defs/artifact" },
         "metadataBundle": {
           "$ref": "#/$defs/artifact",
           "description": "Signed appliance metadata-bundle archive (appliance-metadata-bundle-X.Y.Z.N.tar.zst)."
@@ -103,6 +105,7 @@
         "artifactServerVersion": { "type": "string", "minLength": 1 },
         "dnsVersion": { "type": "string", "minLength": 1 },
         "inferenceVersion": { "type": "string", "minLength": 1 },
+        "videoVersion": { "type": "string", "minLength": 1 },
         "workflowsVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",

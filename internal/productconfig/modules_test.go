@@ -53,6 +53,26 @@ func TestResolveModulesIncludesInferenceWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestResolveModulesIncludesVideoWhenEnabled(t *testing.T) {
+	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileTraining, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameVideoRuntime) {
+		t.Fatal("training modules should include video-runtime")
+	}
+	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameFiles) {
+		t.Fatal("training modules should include files")
+	}
+	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
+		t.Fatal("training profile should not include build")
+	}
+	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameInferenceRuntime) {
+		t.Fatal("training profile should not include inference-runtime")
+	}
+	module, _ := productconfig.ModuleNamed(modules, productconfig.ModuleNameVideoRuntime)
+	if module.PrimaryCapability() != productconfig.CapabilityVideo {
+		t.Fatalf("PrimaryCapability = %q, want %q", module.PrimaryCapability(), productconfig.CapabilityVideo)
+	}
+}
+
 func TestResolveModulesIncludesInferenceForBuilderLANLLM(t *testing.T) {
 	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileBuilderLANLLM, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameInferenceRuntime) {

@@ -29,6 +29,7 @@ var platformNamespaces = map[string]bool{
 	"artifacts":  true,
 	"dns":        true,
 	"inference":  true,
+	"video":      true,
 	"workflows":  true,
 }
 

@@ -24,6 +24,7 @@ type Components struct {
 	ArtifactServerVersion string `json:"artifactServerVersion,omitempty"`
 	DNSVersion            string `json:"dnsVersion,omitempty"`
 	InferenceVersion      string `json:"inferenceVersion,omitempty"`
+	VideoVersion          string `json:"videoVersion,omitempty"`
 	MetadataVersion       string `json:"metadataVersion,omitempty"`
 	MetadataDigest        string `json:"metadataDigest,omitempty"`
 }
