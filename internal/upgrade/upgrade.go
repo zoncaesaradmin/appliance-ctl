@@ -482,36 +482,32 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	checks = append(checks, binaryCheck)
-	// Install offline host packages for every profile (day-2 mDNS / client Wi-Fi / Wi-Fi AP);
-	// do not enable those features here. NewOrchestrator wires the real dpkg
-	// installer; unit tests inject stubs.
-	if resolved.HostPackagesRootDir == "" {
-		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: host-packages are required in the signed bundle (mdns + wifi-client + wifi-ap)"), rollback)
-		checks = append(checks, rollbackChecks...)
-		return nil, checks, failErr
-	}
-	installHostPackages := o.InstallHostPackages
-	if installHostPackages == nil {
-		installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
-			return func() error { return nil }, nil
+	if resolved.HostEnabled {
+		if resolved.HostPackagesRootDir == "" {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: host capability requires deviceuser host-packages (mdns + wifi-client + wifi-ap)"), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
 		}
+		installHostPackages := o.InstallHostPackages
+		if installHostPackages == nil {
+			installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
+				return func() error { return nil }, nil
+			}
+		}
+		hostPackagesRollback, err = installHostPackages(hostpackages.InstallSpec{
+			RootDir: resolved.HostPackagesRootDir, OS: facts.OS, OSVersion: facts.OSVersion, Arch: facts.Arch,
+		})
+		if err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host packages: %w", err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		checks = append(checks, evidence.Check{
+			ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS, client Wi-Fi, and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
 	}
-	hostPackagesRollback, err = installHostPackages(hostpackages.InstallSpec{
-		RootDir:   resolved.HostPackagesRootDir,
-		OS:        facts.OS,
-		OSVersion: facts.OSVersion,
-		Arch:      facts.Arch,
-	})
-	if err != nil {
-		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host packages: %w", err), rollback)
-		checks = append(checks, rollbackChecks...)
-		return nil, checks, failErr
-	}
-	checks = append(checks, evidence.Check{
-		ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS, client Wi-Fi, and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
-		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-	})
 
 	prepared, err := helm.EnsureReleasePrereqs(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
@@ -666,7 +662,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
-	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference) {
+	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference, resolved.HostEnabled) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare service log directory %s: %w", dir.Path, err), rollback)
 			checks = append(checks, rollbackChecks...)
@@ -678,7 +674,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference) {
+	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference, resolved.HostEnabled) {
 		if o.EnsureOwnedFile == nil {
 			continue
 		}

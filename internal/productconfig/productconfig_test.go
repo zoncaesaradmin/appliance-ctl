@@ -24,16 +24,16 @@ func TestRequiredPacks(t *testing.T) {
 		profile string
 		want    []string
 	}{
-		{productconfig.ProfileCore, nil},
-		{productconfig.ProfileStorage, nil},
-		{productconfig.ProfileLANDNS, nil},
-		{productconfig.ProfileStorageLANDNS, nil},
-		{productconfig.ProfileTraining, nil},
-		{productconfig.ProfileLANLLM, []string{"inference"}},
-		{productconfig.ProfileBuilder, []string{"developer"}},
-		{productconfig.ProfileBuilderLANDNS, []string{"developer"}},
-		{productconfig.ProfileBuilderLANLLM, []string{"developer", "inference"}},
-		{productconfig.ProfileBuilderLANLLMStorageLANDNS, []string{"developer", "inference"}},
+		{productconfig.ProfileCore, []string{"deviceuser"}},
+		{productconfig.ProfileStorage, []string{"developer", "deviceuser"}},
+		{productconfig.ProfileLANDNS, []string{"developer", "deviceuser"}},
+		{productconfig.ProfileStorageLANDNS, []string{"developer", "deviceuser"}},
+		{productconfig.ProfileTraining, []string{"deviceuser"}},
+		{productconfig.ProfileLANLLM, []string{"deviceuser", "inference"}},
+		{productconfig.ProfileBuilder, []string{"developer", "deviceuser"}},
+		{productconfig.ProfileBuilderLANDNS, []string{"developer", "deviceuser"}},
+		{productconfig.ProfileBuilderLANLLM, []string{"developer", "deviceuser", "inference"}},
+		{productconfig.ProfileBuilderLANLLMStorageLANDNS, []string{"developer", "deviceuser", "inference"}},
 	}
 	for _, tc := range cases {
 		got := productconfig.RequiredPacks(tc.profile)

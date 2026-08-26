@@ -446,35 +446,31 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if baselineCheck.Status != evidence.StatusPass {
 		return nil, checks, failInstall(fmt.Errorf("install: target host does not match the signed bundle baseline"), runRollbacks())
 	}
-	// Install offline host packages (mdns + wifi-client + wifi-ap debs) for every profile.
-	// Core capability: package bits on disk so Admin/API day-2 enable never needs
-	// apt. Do not enable avahi, client Wi-Fi, or Wi-Fi AP here.
-	// NewOrchestrator wires InstallRequiredPackages; unit tests inject stubs.
-	if resolved.HostPackagesRootDir == "" {
-		return nil, checks, failInstall(fmt.Errorf("install: host-packages are required in the signed bundle (mdns + wifi-client + wifi-ap)"), runRollbacks())
-	}
-	installHostPackages := o.InstallHostPackages
-	if installHostPackages == nil {
-		installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
-			return func() error { return nil }, nil
+	if resolved.HostEnabled {
+		// Stage offline host packages with the deviceuser pack so day-2 host
+		// operations never need apt. Services remain disabled until enabled by API.
+		if resolved.HostPackagesRootDir == "" {
+			return nil, checks, failInstall(fmt.Errorf("install: host capability requires deviceuser host-packages (mdns + wifi-client + wifi-ap)"), runRollbacks())
 		}
+		installHostPackages := o.InstallHostPackages
+		if installHostPackages == nil {
+			installHostPackages = func(hostpackages.InstallSpec) (func() error, error) {
+				return func() error { return nil }, nil
+			}
+		}
+		hostPackagesRollback, err := installHostPackages(hostpackages.InstallSpec{
+			RootDir: resolved.HostPackagesRootDir, OS: facts.OS, OSVersion: facts.OSVersion, Arch: facts.Arch,
+		})
+		if err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: install host packages: %w", err), runRollbacks())
+		}
+		rollbacks = append(rollbacks, hostPackagesRollback)
+		checks = append(checks, evidence.Check{
+			ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS, client Wi-Fi, and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
 	}
-	hostPackagesRollback, err := installHostPackages(hostpackages.InstallSpec{
-		RootDir:   resolved.HostPackagesRootDir,
-		OS:        facts.OS,
-		OSVersion: facts.OSVersion,
-		Arch:      facts.Arch,
-		// Empty ServiceName: install packages only; no mDNS/client Wi-Fi/Wi-Fi AP enable.
-	})
-	if err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: install host packages: %w", err), runRollbacks())
-	}
-	rollbacks = append(rollbacks, hostPackagesRollback)
-	checks = append(checks, evidence.Check{
-		ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS, client Wi-Fi, and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
-		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-	})
 
 	// A fresh install always installs K3s. Adopting an existing cluster
 	// only touches K3s if the running version doesn't match the target's
@@ -685,6 +681,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,
+		resolved.HostEnabled,
 	) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare service log directory %s: %w", dir.Path, err)
@@ -701,6 +698,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,
+		resolved.HostEnabled,
 	) {
 		if o.EnsureOwnedFile == nil {
 			continue

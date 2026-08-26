@@ -95,7 +95,7 @@ type Source interface {
 type OfflineSource struct {
 	BundleDir string
 	// PackDirs are additional signed pack bundle directories (developer,
-	// inference) verified with the same public key and merged into Resolved.
+	// deviceuser, inference) verified with the same public key and merged into Resolved.
 	PackDirs  []string
 	PublicKey *verify.PublicKey
 }
@@ -201,14 +201,17 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	hostAgentBinaryPath := ""
 	if hostEnabled {
-		hostAgentBinaryPath, err = applianceBinaryPath(b, "appliance-host-agentd")
+		hostAgentBinaryPath, err = applianceBinaryPath(view, "appliance-host-agentd")
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
-	hostPackagesRootDir := componentRootDir(b, "host-packages")
-	if hostPackagesRootDir == "" {
-		return Resolved{}, checks, fmt.Errorf("install: signed bundle is missing required host-packages (mdns + wifi-client + wifi-ap offline debs for day-2 enablement)")
+	hostPackagesRootDir := ""
+	if hostEnabled {
+		hostPackagesRootDir = componentRootDir(view, "host-packages")
+		if hostPackagesRootDir == "" {
+			return Resolved{}, checks, fmt.Errorf("install: host capability requires the deviceuser pack with host-packages (mdns + wifi-client + wifi-ap offline debs for day-2 enablement)")
+		}
 	}
 	metadataBundleArchivePath, err := requiredMetadataBundleArchivePath(b)
 	if err != nil {
@@ -676,12 +679,20 @@ func applianceBinaryPath(b entrySource, baseName string) (string, error) {
 	return "", fmt.Errorf("bundle has no appliance entry named %s", baseName)
 }
 
-func componentRootDir(b *bundle.Bundle, component string) string {
+func componentRootDir(b entrySource, component string) string {
 	entries := b.Entries(component)
 	if len(entries) == 0 {
 		return ""
 	}
-	return filepath.Join(b.RootDir, component)
+	for path := filepath.Clean(entries[0].Path); ; path = filepath.Dir(path) {
+		if filepath.Base(path) == component {
+			return path
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return ""
+		}
+	}
 }
 
 // FilterOCIImages removes dependency archives that the resolved module set
@@ -690,6 +701,9 @@ func componentRootDir(b *bundle.Bundle, component string) string {
 func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 	out := make([]images.Image, 0, len(all))
 	for _, image := range all {
+		if isHostAgentImageReference(image.Name) && !r.HostEnabled {
+			continue
+		}
 		if strings.HasPrefix(image.Name, "registry.local/workspace-provisioner@") && !r.BuildEnabled {
 			continue
 		}

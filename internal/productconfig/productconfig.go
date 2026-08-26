@@ -161,8 +161,12 @@ const (
 // is not listed here.
 func RequiredPacks(profile string) []string {
 	var packs []string
-	if HasCapability(profile, CapabilityWorkflows) || HasCapability(profile, CapabilityBuild) {
+	if HasCapability(profile, CapabilityWorkflows) || HasCapability(profile, CapabilityBuild) ||
+		HasCapability(profile, CapabilityArtifact) || HasCapability(profile, CapabilityDNS) {
 		packs = append(packs, "developer")
+	}
+	if HasCapability(profile, CapabilityHost) {
+		packs = append(packs, "deviceuser")
 	}
 	if HasCapability(profile, CapabilityInference) {
 		packs = append(packs, "inference")

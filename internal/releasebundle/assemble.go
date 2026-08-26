@@ -36,6 +36,7 @@ type EntryConfig struct {
 const (
 	PackFoundation = "foundation"
 	PackDeveloper  = "developer"
+	PackDeviceUser = "deviceuser"
 	PackInference  = "inference"
 )
 
@@ -50,7 +51,7 @@ type Config struct {
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
 	// Empty means legacy full bundle (everything). PackFoundation excludes
-	// developer and inference artifacts.
+	// developer, deviceuser, and inference artifacts.
 	Pack string `json:"pack,omitempty"`
 }
 
@@ -103,9 +104,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackDeveloper, PackInference:
+	case "", PackFoundation, PackDeveloper, PackDeviceUser, PackInference:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, or %q", PackFoundation, PackDeveloper, PackInference)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, or %q", PackFoundation, PackDeveloper, PackDeviceUser, PackInference)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -145,6 +146,8 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
+	includeDeveloperAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeveloper
+	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
 	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackInference
 	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackFoundation
 	if cfg.Pack == PackInference {
@@ -163,6 +166,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 				ImageReference: input.Artifacts.UIImage.ImageReference,
 			}
 		}
+	}
+
+	if includeDeviceUserAutoAdds {
 		hostAgentImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostAgentImage.Path)
 		if _, exists := entryByTarget[hostAgentImageTarget]; !exists {
 			if !isCanonicalHostAgentReference(input.Artifacts.HostAgentImage.ImageReference) {
@@ -184,6 +190,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 				Executable: true,
 			}
 		}
+	}
+
+	if includeDeveloperAutoAdds {
 		artifactServerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ArtifactServerImage.Path)
 		if _, exists := entryByTarget[artifactServerImageTarget]; !exists {
 			if !isCanonicalArtifactServerReference(input.Artifacts.ArtifactServerImage.ImageReference) {
@@ -232,6 +241,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 				Component:  "chart",
 			}
 		}
+	}
+
+	if includeProductAutoAdds {
 		if input.Artifacts.MessageBrokerImage.Path != "" && input.Artifacts.MessageBrokerChart.Path != "" {
 			messageBrokerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.MessageBrokerImage.Path)
 			if _, exists := entryByTarget[messageBrokerImageTarget]; !exists {
@@ -351,6 +363,8 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.Tests.Path, "tests", &manifestEntries); err != nil {
 			return Result{}, err
 		}
+	}
+	if includeDeviceUserAutoAdds {
 		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.HostPackages.Path, "host-packages", &manifestEntries); err != nil {
 			return Result{}, err
 		}
@@ -667,6 +681,23 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			return fmt.Errorf("releasebundle: developer pack is missing a workflows chart")
 		}
 		return nil
+	case PackDeviceUser:
+		var hasHostAgentImage, hasHostAgentBinary, hasHostPackages bool
+		for _, entry := range entries {
+			if entry.Component == "oci-images" && isCanonicalHostAgentReference(entry.ImageReference) {
+				hasHostAgentImage = true
+			}
+			if entry.Component == "appliance" && strings.EqualFold(filepath.Base(entry.Path), "appliance-host-agentd") {
+				hasHostAgentBinary = true
+			}
+			if entry.Component == "host-packages" {
+				hasHostPackages = true
+			}
+		}
+		if !hasHostAgentImage || !hasHostAgentBinary || !hasHostPackages {
+			return fmt.Errorf("releasebundle: deviceuser pack requires host-agent image, host-agent daemon, and host-packages")
+		}
+		return nil
 	case PackInference:
 		if counts["chart"] == 0 {
 			return fmt.Errorf("releasebundle: inference pack is missing appliance-inference chart")
@@ -715,9 +746,11 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	case "":
 		return true
 	case PackFoundation:
-		return !entryIsDeveloper(entry) && !entryIsInference(entry)
+		return !entryIsDeveloper(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry)
 	case PackDeveloper:
 		return entryIsDeveloper(entry)
+	case PackDeviceUser:
+		return entryIsDeviceUser(entry)
 	case PackInference:
 		return entryIsInference(entry)
 	default:
@@ -747,7 +780,27 @@ func entryIsDeveloper(entry EntryConfig) bool {
 		strings.Contains(sourceBase, "workspace-provisioner") {
 		return true
 	}
+	if strings.Contains(ref, "artifact-server") || strings.Contains(target, "artifact-server") ||
+		strings.Contains(sourceBase, "artifact-server") ||
+		(entry.Component == "chart" && (strings.HasPrefix(base, "appliance-registry-") || strings.HasPrefix(sourceBase, "appliance-registry-"))) {
+		return true
+	}
+	if strings.Contains(ref, "/coredns") || strings.Contains(target, "coredns") ||
+		strings.Contains(sourceBase, "coredns") ||
+		(entry.Component == "chart" && (strings.HasPrefix(base, "appliance-dns-") || strings.HasPrefix(sourceBase, "appliance-dns-"))) {
+		return true
+	}
 	return false
+}
+
+func entryIsDeviceUser(entry EntryConfig) bool {
+	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
+	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
+	base := strings.ToLower(filepath.Base(target))
+	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
+
+	return entry.Component == "host-packages" || strings.HasPrefix(target, "host-packages/") ||
+		strings.Contains(ref, "appliance-host-agent") || base == "appliance-host-agentd" || sourceBase == "appliance-host-agentd"
 }
 
 func entryIsInference(entry EntryConfig) bool {

@@ -339,6 +339,66 @@ func TestAssemblePackFoundationExcludesWorkflowAndInference(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "appliance-ui.oci.tar.zst")); err != nil {
 		t.Fatalf("foundation pack must keep UI image: %v", err)
 	}
+	for _, path := range []string{
+		"oci-images/appliance-host-agent.oci.tar.zst",
+		"bin/appliance-host-agentd",
+		"oci-images/artifact-server.oci.tar.zst",
+		"chart/appliance-registry-2.1.7.tgz",
+		"oci-images/coredns.oci.tar.zst",
+		"chart/appliance-dns-1.14.4.tgz",
+	} {
+		if _, err := os.Stat(filepath.Join(result.BundleDir, path)); !os.IsNotExist(err) {
+			t.Fatalf("foundation pack must exclude %s, stat err=%v", path, err)
+		}
+	}
+}
+
+func TestAssemblePackDeviceUserOnly(t *testing.T) {
+	releaseInputDir := buildReleaseInputDir(t)
+	staging := t.TempDir()
+	writeTestFile(t, staging, "zonctl", "zonctl-binary", 0o750)
+
+	_, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyPath := filepath.Join(staging, "release-signing.key")
+	if err := os.WriteFile(privateKeyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := releasebundle.Assemble(context.Background(), releasebundle.Config{
+		SchemaVersion:         1,
+		BundleVersion:         "9.1.0",
+		ReleaseInputDir:       releaseInputDir,
+		BundleDir:             filepath.Join(t.TempDir(), "bundle-deviceuser"),
+		SigningKeyID:          "release-signing-key",
+		SigningPrivateKeyPath: privateKeyPath,
+		HostBaseline:          releasebundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+		Pack:                  releasebundle.PackDeviceUser,
+		Entries: []releasebundle.EntryConfig{
+			{SourcePath: filepath.Join(staging, "zonctl"), TargetPath: "zonctl", Component: "appliance", Executable: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected deviceuser pack assembly to succeed, got: %v", err)
+	}
+	for _, path := range []string{
+		"oci-images/appliance-host-agent.oci.tar.zst",
+		"bin/appliance-host-agentd",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb",
+	} {
+		if _, err := os.Stat(filepath.Join(result.BundleDir, path)); err != nil {
+			t.Fatalf("deviceuser pack must include %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "artifact-server.oci.tar.zst")); !os.IsNotExist(err) {
+		t.Fatalf("deviceuser pack must exclude artifact-server, stat err=%v", err)
+	}
 }
 
 func TestAssemblePackInferenceOnly(t *testing.T) {

@@ -136,13 +136,14 @@ type OwnedDir struct {
 }
 
 // ServiceLogDirs returns the host-visible log directories the selected
-// capability set requires. Control-plane, UI, host agent, and automation
-// runtime always exist; registry logs, workflow-controller, DNS, and
+// capability set requires. Control-plane, UI, and automation runtime always
+// exist; host-agent, registry logs, workflow-controller, DNS, and
 // inference logs are added only when those capabilities are enabled.
 // The files capability stores objects in foundation blob-storage, so it does
 // not add a dedicated host directory here.
-func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool) []OwnedDir {
+func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool, includeHost ...bool) []OwnedDir {
 	_ = includeFiles
+	hostEnabled := len(includeHost) == 0 || includeHost[0]
 	dirs := []OwnedDir{
 		{
 			CheckID: "api-server-log-directory-owned",
@@ -159,19 +160,21 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS,
 			Mode:    ServiceLogDirMode,
 		},
 		{
-			CheckID: "host-agent-log-directory-owned",
-			Path:    HostAgentLogDir,
-			UID:     HostAgentDirOwnerUID,
-			GID:     ApplianceSharedFSGID,
-			Mode:    ServiceLogDirMode,
-		},
-		{
 			CheckID: "automation-runtime-log-directory-owned",
 			Path:    AutomationRuntimeLogDir,
 			UID:     AutomationRuntimeDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
 		},
+	}
+	if hostEnabled {
+		dirs = append(dirs, OwnedDir{
+			CheckID: "host-agent-log-directory-owned",
+			Path:    HostAgentLogDir,
+			UID:     HostAgentDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		})
 	}
 	if includeArtifact {
 		dirs = append(dirs, OwnedDir{
@@ -215,14 +218,18 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS,
 // ServiceLogFiles returns host-visible log files that zonctl must seed (or
 // re-chmod) in addition to ServiceLogDirs. Today this is only the artifact
 // server's application.log, which upstream creates as 0600.
-func ServiceLogFiles(includeArtifact, _, _, _, _ bool) []OwnedDir {
-	files := []OwnedDir{{
-		CheckID: "host-agent-daemon-log-readable",
-		Path:    HostAgentDaemonLog,
-		UID:     0,
-		GID:     ApplianceSharedFSGID,
-		Mode:    ServiceLogFileMode,
-	}}
+func ServiceLogFiles(includeArtifact, _, _, _, _ bool, includeHost ...bool) []OwnedDir {
+	hostEnabled := len(includeHost) == 0 || includeHost[0]
+	files := []OwnedDir(nil)
+	if hostEnabled {
+		files = append(files, OwnedDir{
+			CheckID: "host-agent-daemon-log-readable",
+			Path:    HostAgentDaemonLog,
+			UID:     0,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogFileMode,
+		})
+	}
 	if !includeArtifact {
 		return files
 	}
