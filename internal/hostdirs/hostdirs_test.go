@@ -83,7 +83,7 @@ func TestEnsureOwnedDir_PropagatesChownFailure(t *testing.T) {
 }
 
 func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(false, true, false, false, false, false)
+	dirs := hostdirs.ServiceLogDirs(false, true, false, false, false)
 	var found *hostdirs.OwnedDir
 	for i := range dirs {
 		if dirs[i].Path == hostdirs.FileserverDir {
@@ -111,7 +111,7 @@ func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
 }
 
 func TestServiceLogDirs_ArtifactDoesNotImplyFileserver(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(true, false, false, false, false, false)
+	dirs := hostdirs.ServiceLogDirs(true, false, false, false, false)
 	for _, d := range dirs {
 		if d.Path == hostdirs.FileserverDir {
 			t.Fatalf("artifact-only ServiceLogDirs must not include files API directory: %#v", d)

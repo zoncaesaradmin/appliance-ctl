@@ -92,8 +92,6 @@ const (
 	dnsNamespace             = "dns"
 	inferenceReleaseName     = "appliance-inference"
 	inferenceNamespace       = "inference"
-	videoReleaseName         = "appliance-video"
-	videoNamespace           = "video"
 )
 
 // Orchestrator holds the injectable adapters Upgrade drives.
@@ -181,13 +179,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	hadWorkflowsBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityWorkflows)
 	hadDNSBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityDNS)
 	hadInferenceBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityInference)
-	hadVideoBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityVideo)
 	targetArtifact := resolved.ArtifactEnabled
 	targetFiles := resolved.FilesEnabled
 	targetWorkflows := resolved.WorkflowsEnabled
 	targetDNS := resolved.DNSEnabled
 	targetInference := resolved.InferenceEnabled
-	targetVideo := resolved.VideoEnabled
 	targetBuild := resolved.BuildEnabled
 	targetHost := resolved.HostEnabled
 	if hadArtifactBefore && !targetArtifact {
@@ -201,9 +197,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 	if hadInferenceBefore && !targetInference {
 		return nil, checks, fmt.Errorf("upgrade: changing from inference-capable profile %q to non-inference profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
-	}
-	if hadVideoBefore && !targetVideo {
-		return nil, checks, fmt.Errorf("upgrade: changing from video-capable profile %q to non-video profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
 	}
 	applianceName := strings.TrimSpace(opts.ApplianceName)
 	if applianceName == "" {
@@ -234,7 +227,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -266,15 +259,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 		defer cleanupInferenceValues()
 	}
-	videoValuesPath := ""
-	cleanupVideoValues := func() {}
-	if targetVideo {
-		videoValuesPath, cleanupVideoValues, err = productconfig.PrepareVideoValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.VideoImageReference)
-		if err != nil {
-			return nil, checks, fmt.Errorf("upgrade: %w", err)
-		}
-		defer cleanupVideoValues()
-	}
 
 	// Gated on the Build capability, not the "builder" profile name
 	// directly: more than one profile can enable Build, and this
@@ -304,16 +288,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	if targetVideo {
-		if err := o.EnsureOwnedDir(hostdirs.VideoLibraryDir, hostdirs.VideoDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
-			return nil, checks, fmt.Errorf("upgrade: prepare video library directory: %w", err)
-		}
-		checks = append(checks, evidence.Check{
-			ID: "video-library-directory-owned", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.VideoLibraryDir, hostdirs.VideoDirOwnerUID, hostdirs.ApplianceSharedFSGID),
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
+	if err := o.EnsureOwnedDir(hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
+		return nil, checks, fmt.Errorf("upgrade: prepare blob storage directory: %w", err)
 	}
+	checks = append(checks, evidence.Check{
+		ID: "blob-storage-directory-owned", Category: "host", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
 
 	metadataBundlesDir := strings.TrimSpace(opts.MetadataBundlesDir)
 	if metadataBundlesDir == "" {
@@ -588,7 +570,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
-		for _, valuesPath := range []string{registryValuesPath, dnsValuesPath, inferenceValuesPath, videoValuesPath} {
+		for _, valuesPath := range []string{registryValuesPath, dnsValuesPath, inferenceValuesPath} {
 			if strings.TrimSpace(valuesPath) == "" {
 				continue
 			}
@@ -684,7 +666,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
-	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference, targetVideo) {
+	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare service log directory %s: %w", dir.Path, err), rollback)
 			checks = append(checks, rollbackChecks...)
@@ -696,7 +678,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference, targetVideo) {
+	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference) {
 		if o.EnsureOwnedFile == nil {
 			continue
 		}
@@ -860,32 +842,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
-	if targetVideo {
-		videoCheck, videoErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-			Name: videoReleaseName, ChartPath: resolved.VideoChartPath, Namespace: videoNamespace, ValuesPath: videoValuesPath,
-			NamespaceLabels: helm.RestrictedNamespaceLabels(),
-		})
-		checks = append(checks, videoCheck)
-		if videoErr != nil {
-			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
-				Name:       videoReleaseName,
-				ChartPath:  resolved.VideoChartPath,
-				Namespace:  videoNamespace,
-				ValuesPath: videoValuesPath,
-			})...)
-			videoWasFreshInstall := !hadVideoBefore
-			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", videoErr), func() []evidence.Check {
-				if videoWasFreshInstall {
-					_ = applier.Uninstall(ctx, videoReleaseName)
-				} else {
-					_ = applier.Rollback(ctx, videoReleaseName, false)
-				}
-				return rollback()
-			})
-			checks = append(checks, rollbackChecks...)
-			return nil, checks, failErr
-		}
-	}
 	if targetWorkflows {
 		for _, crdPath := range resolved.WorkflowsCRDPaths {
 			if _, applyErr := o.HelmRun(ctx, "kubectl", "--kubeconfig", opts.KubeconfigPath, "apply", "-f", crdPath); applyErr != nil {
@@ -982,7 +938,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			ArtifactServerVersion: resolved.ArtifactServerComponentVersion(resolved.Compatibility.ArtifactServerVersion),
 			DNSVersion:            resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
 			InferenceVersion:      resolved.InferenceComponentVersion(resolved.Compatibility.InferenceVersion),
-			VideoVersion:          resolved.VideoComponentVersion(resolved.Compatibility.VideoVersion),
 			MetadataVersion:       metadataVersion,
 			MetadataDigest:        metadataDigest,
 		},

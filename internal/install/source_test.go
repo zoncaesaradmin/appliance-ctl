@@ -13,6 +13,16 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
 
+func sourceFixtureImageReference(rel string) string {
+	switch rel {
+	case "oci-images/appliance-host-agent.tar":
+		return "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	case "oci-images/blob-storage.tar":
+		return "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
+	}
+	return ""
+}
+
 func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
@@ -27,6 +37,7 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
 		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
 		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                         "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -54,14 +65,14 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 			component = "host-packages"
 		case strings.HasPrefix(rel, "artifacts/"):
 			component = "artifacts"
-		case rel == "oci-images/appliance-host-agent.tar":
+		case strings.HasPrefix(rel, "oci-images/"):
 			component = "oci-images"
 		}
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-agent.tar" {
-			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		if imageReference := sourceFixtureImageReference(rel); imageReference != "" {
+			entry["imageReference"] = imageReference
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -138,6 +149,7 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalWorkflowsArtifacts(t *testi
 		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
 		"kubernetes/crds/workflows.argoproj.io.yaml":          "kind: CustomResourceDefinition\n",
 		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                         "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -167,14 +179,14 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalWorkflowsArtifacts(t *testi
 			component = "artifacts"
 		case filepath.Dir(rel) == "kubernetes/crds":
 			component = "kubernetes-crds"
-		case rel == "oci-images/appliance-host-agent.tar":
+		case strings.HasPrefix(rel, "oci-images/"):
 			component = "oci-images"
 		}
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-agent.tar" {
-			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		if imageReference := sourceFixtureImageReference(rel); imageReference != "" {
+			entry["imageReference"] = imageReference
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -242,6 +254,7 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 		"oci-images/control-plane.tar":                        "fake control plane image",
 		"oci-images/appliance-ui.tar":                         "fake appliance ui image",
 		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                         "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -283,6 +296,8 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 			entry["imageReference"] = "internal/appliance-ui:2.4.0"
 		case "oci-images/appliance-host-agent.tar":
 			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		case "oci-images/blob-storage.tar":
+			entry["imageReference"] = sourceFixtureImageReference(rel)
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -325,11 +340,11 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 	if err != nil {
 		t.Fatalf("expected bundle to resolve, got: %v", err)
 	}
-	if len(resolved.OCIImages) != 3 {
-		t.Fatalf("OCIImages length = %d, want 3", len(resolved.OCIImages))
+	if len(resolved.OCIImages) != 4 {
+		t.Fatalf("OCIImages length = %d, want 4", len(resolved.OCIImages))
 	}
 
-	names := []string{resolved.OCIImages[0].Name, resolved.OCIImages[1].Name, resolved.OCIImages[2].Name}
+	names := []string{resolved.OCIImages[0].Name, resolved.OCIImages[1].Name, resolved.OCIImages[2].Name, resolved.OCIImages[3].Name}
 	if !strings.Contains(strings.Join(names, ","), "internal/control-plane:2.4.0") {
 		t.Fatalf("resolved OCI images missing control-plane reference: %v", names)
 	}
@@ -338,6 +353,9 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 	}
 	if !strings.Contains(strings.Join(names, ","), "registry.local/appliance-host-agent@sha256:") {
 		t.Fatalf("resolved OCI images missing host agent reference: %v", names)
+	}
+	if !strings.Contains(strings.Join(names, ","), "registry.local/blob-storage@sha256:") {
+		t.Fatalf("resolved OCI images missing blob storage reference: %v", names)
 	}
 }
 
@@ -361,6 +379,7 @@ func TestOfflineSource_RejectsWorkflowsChartWithoutCRDs(t *testing.T) {
 		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
 		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
 		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                         "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -392,9 +411,9 @@ func TestOfflineSource_RejectsWorkflowsChartWithoutCRDs(t *testing.T) {
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-agent.tar" {
+		if imageReference := sourceFixtureImageReference(rel); imageReference != "" {
 			entry["component"] = "oci-images"
-			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			entry["imageReference"] = imageReference
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -455,6 +474,7 @@ func TestOfflineSource_StorageProfileIgnoresWorkflowsChartWithoutCRDs(t *testing
 		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
 		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
 		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                         "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -486,9 +506,9 @@ func TestOfflineSource_StorageProfileIgnoresWorkflowsChartWithoutCRDs(t *testing
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-agent.tar" {
+		if imageReference := sourceFixtureImageReference(rel); imageReference != "" {
 			entry["component"] = "oci-images"
-			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			entry["imageReference"] = imageReference
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -552,6 +572,7 @@ func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 		"configuration/values.yaml":        "replicaCount: 1\n",
 		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
 		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                         "fake blob storage image",
 		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
 	}
 
@@ -576,7 +597,7 @@ func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 			component = "k3s-binary"
 		case rel == "charts/appliance-chart-2.4.0.tgz":
 			component = "chart"
-		case rel == "oci-images/appliance-host-agent.tar":
+		case strings.HasPrefix(rel, "oci-images/"):
 			component = "oci-images"
 		case strings.HasPrefix(rel, "host-packages/"):
 			component = "host-packages"
@@ -586,8 +607,8 @@ func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-agent.tar" {
-			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		if imageReference := sourceFixtureImageReference(rel); imageReference != "" {
+			entry["imageReference"] = imageReference
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
@@ -647,6 +668,7 @@ func TestOfflineSource_RequiresHostPackages(t *testing.T) {
 		"configuration/values.yaml":        "replicaCount: 1\n",
 		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
 		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                         "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -672,14 +694,14 @@ func TestOfflineSource_RequiresHostPackages(t *testing.T) {
 			component = "chart"
 		case strings.HasPrefix(rel, "artifacts/"):
 			component = "artifacts"
-		case rel == "oci-images/appliance-host-agent.tar":
+		case strings.HasPrefix(rel, "oci-images/"):
 			component = "oci-images"
 		}
 		entry := map[string]any{
 			"path": rel, "component": component, "digest": digest, "sizeBytes": len(content),
 		}
-		if rel == "oci-images/appliance-host-agent.tar" {
-			entry["imageReference"] = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+		if imageReference := sourceFixtureImageReference(rel); imageReference != "" {
+			entry["imageReference"] = imageReference
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}

@@ -122,6 +122,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image tar", "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		{"oci-images/blob-storage.tar", "oci-images", "fake blob storage image tar", "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image tar", "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
 	}
 	if includeWorkflows {
@@ -467,6 +468,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"docker.io/rancher/mirrored-coredns-coredns:1.11.3"}
 	case "dns-server.tar":
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+	case "blob-storage.tar":
+		return []string{"registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"}
 	case "control-plane.tar":
 		return []string{"internal/control-plane:2.4.0"}
 	case "appliance-ui.tar":
@@ -640,8 +643,8 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 			secretCreateCalls++
 		}
 	}
-	if importCalls != 4 {
-		t.Errorf("expected 4 image import calls (k3s platform + control-plane app + UI app + host agent), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 5 {
+		t.Errorf("expected 5 image import calls (k3s platform + blob storage + control-plane app + UI app + host agent), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -1160,6 +1163,7 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		hostdirs.ArtifactServerLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.FileserverDir:            {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.BlobStorageDir:           {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:           {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -1226,6 +1230,7 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.FileserverDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -1268,6 +1273,7 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir:    {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.FileserverDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -1563,7 +1569,7 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 			rmCalls++
 		}
 	}
-	if rmCalls != 4 {
+	if rmCalls != 5 {
 		t.Errorf("expected all newly-imported images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
 	}
 

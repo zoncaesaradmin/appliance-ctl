@@ -16,6 +16,7 @@ const (
 	artifactServerImage       = "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	inferenceRuntimeImage     = "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	blobStorageImage          = "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
 )
 
 func TestRequiredPacks(t *testing.T) {
@@ -27,7 +28,7 @@ func TestRequiredPacks(t *testing.T) {
 		{productconfig.ProfileStorage, nil},
 		{productconfig.ProfileLANDNS, nil},
 		{productconfig.ProfileStorageLANDNS, nil},
-		{productconfig.ProfileTraining, []string{"video"}},
+		{productconfig.ProfileTraining, nil},
 		{productconfig.ProfileLANLLM, []string{"inference"}},
 		{productconfig.ProfileBuilder, []string{"developer"}},
 		{productconfig.ProfileBuilderLANDNS, []string{"developer"}},
@@ -52,7 +53,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage, blobStorageImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, "", "", "", hostAgentImage, "dns1", "appliance.internal", "192.0.2.10")
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, "", "", "", hostAgentImage, "dns1", "appliance.internal", "192.0.2.10", "", blobStorageImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,36 +238,6 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 	}
 }
 
-func TestPrepareVideoValuesFile_DigestPinOnly(t *testing.T) {
-	videoRuntimeImage := "registry.local/video-runtime@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-	path, cleanup, err := productconfig.PrepareVideoValuesFile(t.TempDir(), videoRuntimeImage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cleanup()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	if !strings.Contains(text, "repository: registry.local/video-runtime") ||
-		!strings.Contains(text, "digest: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") ||
-		!strings.Contains(text, "name: video") ||
-		!strings.Contains(text, "create: false") {
-		t.Fatalf("unexpected video values:\n%s", text)
-	}
-	for _, forbidden := range []string{
-		"hostPath:",
-		"/data/zon/logs/video",
-		"/data/zon/video/library",
-		"persistence:",
-	} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("video values unexpectedly contain %q:\n%s", forbidden, text)
-		}
-	}
-}
-
 func TestResolveApplianceIdentity(t *testing.T) {
 	identity, err := productconfig.ResolveApplianceIdentity("Registry1", "")
 	if err != nil {
@@ -359,7 +330,7 @@ func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", artifactServerImage, blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -408,7 +379,7 @@ func TestPrepareValuesFile_InjectsApplianceCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "custom", catalogPath, "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "custom", catalogPath, "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -430,7 +401,7 @@ func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected placeholder workspace provisioner image digest to be rejected")
@@ -446,7 +417,7 @@ func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) 
 	if err := os.WriteFile(valuesPath, []byte("config:\n  buildCatalog: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	path, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilderLANDNS, "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "")
+	path, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilderLANDNS, "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", artifactServerImage, blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile for builder profile: %v", err)

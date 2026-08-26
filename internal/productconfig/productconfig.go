@@ -36,7 +36,6 @@ const (
 	ArtifactsNamespace = "artifacts"
 	DNSNamespace       = "dns"
 	InferenceNamespace = "inference"
-	VideoNamespace     = "video"
 	// WorkflowsControllerNamespace hosts the workflow-controller release.
 	WorkflowsControllerNamespace = "workflows"
 	// WorkflowsBuildNamespace hosts build/workspace PVCs, workflow jobs, and
@@ -65,7 +64,6 @@ func ProductNamespaces(controlPlaneNS string) []string {
 		ArtifactsNamespace,
 		DNSNamespace,
 		InferenceNamespace,
-		VideoNamespace,
 		WorkflowsControllerNamespace,
 		WorkflowsBuildNamespace,
 	}
@@ -152,9 +150,6 @@ const (
 	// gateway Service used when the inference capability is enabled. The
 	// control plane authenticates and reverse-proxies /inference/v1/* here.
 	DefaultInferenceGatewayBaseURL = "http://inference-gateway.inference.svc.cluster.local:8080"
-	// DefaultVideoGatewayBaseURL is the in-cluster video runtime Service used
-	// when the video capability is enabled (Slice B install injects this).
-	DefaultVideoGatewayBaseURL = "http://video-gateway.video.svc.cluster.local:8096"
 	// DefaultLANDNSZone is the CoreDNS local-zone suffix for LAN A records.
 	// Must not be ".local" — systemd-resolved (and dig) treat .local as
 	// Multicast DNS and will never send those queries to unicast DNS.
@@ -171,9 +166,6 @@ func RequiredPacks(profile string) []string {
 	}
 	if HasCapability(profile, CapabilityInference) {
 		packs = append(packs, "inference")
-	}
-	if HasCapability(profile, CapabilityVideo) {
-		packs = append(packs, "video")
 	}
 	return packs
 }
@@ -312,7 +304,6 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
 	inferenceEnabled := ModuleEnabled(resolvedModules, ModuleNameInferenceRuntime)
-	videoEnabled := ModuleEnabled(resolvedModules, ModuleNameVideoRuntime)
 	buildEnabled := ModuleEnabled(resolvedModules, ModuleNameBuild)
 	identity, err := ResolveApplianceIdentity(applianceName, dnsZone)
 	if err != nil {
@@ -322,8 +313,12 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	builderImageReference = strings.TrimSpace(builderImageReference)
 	hostAgentImageReference = strings.TrimSpace(hostAgentImageReference)
 	artifactServerImageReference := ""
+	blobStorageImageReference := ""
 	if len(registry) > 0 {
 		artifactServerImageReference = strings.TrimSpace(registry[0])
+	}
+	if len(registry) > 1 {
+		blobStorageImageReference = strings.TrimSpace(registry[1])
 	}
 	if buildEnabled {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
@@ -337,6 +332,9 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	}
 	if artifactEnabled && len(registry) > 0 && !validArtifactServerImageDigest(artifactServerImageReference) {
 		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/artifact-server@sha256 image reference; got %q", artifactServerImageReference)
+	}
+	if !validBlobStorageImageDigest(blobStorageImageReference) {
+		return "", func() {}, fmt.Errorf("product config: foundation requires a bundled registry.local/blob-storage@sha256 image reference; got %q", blobStorageImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -401,11 +399,6 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	} else {
 		delete(config, "inferenceGatewayBaseURL")
 	}
-	if videoEnabled {
-		config["videoGatewayBaseURL"] = DefaultVideoGatewayBaseURL
-	} else {
-		delete(config, "videoGatewayBaseURL")
-	}
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
 	} else {
@@ -426,6 +419,19 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 	config["buildCatalog"] = map[string]any{}
 	delete(config, "allowedGitSourceHosts")
 	values["config"] = config
+	blobStorage, _ := values["blobStorage"].(map[string]any)
+	if blobStorage == nil {
+		blobStorage = map[string]any{}
+	}
+	image, _ := blobStorage["image"].(map[string]any)
+	if image == nil {
+		image = map[string]any{}
+	}
+	image["repository"] = "registry.local/blob-storage"
+	image["digest"] = strings.TrimPrefix(blobStorageImageReference, "registry.local/blob-storage@")
+	image["pullPolicy"] = "IfNotPresent"
+	blobStorage["image"] = image
+	values["blobStorage"] = blobStorage
 
 	// controlplane lives in the Helm release namespace (zonctl defaultChartNamespace =
 	// ace-system). Co-packaged apps go in ace-apps.
@@ -487,20 +493,7 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		delete(networkPolicy, "inferencePodLabels")
 		delete(networkPolicy, "inferencePort")
 	}
-	if videoEnabled {
-		networkPolicy["videoNamespaceLabel"] = map[string]any{
-			"kubernetes.io/metadata.name": "video",
-		}
-		networkPolicy["videoPodLabels"] = map[string]any{
-			"app.kubernetes.io/name": "video-gateway",
-		}
-		networkPolicy["videoPort"] = 8096
-	} else {
-		delete(networkPolicy, "videoNamespaceLabel")
-		delete(networkPolicy, "videoPodLabels")
-		delete(networkPolicy, "videoPort")
-	}
-	if artifactEnabled || dnsEnabled || inferenceEnabled || videoEnabled {
+	if artifactEnabled || dnsEnabled || inferenceEnabled {
 		values["networkPolicy"] = networkPolicy
 	}
 
@@ -762,39 +755,6 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string) 
 	return tmp.Name(), cleanup, nil
 }
 
-func PrepareVideoValuesFile(baseDir, videoRuntimeImageReference string) (string, func(), error) {
-	if !validVideoRuntimeImageDigest(videoRuntimeImageReference) {
-		return "", func() {}, fmt.Errorf("product config: invalid video-runtime image reference %q", videoRuntimeImageReference)
-	}
-	values := map[string]any{
-		"namespace": map[string]any{"create": false, "name": "video"},
-		"image": map[string]any{
-			"repository": "registry.local/video-runtime",
-			"digest":     strings.TrimPrefix(strings.TrimSpace(videoRuntimeImageReference), "registry.local/video-runtime@"),
-			"pullPolicy": "IfNotPresent",
-		},
-	}
-	rendered, err := yaml.Marshal(values)
-	if err != nil {
-		return "", func() {}, fmt.Errorf("product config: render video values: %w", err)
-	}
-	tmp, err := os.CreateTemp(baseDir, ".zonctl-video-values-*.yaml")
-	if err != nil {
-		return "", func() {}, fmt.Errorf("product config: create video values file: %w", err)
-	}
-	cleanup := func() { _ = os.Remove(tmp.Name()) }
-	if _, err := tmp.Write(rendered); err != nil {
-		tmp.Close()
-		cleanup()
-		return "", func() {}, fmt.Errorf("product config: write video values file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return "", func() {}, fmt.Errorf("product config: close video values file: %w", err)
-	}
-	return tmp.Name(), cleanup, nil
-}
-
 func validBuilderImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !sha256ImageDigestRE.MatchString(image) {
@@ -813,6 +773,14 @@ func validArtifactServerImageDigest(image string) bool {
 	return digest != placeholderImageDigestHex
 }
 
+func validBlobStorageImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/blob-storage@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	return strings.TrimPrefix(image, "registry.local/blob-storage@sha256:") != placeholderImageDigestHex
+}
+
 func validDNSImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/coredns@sha256:") || !sha256ImageDigestRE.MatchString(image) {
@@ -825,15 +793,6 @@ func validDNSImageDigest(image string) bool {
 func validInferenceRuntimeImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/inference-runtime@sha256:") || !sha256ImageDigestRE.MatchString(image) {
-		return false
-	}
-	_, digest, _ := strings.Cut(image, "@sha256:")
-	return digest != placeholderImageDigestHex
-}
-
-func validVideoRuntimeImageDigest(image string) bool {
-	image = strings.TrimSpace(image)
-	if !strings.HasPrefix(image, "registry.local/video-runtime@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

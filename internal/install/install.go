@@ -49,8 +49,6 @@ const (
 	dnsNamespace                = "dns"
 	inferenceReleaseName        = "appliance-inference"
 	inferenceNamespace          = "inference"
-	videoReleaseName            = "appliance-video"
-	videoNamespace              = "video"
 )
 
 type freshReleaseResult struct {
@@ -252,7 +250,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	nodeIPv4 := preferredLocalIPv4(opts.TLSSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -284,15 +282,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		defer cleanupInferenceValues()
 	}
-	videoValuesPath := ""
-	cleanupVideoValues := func() {}
-	if resolved.VideoEnabled {
-		videoValuesPath, cleanupVideoValues, err = productconfig.PrepareVideoValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.VideoImageReference)
-		if err != nil {
-			return nil, checks, fmt.Errorf("install: %w", err)
-		}
-		defer cleanupVideoValues()
-	}
 
 	// Gated on the Build capability, not the "builder" profile name
 	// directly: more than one profile can enable Build, and this
@@ -323,16 +312,14 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	if resolved.VideoEnabled {
-		if err := o.EnsureOwnedDir(hostdirs.VideoLibraryDir, hostdirs.VideoDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
-			return nil, checks, fmt.Errorf("install: prepare video library directory: %w", err)
-		}
-		checks = append(checks, evidence.Check{
-			ID: "video-library-directory-owned", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.VideoLibraryDir, hostdirs.VideoDirOwnerUID, hostdirs.ApplianceSharedFSGID),
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
+	if err := o.EnsureOwnedDir(hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
+		return nil, checks, fmt.Errorf("install: prepare blob storage directory: %w", err)
 	}
+	checks = append(checks, evidence.Check{
+		ID: "blob-storage-directory-owned", Category: "host", Status: evidence.StatusPass,
+		Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
 
 	// Host-visible metadata-bundle tree: extract before Helm so Automation
 	// Runtime mounts a real initial active policy (not only the embedded
@@ -637,7 +624,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		if err := productconfig.InjectImagePullSecrets(preparedValuesPath, productconfig.ImagePullSecretName); err != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: inject image-pull secrets into values: %w", err), runRollbacks())
 		}
-		for _, valuesPath := range []string{registryValuesPath, dnsValuesPath, inferenceValuesPath, videoValuesPath} {
+		for _, valuesPath := range []string{registryValuesPath, dnsValuesPath, inferenceValuesPath} {
 			if strings.TrimSpace(valuesPath) == "" {
 				continue
 			}
@@ -698,7 +685,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,
-		resolved.VideoEnabled,
 	) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare service log directory %s: %w", dir.Path, err)
@@ -715,7 +701,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,
-		resolved.VideoEnabled,
 	) {
 		if o.EnsureOwnedFile == nil {
 			continue
@@ -938,7 +923,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	taskCount := 1
-	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled || resolved.VideoEnabled {
+	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled {
 		taskCount++
 	}
 	if resolved.WorkflowsEnabled {
@@ -959,7 +944,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		parallelResults <- out
 	}()
 
-	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled || resolved.VideoEnabled {
+	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled {
 		parallelWG.Add(1)
 		go func() {
 			defer parallelWG.Done()
@@ -1031,24 +1016,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 					ChartPath:       resolved.InferenceChartPath,
 					Namespace:       inferenceNamespace,
 					ValuesPath:      inferenceValuesPath,
-					NamespaceLabels: helm.RestrictedNamespaceLabels(),
-				})
-				out.checks = append(out.checks, result.checks...)
-				if result.rollback != nil {
-					out.rollbacks = append(out.rollbacks, result.rollback)
-				}
-				if result.err != nil {
-					out.err = result.err
-					parallelResults <- out
-					return
-				}
-			}
-			if resolved.VideoEnabled {
-				result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, helm.ChartRelease{
-					Name:            videoReleaseName,
-					ChartPath:       resolved.VideoChartPath,
-					Namespace:       videoNamespace,
-					ValuesPath:      videoValuesPath,
 					NamespaceLabels: helm.RestrictedNamespaceLabels(),
 				})
 				out.checks = append(out.checks, result.checks...)
@@ -1163,7 +1130,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			ArtifactServerVersion: resolved.ArtifactServerComponentVersion(resolved.Compatibility.ArtifactServerVersion),
 			DNSVersion:            resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
 			InferenceVersion:      resolved.InferenceComponentVersion(resolved.Compatibility.InferenceVersion),
-			VideoVersion:          resolved.VideoComponentVersion(resolved.Compatibility.VideoVersion),
 			MetadataVersion:       metadataVersion,
 			MetadataDigest:        metadataDigest,
 		},

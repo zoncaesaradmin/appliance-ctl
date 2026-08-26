@@ -77,6 +77,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image " + spec.bundleVersion, "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image " + spec.bundleVersion, "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image " + spec.bundleVersion, "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		{"oci-images/blob-storage.tar", "oci-images", "fake blob storage image " + spec.bundleVersion, "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image " + spec.bundleVersion, "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
 	}
 	if spec.includeWorkflows {
@@ -544,8 +545,8 @@ func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {
 			importCalls++
 		}
 	}
-	if importCalls != 7 {
-		t.Fatalf("expected 7 image import calls during same-version refresh (artifact-server + control-plane + UI + host agent + workspace provisioner + workflow controller/executor), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 8 {
+		t.Fatalf("expected 8 image import calls during same-version refresh (artifact-server + blob storage + control-plane + UI + host agent + workspace provisioner + workflow controller/executor), got %d: %v", importCalls, fcli.calls)
 	}
 }
 
@@ -864,6 +865,7 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 				hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.ArtifactServerLogDir:    {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.FileserverDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+				hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 			}
 			if profile == "storage-landns" {
@@ -1003,6 +1005,7 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.FileserverDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -1204,6 +1207,8 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"internal/appliance-ui:2.4.0"}
 	case "appliance-host-agent.tar":
 		return []string{"registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+	case "blob-storage.tar":
+		return []string{"registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"}
 	case "workspace-provisioner.tar":
 		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "artifact-server.tar":

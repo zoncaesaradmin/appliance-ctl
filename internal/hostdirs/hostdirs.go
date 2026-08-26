@@ -64,10 +64,9 @@ const (
 	// automation-runtime pod (metadata-bundle + DSL execution). Distinct from
 	// InferenceDirOwnerUID — never reuse service UIDs across components.
 	AutomationRuntimeDirOwnerUID = 10007
-	// VideoDirOwnerUID is the fixed numeric identity for the offline
-	// video runtime pod (appliance-video chart runAsUser). Distinct from
-	// AutomationRuntimeDirOwnerUID — never reuse service UIDs across components.
-	VideoDirOwnerUID = 10008
+	// BlobStorageDirOwnerUID is the fixed numeric identity for the local
+	// S3-compatible blob-storage service.
+	BlobStorageDirOwnerUID = 10009
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -106,18 +105,15 @@ const (
 	// InferenceLogDir is the host-visible inference runtime log directory
 	// under the shared appliance log tree.
 	InferenceLogDir = "/data/zon/logs/inference"
-	// VideoLogDir is the host-visible video runtime log directory under the
-	// shared appliance log tree.
-	VideoLogDir = "/data/zon/logs/video"
 	// AutomationRuntimeLogDir is the host-visible automation-runtime log
 	// directory under the shared appliance log tree.
 	AutomationRuntimeLogDir = "/data/zon/logs/automation-runtime"
 	// InferenceModelsDir is the host-visible model-weight tree mounted into
 	// the inference runtime at /models (filled by zonctl models-import).
 	InferenceModelsDir = "/data/zon/inference/models"
-	// VideoLibraryDir is the host-visible video library tree mounted into
-	// the video runtime (operator upload + Jellyfin library scan).
-	VideoLibraryDir = "/data/zon/video/library"
+	// BlobStorageDir backs the foundation blob-storage pod. Consumers use its
+	// S3 API and never receive this host path.
+	BlobStorageDir = "/data/zon/blob-storage"
 	// HostAgentLogDir is the host-visible appliance host agent log directory
 	// under the shared appliance log tree.
 	HostAgentLogDir = "/data/zon/logs/host-agent"
@@ -147,9 +143,9 @@ type OwnedDir struct {
 // ServiceLogDirs returns the host-visible log directories the selected
 // capability set requires. Control-plane, UI, host agent, and automation
 // runtime always exist; registry logs, files API backing store,
-// workflow-controller, DNS, inference, and video logs are added only when
+// workflow-controller, DNS, and inference logs are added only when
 // those capabilities are enabled.
-func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference, includeVideo bool) []OwnedDir {
+func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool) []OwnedDir {
 	dirs := []OwnedDir{
 		{
 			CheckID: "api-server-log-directory-owned",
@@ -225,22 +221,13 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS,
 			Mode:    ServiceLogDirMode,
 		})
 	}
-	if includeVideo {
-		dirs = append(dirs, OwnedDir{
-			CheckID: "video-log-directory-owned",
-			Path:    VideoLogDir,
-			UID:     VideoDirOwnerUID,
-			GID:     ApplianceSharedFSGID,
-			Mode:    ServiceLogDirMode,
-		})
-	}
 	return dirs
 }
 
 // ServiceLogFiles returns host-visible log files that zonctl must seed (or
 // re-chmod) in addition to ServiceLogDirs. Today this is only the artifact
 // server's application.log, which upstream creates as 0600.
-func ServiceLogFiles(includeArtifact, _, _, _, _, _ bool) []OwnedDir {
+func ServiceLogFiles(includeArtifact, _, _, _, _ bool) []OwnedDir {
 	files := []OwnedDir{{
 		CheckID: "host-agent-daemon-log-readable",
 		Path:    HostAgentDaemonLog,

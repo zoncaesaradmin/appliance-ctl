@@ -58,6 +58,12 @@
       "digest": "sha256:ec57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
       "sizeBytes": 16384
     },
+    "blobStorageImage": {
+      "path": "blob-storage.oci.tar.zst",
+      "digest": "sha256:ac47fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
+      "sizeBytes": 62914560,
+      "imageReference": "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
+    },
     "metadataBundle": {
       "path": "appliance-metadata-bundle-2.4.0.0.tar.zst",
       "digest": "sha256:ee165ffe5b174c9ba1756b3eca14abdb87a8df4e93aef2f1c61aa76590b50cdd",
