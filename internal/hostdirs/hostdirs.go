@@ -111,8 +111,8 @@ const (
 	// InferenceModelsDir is the host-visible model-weight tree mounted into
 	// the inference runtime at /models (filled by zonctl models-import).
 	InferenceModelsDir = "/data/zon/inference/models"
-	// BlobStorageDir backs the foundation blob-storage pod. Consumers use its
-	// S3 API and never receive this host path.
+	// BlobStorageDir backs the foundation blob-storage pod in ace-system.
+	// Consumers use its S3 API and never receive this host path.
 	BlobStorageDir = "/data/zon/blob-storage"
 	// HostAgentLogDir is the host-visible appliance host agent log directory
 	// under the shared appliance log tree.
