@@ -81,7 +81,6 @@ func TestProductNamespacesExcludesSystemNamespaces(t *testing.T) {
 		"artifacts":        true,
 		"dns":              true,
 		"inference":        true,
-		"video":            true,
 		"workflows":        true,
 		"appliance-builds": true,
 	}

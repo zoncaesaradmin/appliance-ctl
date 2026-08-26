@@ -1161,7 +1161,6 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		hostdirs.HostAgentLogDir:          {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir:  {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.FileserverDir:            {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:           {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:           {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
@@ -1229,7 +1228,6 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.FileserverDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
@@ -1272,7 +1270,6 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir:    {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.FileserverDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}

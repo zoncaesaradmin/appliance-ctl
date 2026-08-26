@@ -864,7 +864,6 @@ func TestUpgrade_ArtifactProfileTransitionRemovesWorkflowsRelease(t *testing.T) 
 				hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.ArtifactServerLogDir:    {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-				hostdirs.FileserverDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 				opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 			}
@@ -1004,7 +1003,6 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.FileserverDir:           {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}

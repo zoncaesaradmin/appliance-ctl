@@ -82,45 +82,26 @@ func TestEnsureOwnedDir_PropagatesChownFailure(t *testing.T) {
 	}
 }
 
-func TestServiceLogDirs_FileserverUsesSharedWritableMode(t *testing.T) {
+func TestServiceLogDirs_FilesCapabilityDoesNotAddHostFilesDir(t *testing.T) {
 	dirs := hostdirs.ServiceLogDirs(false, true, false, false, false)
-	var found *hostdirs.OwnedDir
-	for i := range dirs {
-		if dirs[i].Path == hostdirs.FileserverDir {
-			found = &dirs[i]
-			break
-		}
-	}
-	if found == nil {
-		t.Fatal("expected files API directory in ServiceLogDirs when files is enabled")
-	}
-	if found.UID != hostdirs.ControlPlaneDirOwnerUID || found.GID != hostdirs.ApplianceSharedFSGID {
-		t.Fatalf("files API dir ownership = %d:%d, want %d:%d", found.UID, found.GID, hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID)
-	}
-	if found.Mode != hostdirs.SharedWritableDirMode {
-		t.Fatalf("files API dir mode = %o, want %o (2775 setgid)", found.Mode, hostdirs.SharedWritableDirMode)
-	}
-	if found.Mode&os.ModeSetgid == 0 || found.Mode.Perm() != 0o775 {
-		t.Fatalf("files API dir mode bits = %v, want setgid|0775", found.Mode)
-	}
 	for _, d := range dirs {
-		if d.Path == "/data/zon/logs/fileserver" {
-			t.Fatalf("unexpected nginx fileserver log directory in ServiceLogDirs: %#v", d)
+		if d.Path == "/data/zon/files" || d.Path == "/data/zon/logs/fileserver" {
+			t.Fatalf("files capability must not seed a host files directory: %#v", d)
 		}
 	}
 }
 
-func TestServiceLogDirs_ArtifactDoesNotImplyFileserver(t *testing.T) {
+func TestServiceLogDirs_ArtifactDoesNotImplyFilesDir(t *testing.T) {
 	dirs := hostdirs.ServiceLogDirs(true, false, false, false, false)
 	for _, d := range dirs {
-		if d.Path == hostdirs.FileserverDir {
-			t.Fatalf("artifact-only ServiceLogDirs must not include files API directory: %#v", d)
+		if d.Path == "/data/zon/files" {
+			t.Fatalf("artifact-only ServiceLogDirs must not include files directory: %#v", d)
 		}
 	}
 }
 
 func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false, false)
+	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false)
 	for _, dir := range dirs {
 		if dir.Path == hostdirs.HostAgentLogDir {
 			if dir.UID != hostdirs.HostAgentDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
@@ -136,7 +117,7 @@ func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
 }
 
 func TestServiceLogDirs_AlwaysIncludesAutomationRuntimeLogDirectory(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false, false)
+	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false)
 	for _, dir := range dirs {
 		if dir.Path == hostdirs.AutomationRuntimeLogDir {
 			if dir.UID != hostdirs.AutomationRuntimeDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
@@ -148,9 +129,6 @@ func TestServiceLogDirs_AlwaysIncludesAutomationRuntimeLogDirectory(t *testing.T
 			if dir.UID == hostdirs.InferenceDirOwnerUID {
 				t.Fatal("automation runtime must not reuse inference UID 10006")
 			}
-			if dir.UID == hostdirs.VideoDirOwnerUID {
-				t.Fatal("automation runtime must not reuse video UID 10008")
-			}
 			return
 		}
 	}
@@ -158,10 +136,10 @@ func TestServiceLogDirs_AlwaysIncludesAutomationRuntimeLogDirectory(t *testing.T
 }
 
 func TestServiceLogFiles_ArtifactApplicationLogReadable(t *testing.T) {
-	if files := hostdirs.ServiceLogFiles(false, true, true, true, true, true); len(files) != 1 || files[0].Path != hostdirs.HostAgentDaemonLog {
+	if files := hostdirs.ServiceLogFiles(false, true, true, true, true); len(files) != 1 || files[0].Path != hostdirs.HostAgentDaemonLog {
 		t.Fatalf("expected only host-agent daemon log without artifact capability, got %#v", files)
 	}
-	files := hostdirs.ServiceLogFiles(true, false, false, false, false, false)
+	files := hostdirs.ServiceLogFiles(true, false, false, false, false)
 	if len(files) != 2 {
 		t.Fatalf("expected host-agent and artifact log files, got %#v", files)
 	}

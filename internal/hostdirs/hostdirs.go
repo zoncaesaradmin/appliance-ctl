@@ -119,11 +119,6 @@ const (
 	HostAgentLogDir = "/data/zon/logs/host-agent"
 	// HostAgentDaemonLog is the host-side daemon log file under HostAgentLogDir.
 	HostAgentDaemonLog = HostAgentLogDir + "/host-agentd.log"
-	// FileserverDir is the host-visible backing store for the authenticated
-	// control-plane files API (/api/v1/files). Owned by the control-plane UID
-	// with the shared fsGroup so the API pod can write and host users can
-	// inspect. There is no Traefik /files nginx surface.
-	FileserverDir = "/data/zon/files"
 	// MetadataBundlesDir is the host-visible tree of extracted appliance policy
 	// bundles mounted into the control-plane pod at
 	// {persistence.dataDir}/metadata-bundles.
@@ -142,10 +137,12 @@ type OwnedDir struct {
 
 // ServiceLogDirs returns the host-visible log directories the selected
 // capability set requires. Control-plane, UI, host agent, and automation
-// runtime always exist; registry logs, files API backing store,
-// workflow-controller, DNS, and inference logs are added only when
-// those capabilities are enabled.
+// runtime always exist; registry logs, workflow-controller, DNS, and
+// inference logs are added only when those capabilities are enabled.
+// The files capability stores objects in foundation blob-storage, so it does
+// not add a dedicated host directory here.
 func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool) []OwnedDir {
+	_ = includeFiles
 	dirs := []OwnedDir{
 		{
 			CheckID: "api-server-log-directory-owned",
@@ -183,15 +180,6 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS,
 			UID:     RegistryDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
-		})
-	}
-	if includeFiles {
-		dirs = append(dirs, OwnedDir{
-			CheckID: "fileserver-directory-owned",
-			Path:    FileserverDir,
-			UID:     ControlPlaneDirOwnerUID,
-			GID:     ApplianceSharedFSGID,
-			Mode:    SharedWritableDirMode,
 		})
 	}
 	if includeWorkflows {
