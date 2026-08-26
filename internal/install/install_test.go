@@ -643,8 +643,8 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 			secretCreateCalls++
 		}
 	}
-	if importCalls != 5 {
-		t.Errorf("expected 5 image import calls (k3s platform + blob storage + control-plane app + UI app + host agent), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 4 {
+		t.Errorf("expected 4 image import calls (k3s platform + blob storage + control-plane app + UI app), got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -654,6 +654,7 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 func TestInstall_StagesHostPackagesWithoutEnablingServices(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "storage-landns"
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -771,10 +772,10 @@ func TestInstall_LandnsDoesNotWaitForDNSWithoutWifiAP(t *testing.T) {
 	}
 }
 
-func TestInstall_InstallsHostPackagesForCoreProfile(t *testing.T) {
+func TestInstall_InstallsHostPackagesForHostCapableProfile(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
-	opts.ApplianceProfile = "core"
+	opts.ApplianceProfile = "storage-landns"
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -791,7 +792,7 @@ func TestInstall_InstallsHostPackagesForCoreProfile(t *testing.T) {
 		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
 			called = true
 			if spec.ServiceName != "" {
-				t.Fatalf("core profile install must not enable services, ServiceName=%q", spec.ServiceName)
+				t.Fatalf("host-capable install must not enable services, ServiceName=%q", spec.ServiceName)
 			}
 			if !strings.Contains(spec.RootDir, "host-packages") {
 				t.Fatalf("RootDir = %q", spec.RootDir)
@@ -807,7 +808,7 @@ func TestInstall_InstallsHostPackagesForCoreProfile(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 	if !called {
-		t.Fatal("core profile must install host packages (mdns+wifi-client+wifi-ap debs) without enabling services")
+		t.Fatal("host-capable profile must install host packages (mdns+wifi-client+wifi-ap debs) without enabling services")
 	}
 	var saw bool
 	for _, check := range checks {
@@ -826,6 +827,7 @@ func TestInstall_InstallsHostPackagesForCoreProfile(t *testing.T) {
 func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "storage-landns"
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -1226,7 +1228,6 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 	wantOwnedPaths := map[string][2]int{
 		hostdirs.APIServerLogDir:         {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
@@ -1566,7 +1567,7 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 			rmCalls++
 		}
 	}
-	if rmCalls != 5 {
+	if rmCalls != 4 {
 		t.Errorf("expected all newly-imported images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
 	}
 

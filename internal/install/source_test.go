@@ -740,7 +740,7 @@ func TestOfflineSource_RequiresHostPackages(t *testing.T) {
 		BundleDir: dir,
 		PublicKey: &verify.PublicKey{ID: "release-signing-key", Key: pub},
 	}
-	_, _, err = source.Resolve(context.Background(), "core")
+	_, _, err = source.Resolve(context.Background(), "storage-landns")
 	if err == nil {
 		t.Fatal("expected resolve to reject bundle without host-packages")
 	}

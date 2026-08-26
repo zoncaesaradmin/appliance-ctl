@@ -24,12 +24,12 @@ func TestRequiredPacks(t *testing.T) {
 		profile string
 		want    []string
 	}{
-		{productconfig.ProfileCore, []string{"deviceuser"}},
+		{productconfig.ProfileCore, nil},
 		{productconfig.ProfileStorage, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileStorageLANDNS, []string{"developer", "deviceuser"}},
-		{productconfig.ProfileTraining, []string{"deviceuser"}},
-		{productconfig.ProfileLANLLM, []string{"deviceuser", "inference"}},
+		{productconfig.ProfileTraining, nil},
+		{productconfig.ProfileLANLLM, []string{"inference"}},
 		{productconfig.ProfileBuilder, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileBuilderLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileBuilderLANLLM, []string{"developer", "deviceuser", "inference"}},
@@ -296,7 +296,7 @@ func TestBuiltInProfileCatalogReturnsClone(t *testing.T) {
 	catalog := productconfig.BuiltInProfileCatalog()
 	catalog[productconfig.ProfileCore] = productconfig.ProfileDefinition{}
 
-	if !productconfig.HasCapability(productconfig.ProfileCore, productconfig.CapabilityHost) {
+	if !productconfig.HasCapability(productconfig.ProfileCore, productconfig.CapabilityFiles) {
 		t.Fatal("mutating cloned catalog must not affect built-in core profile")
 	}
 }

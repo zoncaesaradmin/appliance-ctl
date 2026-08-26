@@ -400,7 +400,7 @@ func TestUpgrade_UsesBundleVersionAsTargetVersion(t *testing.T) {
 }
 
 func TestUpgrade_InstallsBundledHostPackages(t *testing.T) {
-	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "core")
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "storage-landns")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
@@ -1001,7 +1001,6 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 	wantOwnedPaths := map[string][2]int{
 		hostdirs.APIServerLogDir:         {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},

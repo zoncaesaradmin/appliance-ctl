@@ -7,15 +7,12 @@ import (
 )
 
 func TestResolveModulesIncludesHostAgentForHostCapableProfiles(t *testing.T) {
-	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileCore, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
-	if len(modules) != 2 {
-		t.Fatalf("ResolveModulesWithCatalog(core) returned %d modules, want 2", len(modules))
-	}
+	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileStorageLANDNS, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameHostAgent) {
-		t.Fatal("core modules should include host-agent")
+		t.Fatal("storage-landns modules should include host-agent")
 	}
 	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameFiles) {
-		t.Fatal("core modules should include files")
+		t.Fatal("storage-landns modules should include files")
 	}
 	module, _ := productconfig.ModuleNamed(modules, productconfig.ModuleNameHostAgent)
 	if module.PrimaryCapability() != productconfig.CapabilityHost {
@@ -45,11 +42,14 @@ func TestResolveModulesIncludesInferenceWhenEnabled(t *testing.T) {
 	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameInferenceRuntime) {
 		t.Fatal("lanllm modules should include inference-runtime")
 	}
-	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameFiles) {
-		t.Fatal("lanllm modules should include files")
+	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameFiles) {
+		t.Fatal("lanllm profile should not include files")
 	}
 	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
 		t.Fatal("lanllm profile should not include build")
+	}
+	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameHostAgent) {
+		t.Fatal("lanllm profile should not include host-agent")
 	}
 }
 
@@ -87,22 +87,25 @@ func TestResolveModulesSuppressesModuleWhenNotEntitled(t *testing.T) {
 }
 
 func TestServiceRegistryConfigBuildsHostAgentRoutes(t *testing.T) {
-	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileCore, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileStorageLANDNS, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	registry := productconfig.ServiceRegistryConfig(modules)
 	services, ok := registry["services"].([]map[string]any)
 	if !ok {
 		t.Fatalf("services = %#v, want []map[string]any", registry["services"])
 	}
-	if len(services) != 1 {
-		t.Fatalf("len(services) = %d, want 1", len(services))
+	var hostAgent map[string]any
+	for _, service := range services {
+		if service["name"] == "host-agent" {
+			hostAgent = service
+			break
+		}
 	}
-	service := services[0]
-	if service["name"] != "host-agent" {
-		t.Fatalf("service[name] = %#v, want host-agent", service["name"])
+	if hostAgent == nil {
+		t.Fatal("expected host-agent service in registry")
 	}
-	routes, ok := service["routes"].([]map[string]any)
+	routes, ok := hostAgent["routes"].([]map[string]any)
 	if !ok {
-		t.Fatalf("routes = %#v, want []map[string]any", service["routes"])
+		t.Fatalf("routes = %#v, want []map[string]any", hostAgent["routes"])
 	}
 	if len(routes) != 11 {
 		t.Fatalf("len(routes) = %d, want 11", len(routes))
@@ -133,9 +136,13 @@ func TestHostAgentEnabledReflectsResolvedModules(t *testing.T) {
 	if productconfig.HostAgentEnabled(nil) {
 		t.Fatal("HostAgentEnabled(nil) should be false")
 	}
-	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileCore, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileStorageLANDNS, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	if !productconfig.HostAgentEnabled(modules) {
-		t.Fatal("HostAgentEnabled(core modules) should be true")
+		t.Fatal("HostAgentEnabled(storage-landns modules) should be true")
+	}
+	coreModules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileCore, productconfig.BuiltInProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	if productconfig.HostAgentEnabled(coreModules) {
+		t.Fatal("HostAgentEnabled(core modules) should be false")
 	}
 }
 
