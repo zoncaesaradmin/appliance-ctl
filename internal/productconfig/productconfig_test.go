@@ -29,7 +29,7 @@ func TestRequiredPacksWithCatalog(t *testing.T) {
 		{productconfig.ProfileStorage, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileStorageLANDNS, []string{"developer", "deviceuser"}},
-		{productconfig.ProfileTraining, nil},
+		{productconfig.ProfileTraining, []string{"deviceuser"}},
 		{productconfig.ProfileLANLLM, []string{"inference"}},
 		{productconfig.ProfileBuilder, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileBuilderLANDNS, []string{"developer", "deviceuser"}},
@@ -373,6 +373,30 @@ func TestPrepareValuesFile_UsesMetadataProfileCatalog(t *testing.T) {
 	}
 	if strings.Contains(text, "applianceCatalog:") {
 		t.Fatalf("prepared values must not inject applianceCatalog: %s", text)
+	}
+}
+
+func TestPrepareValuesFile_ApplicationCapabilityEnablesLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	valuesPath := filepath.Join(dir, "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	catalog := productconfig.ProfileCatalog{
+		"media": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityApplications}},
+	}
+
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "media", catalog, "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
+	defer cleanup()
+	if err != nil {
+		t.Fatalf("PrepareValuesFile returned error: %v", err)
+	}
+	prepared, err := os.ReadFile(preparedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(prepared), "applicationManagementEnabled: true") {
+		t.Fatalf("application capability must enable lifecycle plumbing:\n%s", prepared)
 	}
 }
 

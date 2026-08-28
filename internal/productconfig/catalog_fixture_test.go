@@ -16,6 +16,6 @@ func testProfileCatalog() productconfig.ProfileCatalog {
 		productconfig.ProfileBuilderLANLLM:              {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityHost, productconfig.CapabilityFiles, productconfig.CapabilityWorkflows, productconfig.CapabilityBuild, productconfig.CapabilityArtifact, productconfig.CapabilityInference}},
 		productconfig.ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityHost, productconfig.CapabilityFiles, productconfig.CapabilityWorkflows, productconfig.CapabilityBuild, productconfig.CapabilityArtifact, productconfig.CapabilityDNS, productconfig.CapabilityInference}},
 		productconfig.ProfileLANLLM:                     {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityInference}},
-		productconfig.ProfileTraining:                   {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityFiles, productconfig.CapabilityVideo}},
+		productconfig.ProfileTraining:                   {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityHost, productconfig.CapabilityFiles, productconfig.CapabilityVideo, productconfig.CapabilityApplications}},
 	}
 }
