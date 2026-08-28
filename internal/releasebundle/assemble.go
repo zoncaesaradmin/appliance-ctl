@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/bundle"
-	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/releaseinput"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
@@ -272,19 +271,6 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			entryByTarget[configSchemaTarget] = EntryConfig{
 				SourcePath: input.Artifacts.ConfigurationSchema.Path,
 				TargetPath: configSchemaTarget,
-				Component:  "configuration",
-			}
-		}
-		catalogSourcePath, err := writeBuiltInCatalogFile()
-		if err != nil {
-			return Result{}, err
-		}
-		defer os.Remove(catalogSourcePath)
-		catalogTarget := "configuration/appliance-catalog.json"
-		if _, exists := entryByTarget[catalogTarget]; !exists {
-			entryByTarget[catalogTarget] = EntryConfig{
-				SourcePath: catalogSourcePath,
-				TargetPath: catalogTarget,
 				Component:  "configuration",
 			}
 		}
@@ -627,27 +613,6 @@ func describeFile(fullPath, relPath, component string, executable bool, imageRef
 		Executable:     executable,
 		ImageReference: imageReference,
 	}, nil
-}
-
-func writeBuiltInCatalogFile() (string, error) {
-	data, err := json.MarshalIndent(productconfig.BuiltInCatalogDocument(), "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("releasebundle: marshal appliance catalog: %w", err)
-	}
-	file, err := os.CreateTemp("", "appliance-catalog-*.json")
-	if err != nil {
-		return "", fmt.Errorf("releasebundle: create appliance catalog file: %w", err)
-	}
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		os.Remove(file.Name())
-		return "", fmt.Errorf("releasebundle: write appliance catalog file: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		os.Remove(file.Name())
-		return "", fmt.Errorf("releasebundle: close appliance catalog file: %w", err)
-	}
-	return file.Name(), nil
 }
 
 func validateInstallableBundle(entries []manifestEntry, pack string) error {

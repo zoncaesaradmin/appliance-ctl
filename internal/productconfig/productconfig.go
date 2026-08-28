@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"gopkg.in/yaml.v3"
 )
 
@@ -99,38 +101,25 @@ type ProfileDefinition struct {
 
 type ProfileCatalog map[string]ProfileDefinition
 
-var builtInProfileCatalog = ProfileCatalog{
-	// Keep in sync with appliance-code metadata-bundle/base/profiles/catalog.yaml
-	// for shared profile names. Pack derivation uses capabilities, not profile names.
-	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityFiles, CapabilityApplications}},
-	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityApplications}},
-	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityApplications}},
-	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityDNS, CapabilityApplications}},
-	ProfileStorageLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
-	ProfileBuilderLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
-	ProfileBuilderStorageLANDNS:       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
-	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityInference, CapabilityApplications}},
-	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference, CapabilityApplications}},
-	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference, CapabilityApplications}},
-	ProfileTraining:                   {Capabilities: []Capability{CapabilityBase, CapabilityFiles, CapabilityVideo}},
-}
-
-var builtInProfileOrder = []string{
-	ProfileCore,
-	ProfileBuilder,
-	ProfileStorage,
-	ProfileLANDNS,
-	ProfileStorageLANDNS,
-	ProfileBuilderLANDNS,
-	ProfileBuilderStorageLANDNS,
-	ProfileLANLLM,
-	ProfileBuilderLANLLM,
-	ProfileBuilderLANLLMStorageLANDNS,
-	ProfileTraining,
-}
-
-func BuiltInProfileCatalog() ProfileCatalog {
-	return cloneProfileCatalog(builtInProfileCatalog)
+// ProfileCatalogFromMetadata converts the signed metadata-bundle policy into
+// the typed installer representation. Profile policy never lives in zonctl.
+func ProfileCatalogFromMetadata(definitions map[string]metadatabundle.ProfileDefinition) (ProfileCatalog, error) {
+	if len(definitions) == 0 {
+		return nil, fmt.Errorf("profile catalog is empty")
+	}
+	catalog := make(ProfileCatalog, len(definitions))
+	for name, definition := range definitions {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("profile catalog contains an empty profile name")
+		}
+		capabilities := make([]Capability, len(definition.Capabilities))
+		for i, capability := range definition.Capabilities {
+			capabilities[i] = Capability(strings.TrimSpace(capability))
+		}
+		catalog[name] = ProfileDefinition{Capabilities: capabilities}
+	}
+	return catalog, nil
 }
 
 const (
@@ -161,28 +150,22 @@ const (
 // RequiredPacks returns the optional signed pack IDs needed for profile
 // beyond the foundation pack. The foundation pack is always required conceptually and
 // is not listed here.
-func RequiredPacks(profile string) []string {
+func RequiredPacksWithCatalog(profile string, catalog ProfileCatalog) []string {
 	var packs []string
-	if HasCapability(profile, CapabilityWorkflows) || HasCapability(profile, CapabilityBuild) ||
-		HasCapability(profile, CapabilityArtifact) || HasCapability(profile, CapabilityDNS) {
+	if HasCapabilityInCatalog(profile, CapabilityWorkflows, catalog) || HasCapabilityInCatalog(profile, CapabilityBuild, catalog) ||
+		HasCapabilityInCatalog(profile, CapabilityArtifact, catalog) || HasCapabilityInCatalog(profile, CapabilityDNS, catalog) {
 		packs = append(packs, "developer")
 	}
 	// Application Management is foundation code, but direct endpoint exposure
 	// is impossible without the signed deviceuser host-agent pack. Profiles
 	// carrying the application capability therefore always stage that pack.
-	if HasCapability(profile, CapabilityHost) || HasCapability(profile, CapabilityApplications) {
+	if HasCapabilityInCatalog(profile, CapabilityHost, catalog) || HasCapabilityInCatalog(profile, CapabilityApplications, catalog) {
 		packs = append(packs, "deviceuser")
 	}
-	if HasCapability(profile, CapabilityInference) {
+	if HasCapabilityInCatalog(profile, CapabilityInference, catalog) {
 		packs = append(packs, "inference")
 	}
 	return packs
-}
-
-// HasCapability reports whether the given (already-resolved) profile
-// enables capability.
-func HasCapability(profile string, capability Capability) bool {
-	return HasCapabilityInCatalog(profile, capability, builtInProfileCatalog)
 }
 
 func HasCapabilityInCatalog(profile string, capability Capability, catalog ProfileCatalog) bool {
@@ -200,11 +183,10 @@ var (
 	placeholderImageDigestHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
-func ResolveApplianceProfile(requested, current string) (string, error) {
-	return ResolveApplianceProfileWithCatalog(requested, current, builtInProfileCatalog)
-}
-
-func ResolveApplianceProfileWithCatalog(requested, current string, catalog ProfileCatalog) (string, error) {
+// SelectApplianceProfile chooses the requested or current profile name without
+// interpreting policy. The signed metadata bundle is the only authority that
+// validates the name and resolves capabilities.
+func SelectApplianceProfile(requested, current string) string {
 	profile := strings.TrimSpace(requested)
 	if profile == "" {
 		profile = strings.TrimSpace(current)
@@ -212,14 +194,20 @@ func ResolveApplianceProfileWithCatalog(requested, current string, catalog Profi
 	if profile == "" {
 		profile = ProfileCore
 	}
-	if _, ok := catalog[profile]; !ok {
-		return "", fmt.Errorf("unknown appliance profile %q (supported: %s)", profile, strings.Join(builtInProfileOrder, ", "))
-	}
-	return profile, nil
+	return profile
 }
 
-func capabilitiesForProfile(profile string) []Capability {
-	return capabilitiesForProfileInCatalog(profile, builtInProfileCatalog)
+func ResolveApplianceProfileWithCatalog(requested, current string, catalog ProfileCatalog) (string, error) {
+	profile := SelectApplianceProfile(requested, current)
+	if _, ok := catalog[profile]; !ok {
+		supported := make([]string, 0, len(catalog))
+		for name := range catalog {
+			supported = append(supported, name)
+		}
+		sort.Strings(supported)
+		return "", fmt.Errorf("unknown appliance profile %q (supported: %s)", profile, strings.Join(supported, ", "))
+	}
+	return profile, nil
 }
 
 func capabilitiesForProfileInCatalog(profile string, catalog ProfileCatalog) []Capability {
@@ -298,18 +286,13 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 	}, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
-	catalog, err := LoadCatalog(applianceCatalogPath)
+func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
+	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", profileCatalog)
 	if err != nil {
 		return "", func() {}, err
 	}
-
-	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", catalog.Profiles)
-	if err != nil {
-		return "", func() {}, err
-	}
-	resolvedModules := ResolveModulesWithCatalog(effectiveProfile, catalog.Profiles, AlwaysEntitled{}, catalog.Modules)
-	hostAgentEnabled := HostAgentEnabled(resolvedModules) || HasCapabilityInCatalog(effectiveProfile, CapabilityApplications, catalog.Profiles)
+	resolvedModules := ResolveModulesWithCatalog(effectiveProfile, profileCatalog, AlwaysEntitled{}, BuiltInModuleCatalog())
+	hostAgentEnabled := HostAgentEnabled(resolvedModules) || HasCapabilityInCatalog(effectiveProfile, CapabilityApplications, profileCatalog)
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
 	inferenceEnabled := ModuleEnabled(resolvedModules, ModuleNameInferenceRuntime)
@@ -367,7 +350,7 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
-	config["applianceCatalog"] = catalog.Document
+	delete(config, "applianceCatalog")
 	config["applianceName"] = identity.Name
 	config["dnsZoneName"] = identity.Zone
 	// host mDNS / Wi-Fi AP enablement is day-2 only (control-plane / host-agent

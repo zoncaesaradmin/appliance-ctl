@@ -46,20 +46,23 @@ type LoadedCatalog struct {
 	Modules  []ModuleDescriptor
 }
 
-func BuiltInCatalogDocument() CatalogDocument {
+// CatalogDocumentFromProfileCatalog is used only for compatibility with
+// existing Helm application-catalog transport. Its profile entries originate
+// from the signed metadata bundle; zonctl never supplies its own defaults.
+func CatalogDocumentFromProfileCatalog(catalog ProfileCatalog) CatalogDocument {
 	document := CatalogDocument{
 		Version: CatalogVersionV1Alpha1,
 		Modules: make([]CatalogModule, 0, len(BuiltInModuleCatalog())),
 	}
 
-	profileNames := make([]string, 0, len(builtInProfileCatalog))
-	for profile := range builtInProfileCatalog {
+	profileNames := make([]string, 0, len(catalog))
+	for profile := range catalog {
 		profileNames = append(profileNames, profile)
 	}
 	sort.Strings(profileNames)
 	document.Profiles = make([]CatalogProfile, 0, len(profileNames))
 	for _, name := range profileNames {
-		definition := builtInProfileCatalog[name]
+		definition := catalog[name]
 		document.Profiles = append(document.Profiles, CatalogProfile{
 			Name:         name,
 			Capabilities: append([]Capability(nil), definition.Capabilities...),
@@ -95,11 +98,7 @@ func BuiltInCatalogDocument() CatalogDocument {
 func LoadCatalog(path string) (LoadedCatalog, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return LoadedCatalog{
-			Document: BuiltInCatalogDocument(),
-			Profiles: BuiltInProfileCatalog(),
-			Modules:  BuiltInModuleCatalog(),
-		}, nil
+		return LoadedCatalog{}, fmt.Errorf("catalog path must not be empty")
 	}
 
 	document, err := LoadCatalogDocumentFile(path)

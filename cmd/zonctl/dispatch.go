@@ -253,10 +253,7 @@ func resolveVerifiedInstallSource(ctx context.Context, opts cliOptions, effectiv
 }
 
 func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction, priorInstallAttempted bool, logger *slog.Logger, result commandResult) commandResult {
-	effectiveProfile, profileErr := productconfig.ResolveApplianceProfile(opts.applianceProfile, "")
-	if profileErr != nil {
-		return finish(result, "failed", 1, "install: "+profileErr.Error(), nil)
-	}
+	effectiveProfile := productconfig.SelectApplianceProfile(opts.applianceProfile, "")
 	source, resolved, resolveChecks, err := resolveVerifiedInstallSource(ctx, opts, effectiveProfile)
 	installVersion := version
 	if trimmed := strings.TrimSpace(resolved.BundleVersion); trimmed != "" {

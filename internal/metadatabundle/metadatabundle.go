@@ -28,7 +28,14 @@ type SeedResult struct {
 }
 
 type profileCatalogFile struct {
-	Profiles map[string]any `yaml:"profiles"`
+	Profiles map[string]ProfileDefinition `yaml:"profiles"`
+}
+
+// ProfileDefinition is the policy-relevant portion of one metadata profile.
+// It intentionally contains only the profile-to-capability mapping consumed by
+// zonctl; display text remains control-plane metadata.
+type ProfileDefinition struct {
+	Capabilities []string `yaml:"capabilities"`
 }
 
 // VersionFromArchiveName derives X.Y.Z.N from appliance-metadata-bundle-X.Y.Z.N.tar.zst.
@@ -116,8 +123,9 @@ func ExtractArchive(archivePath, destParent string) (string, error) {
 	return filepath.Join(destParent, topLevel), nil
 }
 
-// ProfileIDs returns sorted profile ids from profiles/catalog.yaml under dir.
-func ProfileIDs(dir string) ([]string, error) {
+// LoadProfileCatalogDirectory reads the profile policy from an extracted,
+// verified metadata-bundle directory.
+func LoadProfileCatalogDirectory(dir string) (map[string]ProfileDefinition, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "profiles", "catalog.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("metadatabundle: read profiles catalog: %w", err)
@@ -129,8 +137,67 @@ func ProfileIDs(dir string) ([]string, error) {
 	if len(catalog.Profiles) == 0 {
 		return nil, fmt.Errorf("metadatabundle: profiles catalog is empty")
 	}
-	ids := make([]string, 0, len(catalog.Profiles))
-	for id := range catalog.Profiles {
+	return catalog.Profiles, nil
+}
+
+// LoadProfileCatalogArchive reads the same policy directly from the signed
+// bundle archive before installation. This avoids a second, code-owned list of
+// profile capability mappings in zonctl.
+func LoadProfileCatalogArchive(archivePath string) (map[string]ProfileDefinition, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	zr, err := zstd.NewReader(f)
+	if err != nil {
+		return nil, fmt.Errorf("metadatabundle: open archive: %w", err)
+	}
+	defer zr.Close()
+
+	tr := tar.NewReader(zr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("metadatabundle: read archive: %w", err)
+		}
+		name := filepath.ToSlash(filepath.Clean(hdr.Name))
+		if !strings.HasSuffix(name, "/profiles/catalog.yaml") || hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		if hdr.Size < 0 || hdr.Size > 1024*1024 {
+			return nil, fmt.Errorf("metadatabundle: profiles catalog archive entry has invalid size %d", hdr.Size)
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, hdr.Size+1))
+		if err != nil {
+			return nil, fmt.Errorf("metadatabundle: read profiles catalog from archive: %w", err)
+		}
+		if int64(len(data)) != hdr.Size {
+			return nil, fmt.Errorf("metadatabundle: truncated profiles catalog in archive")
+		}
+		var catalog profileCatalogFile
+		if err := yaml.Unmarshal(data, &catalog); err != nil {
+			return nil, fmt.Errorf("metadatabundle: parse profiles catalog from archive: %w", err)
+		}
+		if len(catalog.Profiles) == 0 {
+			return nil, fmt.Errorf("metadatabundle: profiles catalog in archive is empty")
+		}
+		return catalog.Profiles, nil
+	}
+	return nil, fmt.Errorf("metadatabundle: archive has no profiles/catalog.yaml")
+}
+
+// ProfileIDs returns sorted profile ids from profiles/catalog.yaml under dir.
+func ProfileIDs(dir string) ([]string, error) {
+	profiles, err := LoadProfileCatalogDirectory(dir)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(profiles))
+	for id := range profiles {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)

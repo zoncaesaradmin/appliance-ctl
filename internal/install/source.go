@@ -10,6 +10,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/bundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
@@ -25,7 +26,7 @@ type Resolved struct {
 	HostBaseline     bundle.HostBaseline
 	Compatibility    bundle.Compatibility
 	EffectiveProfile string
-	CatalogPath      string
+	ProfileCatalog   productconfig.ProfileCatalog
 	HostEnabled      bool
 	FilesEnabled     bool
 	ArtifactEnabled  bool
@@ -142,20 +143,24 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
-	catalogPath, err := optionalCatalogPath(b)
+	metadataBundleArchivePath, err := requiredMetadataBundleArchivePath(b)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
-	catalog, err := productconfig.LoadCatalog(catalogPath)
+	metadataProfiles, err := metadatabundle.LoadProfileCatalogArchive(metadataBundleArchivePath)
 	if err != nil {
-		return Resolved{}, checks, fmt.Errorf("install: load appliance catalog: %w", err)
+		return Resolved{}, checks, fmt.Errorf("install: load profile catalog from metadata bundle: %w", err)
 	}
-	effectiveProfile, err := productconfig.ResolveApplianceProfileWithCatalog(requestedProfile, "", catalog.Profiles)
+	profileCatalog, err := productconfig.ProfileCatalogFromMetadata(metadataProfiles)
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: convert profile catalog from metadata bundle: %w", err)
+	}
+	effectiveProfile, err := productconfig.ResolveApplianceProfileWithCatalog(requestedProfile, "", profileCatalog)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
-	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, catalog.Profiles, productconfig.AlwaysEntitled{}, catalog.Modules)
-	applicationsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplications, catalog.Profiles)
+	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, profileCatalog, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	applicationsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplications, profileCatalog)
 	// Direct application endpoints require the same deviceuser host-agent
 	// boundary as Wi-Fi and host details, even when the profile omits the
 	// user-facing host capability.
@@ -165,7 +170,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	dnsEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameLANDNS)
 	inferenceEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameInferenceRuntime)
 	buildEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameBuild)
-	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, catalog.Profiles)
+	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, profileCatalog)
 
 	workflowsChartPath := ""
 	workflowsCRDPaths := []string(nil)
@@ -216,10 +221,6 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		if hostPackagesRootDir == "" {
 			return Resolved{}, checks, fmt.Errorf("install: host capability requires the deviceuser pack with host-packages (mdns + wifi-client + wifi-ap offline debs for day-2 enablement)")
 		}
-	}
-	metadataBundleArchivePath, err := requiredMetadataBundleArchivePath(b)
-	if err != nil {
-		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
 	messageBrokerChartPath := optionalMessageBrokerChartPath(view)
 
@@ -278,7 +279,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		HostBaseline:                       b.HostBaseline,
 		Compatibility:                      compat,
 		EffectiveProfile:                   effectiveProfile,
-		CatalogPath:                        catalogPath,
+		ProfileCatalog:                     profileCatalog,
 		HostEnabled:                        hostEnabled,
 		FilesEnabled:                       filesEnabled,
 		ArtifactEnabled:                    artifactEnabled,

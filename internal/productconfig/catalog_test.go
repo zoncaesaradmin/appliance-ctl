@@ -9,8 +9,8 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 )
 
-func TestLoadCatalogLoadsBuiltInCatalogDocument(t *testing.T) {
-	document := productconfig.BuiltInCatalogDocument()
+func TestLoadCatalogLoadsExplicitCatalogDocument(t *testing.T) {
+	document := productconfig.CatalogDocumentFromProfileCatalog(testProfileCatalog())
 	data, err := json.Marshal(document)
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)

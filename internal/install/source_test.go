@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
 
@@ -130,8 +131,8 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	if filepath.Base(resolved.ConfigurationPath) != "values.yaml" {
 		t.Fatalf("expected values.yaml to be selected, got %s", resolved.ConfigurationPath)
 	}
-	if filepath.Base(resolved.CatalogPath) != "appliance-catalog.json" {
-		t.Fatalf("expected appliance-catalog.json to be selected, got %s", resolved.CatalogPath)
+	if !productconfig.HasCapabilityInCatalog(resolved.EffectiveProfile, productconfig.CapabilityHost, resolved.ProfileCatalog) {
+		t.Fatal("expected metadata profile catalog to enable host for the resolved profile")
 	}
 }
 

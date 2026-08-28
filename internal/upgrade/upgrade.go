@@ -174,11 +174,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: resolved bundle version is empty")
 	}
 	sameVersionRefresh := strings.TrimSpace(installed.InstalledVersion) == targetVersion
-	hadArtifactBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact)
-	hadFilesBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityFiles)
-	hadWorkflowsBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityWorkflows)
-	hadDNSBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityDNS)
-	hadInferenceBefore := productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityInference)
+	hadArtifactBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityArtifact, resolved.ProfileCatalog)
+	hadFilesBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityFiles, resolved.ProfileCatalog)
+	hadWorkflowsBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityWorkflows, resolved.ProfileCatalog)
+	hadDNSBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityDNS, resolved.ProfileCatalog)
+	hadInferenceBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityInference, resolved.ProfileCatalog)
 	targetArtifact := resolved.ArtifactEnabled
 	targetFiles := resolved.FilesEnabled
 	targetWorkflows := resolved.WorkflowsEnabled
@@ -227,7 +227,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.CatalogPath, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}

@@ -25,10 +25,7 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	if installed != nil {
 		currentProfile = installed.ApplianceProfile
 	}
-	effectiveProfile, profileErr := productconfig.ResolveApplianceProfile(opts.applianceProfile, currentProfile)
-	if profileErr != nil {
-		return finish(result, "failed", 1, "upgrade: "+profileErr.Error(), nil)
-	}
+	effectiveProfile := productconfig.SelectApplianceProfile(opts.applianceProfile, currentProfile)
 	source, resolved, resolveChecks, err := resolveVerifiedInstallSource(ctx, opts, effectiveProfile)
 	upgradeVersion := version
 	if trimmed := strings.TrimSpace(resolved.BundleVersion); trimmed != "" {
