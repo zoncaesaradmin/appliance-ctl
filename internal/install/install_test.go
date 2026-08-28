@@ -149,10 +149,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		}
 		content := []byte(e.content)
 		if e.relPath == "artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst" {
-			if err := metadatabundle.WriteMinimalArchive(full, "2.4.0.0",
-				"core", "builder", "storage", "landns", "storage-landns", "builder-landns", "builder-storage-landns",
-				"lanllm", "builder-lanllm", "builder-lanllm-storage-landns", "training",
-			); err != nil {
+			if err := metadatabundle.WriteInstallTestArchive(full, "2.4.0.0"); err != nil {
 				t.Fatal(err)
 			}
 			var readErr error
@@ -643,8 +640,8 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 			secretCreateCalls++
 		}
 	}
-	if importCalls != 5 {
-		t.Errorf("expected 5 image import calls (including the deviceuser host agent required by applications), got %d: %v", importCalls, fcli.calls)
+	if importCalls != 4 {
+		t.Errorf("expected 4 foundation image import calls for core profile, got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -1230,7 +1227,6 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -1568,8 +1564,8 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 			rmCalls++
 		}
 	}
-	if rmCalls != 5 {
-		t.Errorf("expected all newly-imported images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
+	if rmCalls != 4 {
+		t.Errorf("expected all newly-imported foundation images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
 	}
 
 	if _, err := os.Stat(opts.InstalledStatePath); !os.IsNotExist(err) {

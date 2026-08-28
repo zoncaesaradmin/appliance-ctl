@@ -125,10 +125,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		}
 		content := []byte(e.content)
 		if e.relPath == "artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst" {
-			if err := metadatabundle.WriteMinimalArchive(full, "2.4.0.0",
-				"core", "builder", "storage", "landns", "storage-landns", "builder-landns", "builder-storage-landns",
-				"lanllm", "builder-lanllm", "builder-lanllm-storage-landns", "training",
-			); err != nil {
+			if err := metadatabundle.WriteInstallTestArchive(full, "2.4.0.0"); err != nil {
 				t.Fatal(err)
 			}
 			var readErr error
@@ -1003,7 +1000,6 @@ func TestUpgrade_CoreProfilePreparesWorkflowServiceLogDirectories(t *testing.T) 
 		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {

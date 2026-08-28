@@ -180,8 +180,8 @@ func TestAssembleAndVerifyBundle(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "configuration", "configuration.schema.json")); err != nil {
 		t.Fatalf("expected configuration schema to be carried into the bundle: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(result.BundleDir, "configuration", "appliance-catalog.json")); err != nil {
-		t.Fatalf("expected appliance catalog to be carried into the bundle: %v", err)
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "artifacts", "appliance-metadata-bundle-2.4.0.0.tar.zst")); err != nil {
+		t.Fatalf("expected metadata bundle to be carried into the bundle: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "appliance-ui.oci.tar.zst")); err != nil {
 		t.Fatalf("expected UI image to be carried into the bundle: %v", err)

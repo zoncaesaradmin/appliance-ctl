@@ -15,7 +15,6 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
-	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/redact"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/repair"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -58,7 +57,7 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, 
 	} else {
 		sig.ChartHealth = diagnostics.ChartHealth{Checked: true, Healthy: chartHealthy, Message: chartMsg}
 	}
-	if productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityArtifact) {
+	if installed.Components.ArtifactServerVersion != "" {
 		if healthy, msg, registryErr := helm.CheckReleaseHealth(ctx, run, kubeconfig, "appliance-registry", "artifacts"); registryErr != nil {
 			sig.RegistryHealth = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: registryErr.Error()}
 		} else {
@@ -70,7 +69,7 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, 
 			sig.RegistryStorage = diagnostics.ChartHealth{Checked: true, Healthy: healthy, Message: msg}
 		}
 	}
-	if productconfig.HasCapability(installed.ApplianceProfile, productconfig.CapabilityDNS) {
+	if installed.Components.DNSVersion != "" {
 		if healthy, msg, dnsErr := helm.CheckReleaseHealth(ctx, run, kubeconfig, "appliance-dns", "dns"); dnsErr != nil {
 			sig.DNSHealth = diagnostics.ChartHealth{Checked: true, Healthy: false, Message: dnsErr.Error()}
 		} else {

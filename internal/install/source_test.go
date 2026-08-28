@@ -10,9 +10,34 @@ import (
 	"testing"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
+
+const testMetadataBundleRel = "artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst"
+
+func appendTestMetadataBundleManifestEntry(t *testing.T, dir string, manifestEntries *[]map[string]any) {
+	t.Helper()
+	full := filepath.Join(dir, testMetadataBundleRel)
+	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := metadatabundle.WriteInstallTestArchive(full, "2.4.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := verify.Digest(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*manifestEntries = append(*manifestEntries, map[string]any{
+		"path": testMetadataBundleRel, "component": "artifacts", "digest": digest, "sizeBytes": len(content),
+	})
+}
 
 func sourceFixtureImageReference(rel string) string {
 	switch rel {
@@ -27,18 +52,17 @@ func sourceFixtureImageReference(rel string) string {
 func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                     "fake zonctl binary",
-		"bin/helm":                                            "fake helm binary",
-		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                      "fake k3s binary",
-		"charts/appliance-chart-2.4.0.tgz":                    "fake chart",
-		"configuration/appliance-catalog.json":                `{"version":"appliance.catalog/v1alpha1","profiles":[{"name":"core","capabilities":["base","host"]}],"modules":[{"name":"host-agent","kind":"platform","requiredCapabilities":["host"],"executionMode":"host-agent","entitlementKey":"host-agent","baseURL":"http://host-agent.ace-apps.svc.cluster.local:8080","securityClass":"host-privileged"}]}`,
-		"configuration/configuration.schema.json":             `{"type":"object"}`,
-		"configuration/values.yaml":                           "replicaCount: 1\n",
-		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
-		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
-		"oci-images/blob-storage.tar":                         "fake blob storage image",
+		"bin/zonctl-real":                                   "fake zonctl binary",
+		"bin/helm":                                          "fake helm binary",
+		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                    "fake k3s binary",
+		"charts/appliance-chart-2.4.0.tgz":                  "fake chart",
+		"configuration/appliance-catalog.json":              `{"version":"appliance.catalog/v1alpha1","profiles":[{"name":"core","capabilities":["base","host"]}],"modules":[{"name":"host-agent","kind":"platform","requiredCapabilities":["host"],"executionMode":"host-agent","entitlementKey":"host-agent","baseURL":"http://host-agent.ace-apps.svc.cluster.local:8080","securityClass":"host-privileged"}]}`,
+		"configuration/configuration.schema.json":           `{"type":"object"}`,
+		"configuration/values.yaml":                         "replicaCount: 1\n",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
+		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                       "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -77,6 +101,7 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
+	appendTestMetadataBundleManifestEntry(t, dir, &manifestEntries)
 
 	doc := map[string]any{
 		"schemaVersion": 1,
@@ -131,26 +156,25 @@ func TestOfflineSource_PrefersValuesYAMLWhenMultipleConfigurationEntriesExist(t 
 	if filepath.Base(resolved.ConfigurationPath) != "values.yaml" {
 		t.Fatalf("expected values.yaml to be selected, got %s", resolved.ConfigurationPath)
 	}
-	if !productconfig.HasCapabilityInCatalog(resolved.EffectiveProfile, productconfig.CapabilityHost, resolved.ProfileCatalog) {
-		t.Fatal("expected metadata profile catalog to enable host for the resolved profile")
+	if !productconfig.HasCapabilityInCatalog(resolved.EffectiveProfile, productconfig.CapabilityFiles, resolved.ProfileCatalog) {
+		t.Fatal("expected metadata profile catalog to enable files for the resolved core profile")
 	}
 }
 
 func TestOfflineSource_SelectsPrimaryChartAndOptionalWorkflowsArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                     "fake zonctl binary",
-		"bin/helm":                                            "fake helm binary",
-		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                      "fake k3s binary",
-		"charts/workflows-chart-3.5.10.tgz":                   "fake workflows chart",
-		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
-		"configuration/values.yaml":                           "replicaCount: 1\n",
-		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
-		"kubernetes/crds/workflows.argoproj.io.yaml":          "kind: CustomResourceDefinition\n",
-		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
-		"oci-images/blob-storage.tar":                         "fake blob storage image",
+		"bin/zonctl-real":                                   "fake zonctl binary",
+		"bin/helm":                                          "fake helm binary",
+		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                    "fake k3s binary",
+		"charts/workflows-chart-3.5.10.tgz":                 "fake workflows chart",
+		"charts/appliance-chart-2.4.0.tgz":                  "fake appliance chart",
+		"configuration/values.yaml":                         "replicaCount: 1\n",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
+		"kubernetes/crds/workflows.argoproj.io.yaml":        "kind: CustomResourceDefinition\n",
+		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                       "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -191,6 +215,7 @@ func TestOfflineSource_SelectsPrimaryChartAndOptionalWorkflowsArtifacts(t *testi
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
+	appendTestMetadataBundleManifestEntry(t, dir, &manifestEntries)
 
 	doc := map[string]any{
 		"schemaVersion": 1,
@@ -250,12 +275,11 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 		"k3s/binary/k3s":                   "fake k3s binary",
 		"charts/appliance-chart-2.4.0.tgz": "fake appliance chart",
 		"configuration/values.yaml":        "replicaCount: 1\n",
-		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
-		"oci-images/control-plane.tar":                        "fake control plane image",
-		"oci-images/appliance-ui.tar":                         "fake appliance ui image",
-		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
-		"oci-images/blob-storage.tar":                         "fake blob storage image",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
+		"oci-images/control-plane.tar":                      "fake control plane image",
+		"oci-images/appliance-ui.tar":                       "fake appliance ui image",
+		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                       "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -302,6 +326,7 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
+	appendTestMetadataBundleManifestEntry(t, dir, &manifestEntries)
 
 	doc := map[string]any{
 		"schemaVersion": 1,
@@ -370,17 +395,16 @@ func TestOfflineSource_ResolvesBothControlPlaneAndUIImageArchives(t *testing.T) 
 func TestOfflineSource_RejectsWorkflowsChartWithoutCRDs(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                     "fake zonctl binary",
-		"bin/helm":                                            "fake helm binary",
-		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                      "fake k3s binary",
-		"charts/workflows-chart-3.5.10.tgz":                   "fake workflows chart",
-		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
-		"configuration/values.yaml":                           "replicaCount: 1\n",
-		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
-		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
-		"oci-images/blob-storage.tar":                         "fake blob storage image",
+		"bin/zonctl-real":                                   "fake zonctl binary",
+		"bin/helm":                                          "fake helm binary",
+		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                    "fake k3s binary",
+		"charts/workflows-chart-3.5.10.tgz":                 "fake workflows chart",
+		"charts/appliance-chart-2.4.0.tgz":                  "fake appliance chart",
+		"configuration/values.yaml":                         "replicaCount: 1\n",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
+		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                       "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -418,6 +442,7 @@ func TestOfflineSource_RejectsWorkflowsChartWithoutCRDs(t *testing.T) {
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
+	appendTestMetadataBundleManifestEntry(t, dir, &manifestEntries)
 
 	doc := map[string]any{
 		"schemaVersion": 1,
@@ -465,17 +490,16 @@ func TestOfflineSource_RejectsWorkflowsChartWithoutCRDs(t *testing.T) {
 func TestOfflineSource_StorageProfileIgnoresWorkflowsChartWithoutCRDs(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                                     "fake zonctl binary",
-		"bin/helm":                                            "fake helm binary",
-		"bin/appliance-host-agentd":                           "fake appliance host agent daemon",
-		"k3s/binary/k3s":                                      "fake k3s binary",
-		"charts/workflows-chart-3.5.10.tgz":                   "fake workflows chart",
-		"charts/appliance-chart-2.4.0.tgz":                    "fake appliance chart",
-		"configuration/values.yaml":                           "replicaCount: 1\n",
-		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
-		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
-		"oci-images/blob-storage.tar":                         "fake blob storage image",
+		"bin/zonctl-real":                                   "fake zonctl binary",
+		"bin/helm":                                          "fake helm binary",
+		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                    "fake k3s binary",
+		"charts/workflows-chart-3.5.10.tgz":                 "fake workflows chart",
+		"charts/appliance-chart-2.4.0.tgz":                  "fake appliance chart",
+		"configuration/values.yaml":                         "replicaCount: 1\n",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
+		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                       "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -513,6 +537,7 @@ func TestOfflineSource_StorageProfileIgnoresWorkflowsChartWithoutCRDs(t *testing
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
+	appendTestMetadataBundleManifestEntry(t, dir, &manifestEntries)
 
 	doc := map[string]any{
 		"schemaVersion": 1,
@@ -565,16 +590,15 @@ func TestOfflineSource_StorageProfileIgnoresWorkflowsChartWithoutCRDs(t *testing
 func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                  "fake zonctl binary",
-		"bin/helm":                         "fake helm binary",
-		"bin/appliance-host-agentd":        "fake appliance host agent daemon",
-		"k3s/binary/k3s":                   "fake k3s binary",
-		"charts/appliance-chart-2.4.0.tgz": "fake appliance chart",
-		"configuration/values.yaml":        "replicaCount: 1\n",
-		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
-		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
-		"oci-images/blob-storage.tar":                         "fake blob storage image",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb":   "fake avahi deb",
+		"bin/zonctl-real":                                   "fake zonctl binary",
+		"bin/helm":                                          "fake helm binary",
+		"bin/appliance-host-agentd":                         "fake appliance host agent daemon",
+		"k3s/binary/k3s":                                    "fake k3s binary",
+		"charts/appliance-chart-2.4.0.tgz":                  "fake appliance chart",
+		"configuration/values.yaml":                         "replicaCount: 1\n",
+		"oci-images/appliance-host-agent.tar":               "fake appliance host agent image",
+		"oci-images/blob-storage.tar":                       "fake blob storage image",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb": "fake avahi deb",
 	}
 
 	var manifestEntries []map[string]any
@@ -613,6 +637,7 @@ func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
+	appendTestMetadataBundleManifestEntry(t, dir, &manifestEntries)
 
 	doc := map[string]any{
 		"schemaVersion": 1,
@@ -661,15 +686,14 @@ func TestOfflineSource_ResolvesHostPackagesRootDir(t *testing.T) {
 func TestOfflineSource_RequiresHostPackages(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"bin/zonctl-real":                  "fake zonctl binary",
-		"bin/helm":                         "fake helm binary",
-		"bin/appliance-host-agentd":        "fake appliance host agent daemon",
-		"k3s/binary/k3s":                   "fake k3s binary",
-		"charts/appliance-chart-2.4.0.tgz": "fake appliance chart",
-		"configuration/values.yaml":        "replicaCount: 1\n",
-		"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst": "metadata-bundle-bytes",
-		"oci-images/appliance-host-agent.tar":                 "fake appliance host agent image",
-		"oci-images/blob-storage.tar":                         "fake blob storage image",
+		"bin/zonctl-real":                     "fake zonctl binary",
+		"bin/helm":                            "fake helm binary",
+		"bin/appliance-host-agentd":           "fake appliance host agent daemon",
+		"k3s/binary/k3s":                      "fake k3s binary",
+		"charts/appliance-chart-2.4.0.tgz":    "fake appliance chart",
+		"configuration/values.yaml":           "replicaCount: 1\n",
+		"oci-images/appliance-host-agent.tar": "fake appliance host agent image",
+		"oci-images/blob-storage.tar":         "fake blob storage image",
 	}
 
 	var manifestEntries []map[string]any
@@ -706,6 +730,7 @@ func TestOfflineSource_RequiresHostPackages(t *testing.T) {
 		}
 		manifestEntries = append(manifestEntries, entry)
 	}
+	appendTestMetadataBundleManifestEntry(t, dir, &manifestEntries)
 
 	doc := map[string]any{
 		"schemaVersion": 1,

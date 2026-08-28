@@ -19,30 +19,31 @@ const (
 	blobStorageImage          = "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
 )
 
-func TestRequiredPacks(t *testing.T) {
+func TestRequiredPacksWithCatalog(t *testing.T) {
+	catalog := testProfileCatalog()
 	cases := []struct {
 		profile string
 		want    []string
 	}{
-		{productconfig.ProfileCore, []string{"deviceuser"}},
+		{productconfig.ProfileCore, nil},
 		{productconfig.ProfileStorage, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileStorageLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileTraining, nil},
-		{productconfig.ProfileLANLLM, []string{"deviceuser", "inference"}},
+		{productconfig.ProfileLANLLM, []string{"inference"}},
 		{productconfig.ProfileBuilder, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileBuilderLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileBuilderLANLLM, []string{"developer", "deviceuser", "inference"}},
 		{productconfig.ProfileBuilderLANLLMStorageLANDNS, []string{"developer", "deviceuser", "inference"}},
 	}
 	for _, tc := range cases {
-		got := productconfig.RequiredPacks(tc.profile)
+		got := productconfig.RequiredPacksWithCatalog(tc.profile, catalog)
 		if len(got) != len(tc.want) {
-			t.Fatalf("RequiredPacks(%q)=%v, want %v", tc.profile, got, tc.want)
+			t.Fatalf("RequiredPacksWithCatalog(%q)=%v, want %v", tc.profile, got, tc.want)
 		}
 		for i := range tc.want {
 			if got[i] != tc.want[i] {
-				t.Fatalf("RequiredPacks(%q)=%v, want %v", tc.profile, got, tc.want)
+				t.Fatalf("RequiredPacksWithCatalog(%q)=%v, want %v", tc.profile, got, tc.want)
 			}
 		}
 	}
@@ -53,7 +54,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, "", "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage, blobStorageImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, testProfileCatalog(), "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage, blobStorageImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, "", "", "", hostAgentImage, "dns1", "appliance.internal", "192.0.2.10", "", blobStorageImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, testProfileCatalog(), "", "", hostAgentImage, "dns1", "appliance.internal", "192.0.2.10", "", blobStorageImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,50 +256,48 @@ func TestResolveApplianceIdentity(t *testing.T) {
 	}
 }
 
-func TestResolveApplianceProfile_DefaultsToCore(t *testing.T) {
-	profile, err := productconfig.ResolveApplianceProfile("", "")
+func TestSelectApplianceProfile_DefaultsToCore(t *testing.T) {
+	profile := productconfig.SelectApplianceProfile("", "")
+	if profile != productconfig.ProfileCore {
+		t.Fatalf("profile = %q, want %q", profile, productconfig.ProfileCore)
+	}
+}
+
+func TestResolveApplianceProfileWithCatalog_DefaultsToCore(t *testing.T) {
+	profile, err := productconfig.ResolveApplianceProfileWithCatalog("", "", testProfileCatalog())
 	if err != nil {
-		t.Fatalf("ResolveApplianceProfile returned error: %v", err)
+		t.Fatalf("ResolveApplianceProfileWithCatalog returned error: %v", err)
 	}
 	if profile != productconfig.ProfileCore {
 		t.Fatalf("profile = %q, want %q", profile, productconfig.ProfileCore)
 	}
 }
 
-func TestResolveApplianceProfile_PreservesCurrentWhenRequestedEmpty(t *testing.T) {
-	profile, err := productconfig.ResolveApplianceProfile("", productconfig.ProfileStorage)
+func TestResolveApplianceProfileWithCatalog_PreservesCurrentWhenRequestedEmpty(t *testing.T) {
+	profile, err := productconfig.ResolveApplianceProfileWithCatalog("", productconfig.ProfileStorage, testProfileCatalog())
 	if err != nil {
-		t.Fatalf("ResolveApplianceProfile returned error: %v", err)
+		t.Fatalf("ResolveApplianceProfileWithCatalog returned error: %v", err)
 	}
 	if profile != productconfig.ProfileStorage {
 		t.Fatalf("profile = %q, want %q", profile, productconfig.ProfileStorage)
 	}
 }
 
-func TestResolveApplianceProfile_AcceptsLANDNSProfiles(t *testing.T) {
+func TestResolveApplianceProfileWithCatalog_AcceptsLANDNSProfiles(t *testing.T) {
+	catalog := testProfileCatalog()
 	for _, requested := range []string{"landns", "storage-landns", "builder-landns", "builder-storage-landns"} {
 		t.Run(requested, func(t *testing.T) {
-			profile, err := productconfig.ResolveApplianceProfile(requested, "")
+			profile, err := productconfig.ResolveApplianceProfileWithCatalog(requested, "", catalog)
 			if err != nil {
-				t.Fatalf("ResolveApplianceProfile(%q) returned error: %v", requested, err)
+				t.Fatalf("ResolveApplianceProfileWithCatalog(%q) returned error: %v", requested, err)
 			}
 			if profile != requested {
 				t.Fatalf("profile = %q, want %q", profile, requested)
 			}
-			wantDNS := true
-			if productconfig.HasCapability(profile, productconfig.CapabilityDNS) != wantDNS {
-				t.Fatalf("HasCapability(dns) = %v, want %v", !wantDNS, wantDNS)
+			if !productconfig.HasCapabilityInCatalog(profile, productconfig.CapabilityDNS, catalog) {
+				t.Fatal("expected dns capability")
 			}
 		})
-	}
-}
-
-func TestBuiltInProfileCatalogReturnsClone(t *testing.T) {
-	catalog := productconfig.BuiltInProfileCatalog()
-	catalog[productconfig.ProfileCore] = productconfig.ProfileDefinition{}
-
-	if !productconfig.HasCapability(productconfig.ProfileCore, productconfig.CapabilityFiles) {
-		t.Fatal("mutating cloned catalog must not affect built-in core profile")
 	}
 }
 
@@ -318,8 +317,8 @@ func TestResolveApplianceProfileWithCatalogUsesProvidedCatalog(t *testing.T) {
 	}
 }
 
-func TestResolveApplianceProfile_RejectsUnknownProfile(t *testing.T) {
-	if _, err := productconfig.ResolveApplianceProfile("unknown", ""); err == nil {
+func TestResolveApplianceProfileWithCatalog_RejectsUnknownProfile(t *testing.T) {
+	if _, err := productconfig.ResolveApplianceProfileWithCatalog("unknown", "", testProfileCatalog()); err == nil {
 		t.Fatal("expected unknown profile to fail validation")
 	}
 }
@@ -331,7 +330,7 @@ func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", artifactServerImage, blobStorageImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, testProfileCatalog(), workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", artifactServerImage, blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -349,38 +348,17 @@ func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
 	}
 }
 
-func TestPrepareValuesFile_InjectsApplianceCatalog(t *testing.T) {
+func TestPrepareValuesFile_UsesMetadataProfileCatalog(t *testing.T) {
 	dir := t.TempDir()
 	valuesPath := filepath.Join(dir, "values.yaml")
 	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	catalogPath := filepath.Join(dir, "appliance-catalog.json")
-	catalog := `{
-  "version": "appliance.catalog/v1alpha1",
-  "profiles": [
-    {"name": "custom", "capabilities": ["base", "host"]}
-  ],
-  "modules": [
-    {
-      "name": "host-agent",
-      "kind": "platform",
-      "requiredCapabilities": ["host"],
-      "executionMode": "host-agent",
-      "entitlementKey": "host-agent",
-      "baseURL": "http://host-agent.ace-apps.svc.cluster.local:8080",
-      "routes": [
-        {"method": "GET", "externalPath": "/api/v1/host/info", "upstreamPath": "/internal/v1/host/info", "permission": "host.read"}
-      ],
-      "securityClass": "host-privileged"
-    }
-  ]
-}`
-	if err := os.WriteFile(catalogPath, []byte(catalog), 0o640); err != nil {
-		t.Fatal(err)
+	catalog := productconfig.ProfileCatalog{
+		"custom": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityHost}},
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "custom", catalogPath, "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "custom", catalog, "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -390,8 +368,11 @@ func TestPrepareValuesFile_InjectsApplianceCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(prepared)
-	if !strings.Contains(text, "applianceProfile: custom") || !strings.Contains(text, "applianceCatalog:") || !strings.Contains(text, "name: custom") {
-		t.Fatalf("prepared values missing injected appliance catalog: %s", text)
+	if !strings.Contains(text, "applianceProfile: custom") {
+		t.Fatalf("prepared values missing custom profile override: %s", text)
+	}
+	if strings.Contains(text, "applianceCatalog:") {
+		t.Fatalf("prepared values must not inject applianceCatalog: %s", text)
 	}
 }
 
@@ -402,7 +383,7 @@ func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *
 		t.Fatal(err)
 	}
 
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, "", "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
+	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, testProfileCatalog(), "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
 	defer cleanup()
 	if err == nil {
 		t.Fatal("expected placeholder workspace provisioner image digest to be rejected")
@@ -418,7 +399,7 @@ func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) 
 	if err := os.WriteFile(valuesPath, []byte("config:\n  buildCatalog: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	path, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilderLANDNS, "", workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", artifactServerImage, blobStorageImage)
+	path, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilderLANDNS, testProfileCatalog(), workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", artifactServerImage, blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile for builder profile: %v", err)

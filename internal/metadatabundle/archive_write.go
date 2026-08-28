@@ -6,31 +6,59 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
 )
 
-// WriteMinimalArchive writes a tiny but extractable appliance metadata-bundle
-// archive for tests and local fixtures. profileIDs must be non-empty.
-func WriteMinimalArchive(destPath, metadataVersion string, profileIDs ...string) error {
+// InstallTestProfileCatalog mirrors the signed metadata policy used in zonctl
+// install/upgrade fixtures.
+func InstallTestProfileCatalog() map[string][]string {
+	return map[string][]string{
+		"core":                          {"base", "files"},
+		"builder":                       {"base", "host", "files", "workflows", "build", "artifact"},
+		"storage":                       {"base", "host", "files", "artifact"},
+		"landns":                        {"base", "host", "files", "dns"},
+		"storage-landns":                {"base", "host", "files", "artifact", "dns"},
+		"builder-landns":                {"base", "host", "files", "workflows", "build", "artifact", "dns"},
+		"builder-storage-landns":        {"base", "host", "files", "workflows", "build", "artifact", "dns"},
+		"lanllm":                        {"base", "inference"},
+		"builder-lanllm":                {"base", "host", "files", "workflows", "build", "artifact", "inference"},
+		"builder-lanllm-storage-landns": {"base", "host", "files", "workflows", "build", "artifact", "dns", "inference"},
+		"training":                      {"base", "files", "video"},
+	}
+}
+
+// WriteInstallTestArchive writes the standard metadata-bundle archive used by
+// install/upgrade/source tests.
+func WriteInstallTestArchive(destPath, metadataVersion string) error {
+	return WriteProfileCatalogArchive(destPath, metadataVersion, InstallTestProfileCatalog())
+}
+
+// WriteProfileCatalogArchive writes an extractable metadata-bundle archive with
+// explicit profile capability mappings.
+func WriteProfileCatalogArchive(destPath, metadataVersion string, profiles map[string][]string) error {
 	metadataVersion = strings.TrimSpace(metadataVersion)
 	if metadataVersion == "" {
 		return fmt.Errorf("metadatabundle: metadata version is required")
 	}
-	if len(profileIDs) == 0 {
-		return fmt.Errorf("metadatabundle: at least one profile id is required")
+	if len(profiles) == 0 {
+		return fmt.Errorf("metadatabundle: at least one profile is required")
 	}
 	dirName := DirectoryName(metadataVersion)
-	var profiles strings.Builder
-	profiles.WriteString("profiles:\n")
-	for _, id := range profileIDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		fmt.Fprintf(&profiles, "  %s:\n    displayName: %q\n    description: test\n    capabilities: [base, host]\n", id, id)
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var catalog strings.Builder
+	catalog.WriteString("profiles:\n")
+	for _, name := range names {
+		caps := profiles[name]
+		fmt.Fprintf(&catalog, "  %s:\n    displayName: %q\n    description: test\n    capabilities: [%s]\n", name, name, strings.Join(caps, ", "))
 	}
 
 	files := map[string]string{
@@ -45,10 +73,66 @@ sections:
   - profiles
   - capabilities
 `, metadataVersion, strings.TrimSuffix(metadataVersion, ".0")),
-		dirName + "/profiles/catalog.yaml":     profiles.String(),
-		dirName + "/capabilities/catalog.yaml": "capabilities:\n  base:\n    displayName: base\n  host:\n    displayName: host\n    requires: [base]\n",
+		dirName + "/profiles/catalog.yaml":     catalog.String(),
+		dirName + "/capabilities/catalog.yaml": installTestCapabilitiesYAML(),
 	}
+	return writeArchiveFiles(destPath, files)
+}
 
+// WriteMinimalArchive writes a tiny but extractable appliance metadata-bundle
+// archive for tests and local fixtures. profileIDs must be non-empty.
+func WriteMinimalArchive(destPath, metadataVersion string, profileIDs ...string) error {
+	metadataVersion = strings.TrimSpace(metadataVersion)
+	if metadataVersion == "" {
+		return fmt.Errorf("metadatabundle: metadata version is required")
+	}
+	if len(profileIDs) == 0 {
+		return fmt.Errorf("metadatabundle: at least one profile id is required")
+	}
+	profiles := make(map[string][]string, len(profileIDs))
+	for _, id := range profileIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		profiles[id] = []string{"base", "host"}
+	}
+	return WriteProfileCatalogArchive(destPath, metadataVersion, profiles)
+}
+
+func installTestCapabilitiesYAML() string {
+	return `capabilities:
+  base:
+    displayName: Base
+    requires: []
+  host:
+    displayName: Host
+    requires: [base]
+  files:
+    displayName: Files
+    requires: [base]
+  workflows:
+    displayName: Workflows
+    requires: [base]
+  build:
+    displayName: Build
+    requires: [base, host, workflows, artifact]
+  artifact:
+    displayName: Artifact
+    requires: [base]
+  dns:
+    displayName: LAN DNS
+    requires: [base, host]
+  inference:
+    displayName: Inference
+    requires: [base]
+  video:
+    displayName: Video
+    requires: [base]
+`
+}
+
+func writeArchiveFiles(destPath string, files map[string]string) error {
 	var buf bytes.Buffer
 	zw, err := zstd.NewWriter(&buf)
 	if err != nil {
