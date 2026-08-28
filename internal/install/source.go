@@ -155,7 +155,11 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
 	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, catalog.Profiles, productconfig.AlwaysEntitled{}, catalog.Modules)
-	hostEnabled := productconfig.HostAgentEnabled(resolvedModules)
+	applicationsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplications, catalog.Profiles)
+	// Direct application endpoints require the same deviceuser host-agent
+	// boundary as Wi-Fi and host details, even when the profile omits the
+	// user-facing host capability.
+	hostEnabled := productconfig.HostAgentEnabled(resolvedModules) || applicationsEnabled
 	artifactEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameArtifactRegistry)
 	filesEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameFiles)
 	dnsEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameLANDNS)

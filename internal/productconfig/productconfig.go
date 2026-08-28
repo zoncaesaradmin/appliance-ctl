@@ -102,16 +102,16 @@ type ProfileCatalog map[string]ProfileDefinition
 var builtInProfileCatalog = ProfileCatalog{
 	// Keep in sync with appliance-code metadata-bundle/base/profiles/catalog.yaml
 	// for shared profile names. Pack derivation uses capabilities, not profile names.
-	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityFiles}},
-	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact}},
-	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact}},
-	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityDNS}},
-	ProfileStorageLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityDNS}},
-	ProfileBuilderLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
-	ProfileBuilderStorageLANDNS:       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS}},
-	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityInference}},
-	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference}},
-	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference}},
+	ProfileCore:                       {Capabilities: []Capability{CapabilityBase, CapabilityFiles, CapabilityApplications}},
+	ProfileBuilder:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityApplications}},
+	ProfileStorage:                    {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityApplications}},
+	ProfileLANDNS:                     {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityDNS, CapabilityApplications}},
+	ProfileStorageLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
+	ProfileBuilderLANDNS:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
+	ProfileBuilderStorageLANDNS:       {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityApplications}},
+	ProfileLANLLM:                     {Capabilities: []Capability{CapabilityBase, CapabilityInference, CapabilityApplications}},
+	ProfileBuilderLANLLM:              {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityInference, CapabilityApplications}},
+	ProfileBuilderLANLLMStorageLANDNS: {Capabilities: []Capability{CapabilityBase, CapabilityHost, CapabilityFiles, CapabilityWorkflows, CapabilityBuild, CapabilityArtifact, CapabilityDNS, CapabilityInference, CapabilityApplications}},
 	ProfileTraining:                   {Capabilities: []Capability{CapabilityBase, CapabilityFiles, CapabilityVideo}},
 }
 
@@ -167,7 +167,10 @@ func RequiredPacks(profile string) []string {
 		HasCapability(profile, CapabilityArtifact) || HasCapability(profile, CapabilityDNS) {
 		packs = append(packs, "developer")
 	}
-	if HasCapability(profile, CapabilityHost) {
+	// Application Management is foundation code, but direct endpoint exposure
+	// is impossible without the signed deviceuser host-agent pack. Profiles
+	// carrying the application capability therefore always stage that pack.
+	if HasCapability(profile, CapabilityHost) || HasCapability(profile, CapabilityApplications) {
 		packs = append(packs, "deviceuser")
 	}
 	if HasCapability(profile, CapabilityInference) {
@@ -306,7 +309,7 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		return "", func() {}, err
 	}
 	resolvedModules := ResolveModulesWithCatalog(effectiveProfile, catalog.Profiles, AlwaysEntitled{}, catalog.Modules)
-	hostAgentEnabled := HostAgentEnabled(resolvedModules)
+	hostAgentEnabled := HostAgentEnabled(resolvedModules) || HasCapabilityInCatalog(effectiveProfile, CapabilityApplications, catalog.Profiles)
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
 	inferenceEnabled := ModuleEnabled(resolvedModules, ModuleNameInferenceRuntime)
@@ -343,7 +346,7 @@ func PrepareValuesFile(baseValuesPath, profile, applianceCatalogPath, workspaceP
 		return "", func() {}, fmt.Errorf("product config: foundation requires a bundled registry.local/blob-storage@sha256 image reference; got %q", blobStorageImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
-		return "", func() {}, fmt.Errorf("product config: host capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
+		return "", func() {}, fmt.Errorf("product config: host or application capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
 	}
 
 	data, err := os.ReadFile(baseValuesPath)

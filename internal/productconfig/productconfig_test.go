@@ -24,12 +24,12 @@ func TestRequiredPacks(t *testing.T) {
 		profile string
 		want    []string
 	}{
-		{productconfig.ProfileCore, nil},
+		{productconfig.ProfileCore, []string{"deviceuser"}},
 		{productconfig.ProfileStorage, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileStorageLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileTraining, nil},
-		{productconfig.ProfileLANLLM, []string{"inference"}},
+		{productconfig.ProfileLANLLM, []string{"deviceuser", "inference"}},
 		{productconfig.ProfileBuilder, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileBuilderLANDNS, []string{"developer", "deviceuser"}},
 		{productconfig.ProfileBuilderLANLLM, []string{"developer", "deviceuser", "inference"}},
