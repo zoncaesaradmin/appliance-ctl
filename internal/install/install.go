@@ -318,6 +318,16 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err := o.EnsureOwnedDir(hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 		return nil, checks, fmt.Errorf("install: prepare blob storage directory: %w", err)
 	}
+	if productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplications, resolved.ProfileCatalog) {
+		if err := o.EnsureOwnedDir(hostdirs.VideoMediaProjectionDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: prepare video media projection directory: %w", err), runRollbacks())
+		}
+		checks = append(checks, evidence.Check{
+			ID: "video-media-projection-directory-owned", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.VideoMediaProjectionDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 	checks = append(checks, evidence.Check{
 		ID: "blob-storage-directory-owned", Category: "host", Status: evidence.StatusPass,
 		Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID),

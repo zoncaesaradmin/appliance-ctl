@@ -114,6 +114,10 @@ const (
 	// BlobStorageDir backs the foundation blob-storage pod in ace-system.
 	// Consumers use its S3 API and never receive this host path.
 	BlobStorageDir = "/data/zon/blob-storage"
+	// VideoMediaProjectionDir is a foundation-owned filesystem materialization
+	// of the canonical video object prefix. Only the control plane writes it;
+	// approved media applications receive it through a read-only PVC.
+	VideoMediaProjectionDir = "/data/zon/video-media"
 	// HostAgentLogDir is the host-visible appliance host agent log directory
 	// under the shared appliance log tree.
 	HostAgentLogDir = "/data/zon/logs/host-agent"

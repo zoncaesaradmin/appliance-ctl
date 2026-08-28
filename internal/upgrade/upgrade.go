@@ -188,6 +188,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	targetWorkflows := resolved.WorkflowsEnabled
 	targetDNS := resolved.DNSEnabled
 	targetInference := resolved.InferenceEnabled
+	targetApplications := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplications, resolved.ProfileCatalog)
 	targetBuild := resolved.BuildEnabled
 	targetHost := resolved.HostEnabled
 	if hadArtifactBefore && !targetArtifact {
@@ -300,6 +301,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID),
 		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
+	if targetApplications {
+		if err := o.EnsureOwnedDir(hostdirs.VideoMediaProjectionDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: prepare video media projection directory: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "video-media-projection-directory-owned", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.VideoMediaProjectionDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	metadataBundlesDir := strings.TrimSpace(opts.MetadataBundlesDir)
 	if metadataBundlesDir == "" {
