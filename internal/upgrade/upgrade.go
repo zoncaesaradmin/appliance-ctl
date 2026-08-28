@@ -109,6 +109,9 @@ type Orchestrator struct {
 	DetectHost          func(host.Options) (host.Facts, error)
 	InstallHostAgent    func(hostagent.InstallSpec) (func() error, error)
 	InstallHostPackages func(hostpackages.InstallSpec) (func() error, error)
+	// EnsureMDNSEnabled reapplies the appliance default after the host agent
+	// is refreshed, so upgrades converge with fresh installs.
+	EnsureMDNSEnabled func(context.Context, string) error
 }
 
 // NewOrchestrator wires an Orchestrator to the real adapters.
@@ -126,6 +129,7 @@ func NewOrchestrator() *Orchestrator {
 		DetectHost:          host.Detect,
 		InstallHostAgent:    hostagent.InstallOrUpdate,
 		InstallHostPackages: hostpackages.InstallRequiredPackages,
+		EnsureMDNSEnabled:   hostagent.EnsureMDNSEnabled,
 	}
 }
 
@@ -712,6 +716,20 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, evidence.Check{
 			ID: "host-agent-installed", Category: "host", Status: evidence.StatusPass,
 			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+		enableMDNS := o.EnsureMDNSEnabled
+		if enableMDNS == nil {
+			enableMDNS = hostagent.EnsureMDNSEnabled
+		}
+		if err := enableMDNS(ctx, opts.HostAgentSocketPath); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: enable default host mdns: %w", err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		checks = append(checks, evidence.Check{
+			ID: "host-mdns-enabled", Category: "host", Status: evidence.StatusPass,
+			Message:   "default appliance mDNS discovery enabled",
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 		// Wi-Fi AP apply is deferred until after appliance-dns (when the landns

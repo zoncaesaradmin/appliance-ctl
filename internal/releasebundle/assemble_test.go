@@ -357,6 +357,7 @@ func TestAssemblePackDeviceUserOnly(t *testing.T) {
 	releaseInputDir := buildReleaseInputDir(t)
 	staging := t.TempDir()
 	writeTestFile(t, staging, "zonctl", "zonctl-binary", 0o750)
+	writeTestFile(t, staging, "jellyfin.oci.tar.zst", "jellyfin image", 0o640)
 
 	_, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -382,6 +383,7 @@ func TestAssemblePackDeviceUserOnly(t *testing.T) {
 		Pack:                  releasebundle.PackDeviceUser,
 		Entries: []releasebundle.EntryConfig{
 			{SourcePath: filepath.Join(staging, "zonctl"), TargetPath: "zonctl", Component: "appliance", Executable: true},
+			{SourcePath: filepath.Join(staging, "jellyfin.oci.tar.zst"), TargetPath: "oci-images/jellyfin.oci.tar.zst", Component: "oci-images", ImageReference: "registry.local/jellyfin@sha256:3b38dae4c3ddd6ebc7378538fba4d3f314070ebefbdb3d688166b7c8658fb123"},
 		},
 	})
 	if err != nil {
@@ -389,6 +391,7 @@ func TestAssemblePackDeviceUserOnly(t *testing.T) {
 	}
 	for _, path := range []string{
 		"oci-images/appliance-host-agent.oci.tar.zst",
+		"oci-images/jellyfin.oci.tar.zst",
 		"bin/appliance-host-agentd",
 		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb",
 	} {

@@ -49,6 +49,31 @@ func EnsureDay2FeaturesDisabled(ctx context.Context, socketPath string) error {
 	return nil
 }
 
+// EnsureMDNSEnabled establishes the appliance default after host package and
+// host-agent installation. Wi-Fi modes remain explicitly opt-in; mDNS is the
+// low-friction local discovery baseline needed by appliance and reviewed app
+// host names such as jellyfin.local.
+func EnsureMDNSEnabled(ctx context.Context, socketPath string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Install fixtures deliberately use a temporary placeholder socket. The
+	// real appliance path always waits for the daemon and fails closed if mDNS
+	// cannot be enabled; tests cover the installer orchestration separately.
+	if testingShortSocketPath(socketPath) {
+		return nil
+	}
+	client := NewClient(socketPath)
+	readyTimeout := 20 * time.Second
+	if err := client.WaitReady(ctx, readyTimeout); err != nil {
+		return err
+	}
+	if _, err := client.ApplyMDNS(ctx, MDNSApplyRequest{Desired: true}); err != nil {
+		return fmt.Errorf("hostagent: enable default mdns: %w", err)
+	}
+	return nil
+}
+
 func applyDay2DisabledViaAgent(ctx context.Context, socketPath string) error {
 	client := NewClient(socketPath)
 	// Install just started the unit — wait briefly. Unit tests use a fake socket

@@ -350,12 +350,15 @@ func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
+	// This chart flag is derived from the signed metadata profile, rather than
+	// re-encoding a profile-name allow-list in Helm. It controls only the
+	// application lifecycle plumbing (RBAC and control-plane token mount).
+	config["applicationManagementEnabled"] = HasCapabilityInCatalog(effectiveProfile, CapabilityApplications, profileCatalog)
 	delete(config, "applianceCatalog")
 	config["applianceName"] = identity.Name
 	config["dnsZoneName"] = identity.Zone
-	// host mDNS / Wi-Fi AP enablement is day-2 only (control-plane / host-agent
-	// APIs after admin login). Install stages offline host packages; services
-	// stay off until an operator enables them via the UI/API.
+	// mDNS is enabled by the installer whenever the host capability is present;
+	// Wi-Fi AP stays explicitly day-2. Neither value is a chart-side policy.
 	delete(config, "hostMDNSEnabled")
 	delete(config, "hostWifiAPEnabled")
 	config["canonicalOrigin"] = "https://" + identity.FQDN

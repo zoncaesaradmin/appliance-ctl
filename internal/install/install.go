@@ -166,10 +166,13 @@ type Orchestrator struct {
 	RestoreHostDNS      func() error
 	InstallHostAgent    func(hostagent.InstallSpec) (func() error, error)
 	InstallHostPackages func(hostpackages.InstallSpec) (func() error, error)
-	// EnsureDay2FeaturesDisabled resets mDNS/client Wi-Fi/Wi-Fi AP desired=off and tears down
-	// residual host services after host-agent install. Nil uses
+	// EnsureDay2FeaturesDisabled resets client Wi-Fi/Wi-Fi AP (and clears any
+	// stale mDNS state) after host-agent install. Nil uses
 	// hostagent.EnsureDay2FeaturesDisabled.
 	EnsureDay2FeaturesDisabled func(context.Context, string) error
+	// EnsureMDNSEnabled enables the appliance's default local discovery service
+	// after the host agent is ready. Wi-Fi modes remain disabled.
+	EnsureMDNSEnabled func(context.Context, string) error
 }
 
 // NewOrchestrator wires an Orchestrator to the real K3s, ctr, helm/kubectl,
@@ -736,9 +739,8 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Message:   fmt.Sprintf("host agent installed at %s and running via %s", opts.HostAgentBinaryDestPath, opts.HostAgentUnitName),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
-		// Fresh install never enables mDNS / client Wi-Fi / Wi-Fi AP. Apply desired=false (host
-		// teardown) and clear durable state left by a prior enable so Admin
-		// shows Off / Enable. Day-2 Admin UI enables features after first admin login.
+		// Reset optional Wi-Fi modes and stale host state. mDNS is then enabled
+		// below as the appliance's default local-discovery service.
 		ensureDay2Off := o.EnsureDay2FeaturesDisabled
 		if ensureDay2Off == nil {
 			ensureDay2Off = hostagent.EnsureDay2FeaturesDisabled
@@ -747,8 +749,20 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, failInstall(fmt.Errorf("install: reset day-2 host features off: %w", err), runRollbacks())
 		}
 		checks = append(checks, evidence.Check{
-			ID: "host-day2-features-off", Category: "host", Status: evidence.StatusPass,
-			Message:   "host mDNS, client Wi-Fi, and Wi-Fi AP disabled (desired off; enable via Admin UI after first admin login)",
+			ID: "host-wifi-features-off", Category: "host", Status: evidence.StatusPass,
+			Message:   "host client Wi-Fi and Wi-Fi AP disabled (enable via Admin UI after first admin login)",
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+		enableMDNS := o.EnsureMDNSEnabled
+		if enableMDNS == nil {
+			enableMDNS = hostagent.EnsureMDNSEnabled
+		}
+		if err := enableMDNS(ctx, opts.HostAgentSocketPath); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: enable default host mdns: %w", err), runRollbacks())
+		}
+		checks = append(checks, evidence.Check{
+			ID: "host-mdns-enabled", Category: "host", Status: evidence.StatusPass,
+			Message:   "host mDNS enabled by default for appliance and reviewed application discovery",
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostpackages"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
@@ -29,6 +30,7 @@ type bundleSpec struct {
 	chartVersion     string
 	supportedSources []string
 	includeWorkflows bool
+	profiles         map[string][]string
 }
 
 func healthyUpgradeHostFacts(host.Options) (host.Facts, error) {
@@ -125,8 +127,14 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		}
 		content := []byte(e.content)
 		if e.relPath == "artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst" {
-			if err := metadatabundle.WriteInstallTestArchive(full, "2.4.0.0"); err != nil {
-				t.Fatal(err)
+			var writeErr error
+			if spec.profiles != nil {
+				writeErr = metadatabundle.WriteProfileCatalogArchive(full, "2.4.0.0", spec.profiles)
+			} else {
+				writeErr = metadatabundle.WriteInstallTestArchive(full, "2.4.0.0")
+			}
+			if writeErr != nil {
+				t.Fatal(writeErr)
 			}
 			var readErr error
 			content, readErr = os.ReadFile(full)
@@ -503,6 +511,51 @@ func TestUpgrade_PreservesInstalledApplianceProfileWhenFlagOmitted(t *testing.T)
 	if !strings.Contains(fcli.lastHelmValues, "applianceProfile: storage") {
 		t.Fatalf("prepared values file missing storage profile: %s", fcli.lastHelmValues)
 	}
+}
+
+func TestUpgrade_HostProfileReenablesDefaultMDNS(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "training")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+		profiles: map[string][]string{
+			"training": {"base", "host", "files", "video"},
+		},
+	})
+
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := newUpgradeOrchestrator(fake, fcli)
+	var installedHostAgent, enabledMDNS bool
+	orch.InstallHostAgent = func(hostagent.InstallSpec) (func() error, error) {
+		installedHostAgent = true
+		return func() error { return nil }, nil
+	}
+	orch.EnsureMDNSEnabled = func(_ context.Context, socket string) error {
+		if socket != env.options("2.4.0").HostAgentSocketPath {
+			t.Fatalf("host-agent socket = %q", socket)
+		}
+		if !installedHostAgent {
+			t.Fatal("mDNS enabled before host agent installation")
+		}
+		enabledMDNS = true
+		return nil
+	}
+
+	offlineSource := install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}
+	_, checks, err := orch.Upgrade(context.Background(), offlineSource, env.options("2.4.0"))
+	if err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if !enabledMDNS {
+		t.Fatal("expected host profile upgrade to enable default mDNS")
+	}
+	for _, check := range checks {
+		if check.ID == "host-mdns-enabled" {
+			return
+		}
+	}
+	t.Fatalf("expected host-mdns-enabled evidence, got %+v", checks)
 }
 
 func TestUpgrade_AllowsSameVersionRefreshForOwnedInstall(t *testing.T) {

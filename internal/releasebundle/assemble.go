@@ -765,7 +765,8 @@ func entryIsDeviceUser(entry EntryConfig) bool {
 	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
 
 	return entry.Component == "host-packages" || strings.HasPrefix(target, "host-packages/") ||
-		strings.Contains(ref, "appliance-host-agent") || base == "appliance-host-agentd" || sourceBase == "appliance-host-agentd"
+		strings.Contains(ref, "appliance-host-agent") || base == "appliance-host-agentd" || sourceBase == "appliance-host-agentd" ||
+		strings.HasPrefix(ref, "registry.local/jellyfin@sha256:") || strings.Contains(target, "jellyfin") || strings.Contains(sourceBase, "jellyfin")
 }
 
 func entryIsInference(entry EntryConfig) bool {
