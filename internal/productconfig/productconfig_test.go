@@ -395,8 +395,8 @@ func TestPrepareValuesFile_ApplicationCapabilityEnablesLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(prepared), "applicationManagementEnabled: true") {
-		t.Fatalf("application capability must enable lifecycle plumbing:\n%s", prepared)
+	if !strings.Contains(string(prepared), "enabledCapabilities:") || !strings.Contains(string(prepared), "- applications") {
+		t.Fatalf("application capability must be projected into chart values:\n%s", prepared)
 	}
 }
 

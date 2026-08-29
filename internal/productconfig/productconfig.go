@@ -353,10 +353,15 @@ func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		config = map[string]any{}
 	}
 	config["applianceProfile"] = effectiveProfile
-	// This chart flag is derived from the signed metadata profile, rather than
-	// re-encoding a profile-name allow-list in Helm. It controls only the
-	// application lifecycle plumbing (RBAC and control-plane token mount).
-	config["applicationManagementEnabled"] = HasCapabilityInCatalog(effectiveProfile, CapabilityApplications, profileCatalog)
+	// Helm needs capability facts for install-time RBAC and token mounts, but
+	// profile policy remains exclusively in the signed metadata catalog. Pass
+	// the resolved set rather than duplicating individual feature booleans.
+	capabilities := capabilitiesForProfileInCatalog(effectiveProfile, profileCatalog)
+	enabledCapabilities := make([]string, len(capabilities))
+	for i, capability := range capabilities {
+		enabledCapabilities[i] = string(capability)
+	}
+	config["enabledCapabilities"] = enabledCapabilities
 	delete(config, "applianceCatalog")
 	config["applianceName"] = identity.Name
 	config["dnsZoneName"] = identity.Zone
