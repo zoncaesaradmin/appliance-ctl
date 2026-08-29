@@ -75,6 +75,7 @@ func TestEnsureImagePullSecretsCreatesInAllProductNamespaces(t *testing.T) {
 func TestProductNamespacesExcludesSystemNamespaces(t *testing.T) {
 	got := productconfig.ProductNamespaces("ace-system")
 	want := map[string]bool{
+		"ace-infra":        true,
 		"ace-system":       true,
 		"ace-apps":         true,
 		"apps":             true,

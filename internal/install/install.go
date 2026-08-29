@@ -43,7 +43,7 @@ const (
 	workflowsBuildNamespace     = productconfig.WorkflowsBuildNamespace
 	registryReleaseName         = "appliance-registry"
 	messageBrokerReleaseName    = "appliance-message-broker"
-	messageBrokerNamespace      = "ace-system"
+	messageBrokerNamespace      = productconfig.InfrastructureNamespace
 	registryNamespace           = "artifacts"
 	dnsReleaseName              = "appliance-dns"
 	dnsNamespace                = "dns"
@@ -655,6 +655,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-system values: %w", err), runRollbacks())
 	}
 	defer cleanupAceSystemValues()
+	aceInfraValuesPath, cleanupAceInfraValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.AceInfraOverlay())
+	if err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-infra values: %w", err), runRollbacks())
+	}
+	defer cleanupAceInfraValues()
 	aceAppsValuesPath, cleanupAceAppsValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.AceAppsOverlay())
 	if err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-apps values: %w", err), runRollbacks())
@@ -782,6 +787,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		clusterRun = cli.Exec
 	}
 
+	aceInfraRelease := helm.ChartRelease{
+		Name:       rolloutsets.AceInfraReleaseName,
+		ChartPath:  resolved.ChartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: aceInfraValuesPath,
+	}
 	aceSystemRelease := helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  resolved.ChartPath,
@@ -813,7 +824,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ValuesPath: workflowsSupportValuesPath,
 	}
 
-	set1Releases := []helm.ChartRelease{aceSystemRelease}
+	set1Releases := []helm.ChartRelease{aceInfraRelease}
 	if resolved.MessageBrokerChartPath != "" {
 		set1Releases = append(set1Releases, helm.ChartRelease{
 			Name:      messageBrokerReleaseName,
@@ -849,7 +860,27 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, set1Rollbacks...)
 
-	ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, "controlplane", "appliance-controlplane-ready")
+	ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, "blob-storage", "appliance-blob-storage-ready")
+	checks = append(checks, ready)
+	if waitErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: wait for blob storage: %w", waitErr), cleanupOnFailure())
+	}
+	blobReplica, blobReplicaErr := helm.EnsureBlobStorageCredentialsReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+		productconfig.InfrastructureNamespace, opts.ChartNamespace, "blob-storage-credentials")
+	checks = append(checks, blobReplica.Checks...)
+	if blobReplicaErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", blobReplicaErr), cleanupOnFailure())
+	}
+
+	set2Result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceSystemRelease)
+	checks = append(checks, set2Result.checks...)
+	if set2Result.err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", set2Result.err), cleanupOnFailure(set2Result.rollback))
+	}
+	if set2Result.rollback != nil {
+		rollbacks = append(rollbacks, set2Result.rollback)
+	}
+	ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, "controlplane", "appliance-controlplane-ready")
 	checks = append(checks, ready)
 	if waitErr != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: wait for controlplane: %w", waitErr), cleanupOnFailure())
@@ -892,7 +923,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	rollbacks = append(rollbacks, keysReplica.Cleanup)
 
-	set2Result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppsRelease)
+	set2Result = applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppsRelease)
 	checks = append(checks, set2Result.checks...)
 	if set2Result.err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", set2Result.err), cleanupOnFailure(set2Result.rollback))

@@ -29,6 +29,7 @@ const (
 	// automation-runtime. controlplane itself uses defaultChartNamespace
 	// (ace-system).
 	ControlPlaneAppsNamespace = "ace-apps"
+	InfrastructureNamespace   = "ace-infra"
 	// ApplicationNamespace is permanently provisioned for user-managed
 	// application workloads and is independent from co-packaged services.
 	ApplicationNamespace = "apps"
@@ -52,7 +53,8 @@ const (
 
 // ProductNamespaces returns every appliance-owned namespace that may run product
 // pods. controlPlaneNS is the chart release namespace for controlplane, the
-// message broker, and foundation blob-storage (default ace-system). kube-system
+// controlplane. Shared message broker and blob storage live in ace-infra.
+// kube-system
 // and other K3s system namespaces are intentionally excluded.
 func ProductNamespaces(controlPlaneNS string) []string {
 	controlPlaneNS = strings.TrimSpace(controlPlaneNS)
@@ -60,6 +62,7 @@ func ProductNamespaces(controlPlaneNS string) []string {
 		controlPlaneNS = "ace-system"
 	}
 	return []string{
+		InfrastructureNamespace,
 		controlPlaneNS,
 		ControlPlaneAppsNamespace,
 		ApplicationNamespace,
@@ -426,8 +429,8 @@ func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	image["digest"] = strings.TrimPrefix(blobStorageImageReference, "registry.local/blob-storage@")
 	image["pullPolicy"] = "IfNotPresent"
 	blobStorage["image"] = image
-	// Co-locate with control plane / message broker (default ace-system).
-	blobStorage["endpoint"] = "http://blob-storage.ace-system.svc.cluster.local:9000"
+	// Shared foundation service, brought up before the control plane.
+	blobStorage["endpoint"] = "http://blob-storage.ace-infra.svc.cluster.local:9000"
 	delete(blobStorage, "namespace")
 	values["blobStorage"] = blobStorage
 

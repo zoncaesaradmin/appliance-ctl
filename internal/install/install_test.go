@@ -390,6 +390,13 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		})
 		return string(payload), nil
 	}
+	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") && strings.Contains(call, "blob-storage-credentials") {
+		payload, _ := json.Marshal(map[string]any{"data": map[string]string{
+			"accessKey": base64.StdEncoding.EncodeToString([]byte("blob-access")),
+			"secretKey": base64.StdEncoding.EncodeToString([]byte("blob-secret")),
+		}})
+		return string(payload), nil
+	}
 	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") &&
 		(strings.Contains(call, "appliance-ca") || strings.Contains(call, "appliance-tls")) {
 		return "", errors.New("simulated missing secret")

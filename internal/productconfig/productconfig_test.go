@@ -81,7 +81,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 		"artifactServerBaseURL:",
 		"kubernetes.io/metadata.name: artifacts",
 		"app.kubernetes.io/name: appliance-registry",
-		"endpoint: http://blob-storage.ace-system.svc.cluster.local:9000",
+		"endpoint: http://blob-storage.ace-infra.svc.cluster.local:9000",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered values missing %q:\n%s", want, text)
