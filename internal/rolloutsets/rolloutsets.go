@@ -13,7 +13,9 @@ func AceSystemOverlay() map[string]any {
 }
 
 func AceInfraOverlay() map[string]any {
-	return rolloutOverlay(true, false, false, false, false, false)
+	overlay := rolloutOverlay(true, false, false, false, false, false)
+	overlay["infraNamespace"] = map[string]any{"create": false, "name": "ace-infra"}
+	return overlay
 }
 
 func AceAppsOverlay() map[string]any {

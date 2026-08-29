@@ -786,6 +786,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if clusterRun == nil {
 		clusterRun = cli.Exec
 	}
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, helm.RestrictedNamespaceLabels()); err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare infrastructure namespace: %w", err), runRollbacks())
+	}
 
 	aceInfraRelease := helm.ChartRelease{
 		Name:       rolloutsets.AceInfraReleaseName,
