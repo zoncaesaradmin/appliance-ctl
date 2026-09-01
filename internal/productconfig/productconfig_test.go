@@ -400,6 +400,30 @@ func TestPrepareValuesFile_ApplicationCapabilityEnablesLifecycle(t *testing.T) {
 	}
 }
 
+func TestPrepareValuesFile_PlaintextHTTPProjectsCapability(t *testing.T) {
+	dir := t.TempDir()
+	valuesPath := filepath.Join(dir, "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	catalog := productconfig.ProfileCatalog{
+		"lan-kiosk": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityPlaintextHTTP}},
+	}
+
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "lan-kiosk", catalog, "", "", "", "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
+	defer cleanup()
+	if err != nil {
+		t.Fatalf("PrepareValuesFile returned error: %v", err)
+	}
+	prepared, err := os.ReadFile(preparedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(prepared), "- plaintext-http") {
+		t.Fatalf("plaintext-http capability must be projected into chart values:\n%s", prepared)
+	}
+}
+
 func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *testing.T) {
 	dir := t.TempDir()
 	valuesPath := filepath.Join(dir, "values.yaml")

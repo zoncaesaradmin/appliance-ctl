@@ -519,7 +519,7 @@ func TestUpgrade_HostProfileReenablesDefaultMDNS(t *testing.T) {
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
 		profiles: map[string][]string{
-			"training": {"base", "host", "files", "video"},
+			"training": {"base", "host", "files", "video", "plaintext-http"},
 		},
 	})
 

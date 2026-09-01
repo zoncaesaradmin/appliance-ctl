@@ -37,12 +37,15 @@ func TestEnsureTraefikTransferTimeoutsAppliesManifest(t *testing.T) {
 						t.Fatalf("manifest missing %q:\n%s", want, text)
 					}
 				}
+				if strings.Contains(text, "redirectTo:") || strings.Contains(text, "redirections:") {
+					t.Fatalf("default Traefik config must not disable web redirects:\n%s", text)
+				}
 			}
 		}
 		return "helmchartconfig.helm.cattle.io/traefik configured", nil
 	}
 
-	check, err := EnsureTraefikTransferTimeouts(context.Background(), run, "/tmp/kubeconfig")
+	check, err := EnsureTraefikTransferTimeouts(context.Background(), run, "/tmp/kubeconfig", false)
 	if err != nil {
 		t.Fatalf("EnsureTraefikTransferTimeouts: %v", err)
 	}
@@ -66,11 +69,47 @@ func TestEnsureTraefikTransferTimeoutsAppliesManifest(t *testing.T) {
 }
 
 func TestEnsureTraefikTransferTimeoutsNilRunner(t *testing.T) {
-	check, err := EnsureTraefikTransferTimeouts(context.Background(), nil, "/tmp/kubeconfig")
+	check, err := EnsureTraefikTransferTimeouts(context.Background(), nil, "/tmp/kubeconfig", false)
 	if err == nil {
 		t.Fatal("expected error for nil runner")
 	}
 	if check.Status != evidence.StatusFail {
 		t.Fatalf("status = %q, want fail", check.Status)
+	}
+}
+
+func TestEnsureTraefikTransferTimeoutsEnablesPlaintextHTTP(t *testing.T) {
+	run := func(ctx context.Context, name string, args ...string) (string, error) {
+		for i, a := range args {
+			if a == "-f" && i+1 < len(args) {
+				body, err := os.ReadFile(args[i+1])
+				if err != nil {
+					t.Fatalf("read applied manifest: %v", err)
+				}
+				text := string(body)
+				for _, want := range []string{
+					"redirectTo: null",
+					"redirections: {}",
+					"writeTimeout: 30m",
+					"websecure:",
+				} {
+					if !strings.Contains(text, want) {
+						t.Fatalf("plaintext HTTP manifest missing %q:\n%s", want, text)
+					}
+				}
+			}
+		}
+		return "helmchartconfig.helm.cattle.io/traefik configured", nil
+	}
+
+	check, err := EnsureTraefikTransferTimeouts(context.Background(), run, "/tmp/kubeconfig", true)
+	if err != nil {
+		t.Fatalf("EnsureTraefikTransferTimeouts: %v", err)
+	}
+	if check.Status != evidence.StatusPass {
+		t.Fatalf("status = %q message = %q", check.Status, check.Message)
+	}
+	if !strings.Contains(check.Message, "plaintext HTTP") {
+		t.Fatalf("message = %q, want plaintext HTTP noted", check.Message)
 	}
 }

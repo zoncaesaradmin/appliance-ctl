@@ -649,7 +649,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
 	}
-	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath)
+	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityPlaintextHTTP, resolved.ProfileCatalog))
 	checks = append(checks, traefikTimeoutCheck)
 	if traefikTimeoutErr != nil {
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", traefikTimeoutErr), func() []evidence.Check {

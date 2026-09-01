@@ -619,7 +619,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if traefikLBErr != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikLBErr), runRollbacks())
 	}
-	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath)
+	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityPlaintextHTTP, resolved.ProfileCatalog))
 	checks = append(checks, traefikTimeoutCheck)
 	if traefikTimeoutErr != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikTimeoutErr), runRollbacks())

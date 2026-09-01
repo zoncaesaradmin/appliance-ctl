@@ -27,7 +27,7 @@ func InstallTestProfileCatalog() map[string][]string {
 		"lanllm":                        {"base", "inference"},
 		"builder-lanllm":                {"base", "host", "files", "workflows", "build", "artifact", "inference"},
 		"builder-lanllm-storage-landns": {"base", "host", "files", "workflows", "build", "artifact", "dns", "inference"},
-		"training":                      {"base", "files", "video"},
+		"training":                      {"base", "files", "video", "plaintext-http"},
 	}
 }
 
@@ -128,6 +128,12 @@ func installTestCapabilitiesYAML() string {
     requires: [base]
   video:
     displayName: Video
+    requires: [base]
+  applications:
+    displayName: Applications
+    requires: [base, host]
+  plaintext-http:
+    displayName: Plaintext HTTP
     requires: [base]
 `
 }

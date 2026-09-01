@@ -15,7 +15,7 @@ import (
 // control-plane FilesTransferTimeout / WriteTimeout (30m).
 const traefikTransferTimeout = "30m"
 
-const traefikHelmChartConfigManifest = `apiVersion: helm.cattle.io/v1
+const traefikHelmChartConfigPrefix = `apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
   name: traefik
@@ -29,13 +29,9 @@ spec:
       kubernetesCRD:
         allowCrossNamespace: true
     ports:
-      web:
-        transport:
-          respondingTimeouts:
-            readTimeout: ` + traefikTransferTimeout + `
-            writeTimeout: ` + traefikTransferTimeout + `
-            idleTimeout: ` + traefikTransferTimeout + `
-      websecure:
+`
+
+const traefikWebPortTimeouts = `      web:
         transport:
           respondingTimeouts:
             readTimeout: ` + traefikTransferTimeout + `
@@ -43,12 +39,39 @@ spec:
             idleTimeout: ` + traefikTransferTimeout + `
 `
 
+const traefikWebPortPlaintextHTTP = `      web:
+        redirectTo: null
+        redirections: {}
+        transport:
+          respondingTimeouts:
+            readTimeout: ` + traefikTransferTimeout + `
+            writeTimeout: ` + traefikTransferTimeout + `
+            idleTimeout: ` + traefikTransferTimeout + `
+`
+
+const traefikWebsecurePortTimeouts = `      websecure:
+        transport:
+          respondingTimeouts:
+            readTimeout: ` + traefikTransferTimeout + `
+            writeTimeout: ` + traefikTransferTimeout + `
+            idleTimeout: ` + traefikTransferTimeout + `
+`
+
+func traefikHelmChartConfigManifest(plaintextHTTP bool) string {
+	web := traefikWebPortTimeouts
+	if plaintextHTTP {
+		web = traefikWebPortPlaintextHTTP
+	}
+	return traefikHelmChartConfigPrefix + web + traefikWebsecurePortTimeouts
+}
+
 // EnsureTraefikTransferTimeouts applies a HelmChartConfig so K3s Traefik does
 // not cut multi-GB /api/v1/files transfers with default entrypoint timeouts
 // (client often sees curl HTTP/2 PROTOCOL_ERROR / 502) and can route
 // IngressRoutes to Services outside the IngressRoute namespace (ui-server in
-// ace-apps while the route lives in ace-system).
-func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconfig string) (evidence.Check, error) {
+// ace-apps while the route lives in ace-system). When plaintextHTTP is true,
+// Traefik must not redirect the web entrypoint away from application routes.
+func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconfig string, plaintextHTTP bool) (evidence.Check, error) {
 	check := evidence.Check{
 		ID:              "traefik-transfer-timeouts",
 		Category:        "k3s",
@@ -70,7 +93,7 @@ func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconf
 	}
 	path := tmp.Name()
 	defer func() { _ = os.Remove(path) }()
-	if _, err := tmp.WriteString(traefikHelmChartConfigManifest); err != nil {
+	if _, err := tmp.WriteString(traefikHelmChartConfigManifest(plaintextHTTP)); err != nil {
 		_ = tmp.Close()
 		check.Status = evidence.StatusFail
 		check.Message = err.Error()
@@ -89,5 +112,8 @@ func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconf
 	}
 	check.Status = evidence.StatusPass
 	check.Message = fmt.Sprintf("traefik entrypoint respondingTimeouts set to %s; allowCrossNamespace enabled", traefikTransferTimeout)
+	if plaintextHTTP {
+		check.Message += "; web entrypoint plaintext HTTP enabled"
+	}
 	return check, nil
 }
