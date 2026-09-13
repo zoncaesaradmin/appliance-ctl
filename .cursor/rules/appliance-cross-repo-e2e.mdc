@@ -20,7 +20,7 @@ Install:             ctr import (gets :bundled or import-DATE) → ctr image tag
 Runtime:             config.*ImageDigest == digest pin → workflow pod image (IfNotPresent)
 ```
 
-Names today (product packs): `workspace-provisioner` (developer pack),
+Names today (product packs): `workspace-provisioner` (build-workflows pack),
 `artifact-server`, `coredns` (base), `inference-runtime` (inference pack).
 `dev-build` is **build-host tooling only** and is not packaged into product packs.
 Operator build catalogs use explicit digest-pinned builder images.
@@ -40,7 +40,7 @@ Never trust `skopeo inspect` alone for pins (multi-arch index ≠ platform manif
    - `ValidateOCIArchiveReference` (digest match; `:bundled` annotation OK)
    - `ctr import --digests` then `ensureImageReference` / `ctr image tag` to digest pin
 5. **Values** (`appliance-ctl` `productconfig.PrepareValuesFile`)
-   - Injects `config.workspaceProvisionerImageDigest` (from developer pack)
+   - Injects `config.workspaceProvisionerImageDigest` (from build-workflows pack)
    - `config.builderImageDigest` is optional day-2 default only (not from bundle)
 6. **Control-plane** (`appliance-code` config + `devflows.NewService`)
    - Env from chart ConfigMap; workspace provisioner fail-closed when build on;
@@ -62,7 +62,7 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 | Contract | Producer | Consumers |
 |---|---|---|
 | `:bundled` annotation + `@sha256` imageReference | `build-full-bundle.sh` finalize/relabel | `images/archive.go`, `preload.go`, `validate-release-artifacts.py` |
-| EXTRA_OCI pairing / order | `build-full-bundle.sh` (workspace-provisioner in developer pack) | path↔token checks in validator |
+| EXTRA_OCI pairing / order | `build-full-bundle.sh` (workspace-provisioner in build-workflows pack) | path↔token checks in validator |
 | `RequireReference` + tag | Bundle entry `imageReference` | `install/source.go` `imageName`, `PreloadAll` |
 | Digests in Helm values | `PrepareValuesFile` | chart ConfigMap, `config.Load`, chart schema |
 | Catalog builder digests | operator-supplied `@sha256` in build catalog | `ResolveBuilderImage`, optional day-2 default |
@@ -80,7 +80,7 @@ Online pulls happen **only on the build host** during bundle assembly. Target in
 
 - **Annotation scheme** → ctl `ValidateOCIArchiveReference` + preload tag tests; release finalize + `validate-release-artifacts.py`; config.example docs
 - **Digest derivation** → finalize (archive wins); never reintroduce inspect-first pins
-- **EXTRA_OCI refs/order** → pairing comments; path/token validator; workspace-provisioner in developer pack (not foundation)
+- **EXTRA_OCI refs/order** → pairing comments; path/token validator; workspace-provisioner in build-workflows pack (not foundation)
 - **Builder images** → operator-supplied digest pins in catalog; not packaged; `ResolveBuilderImage` + chart schema/examples/tests
 - **Tag/import algorithm** → `preload.go` / tests; install+upgrade fake-ctr tests
 - **PrepareValuesFile keys** → chart `configmap.yaml` env names; config Load; chart_test

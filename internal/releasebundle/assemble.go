@@ -33,10 +33,11 @@ type EntryConfig struct {
 }
 
 const (
-	PackFoundation = "foundation"
-	PackDeveloper  = "developer"
-	PackDeviceUser = "deviceuser"
-	PackInference  = "inference"
+	PackFoundation     = "foundation"
+	PackBuildWorkflows = "build-workflows"
+	PackStorageNetwork = "storage-network"
+	PackDeviceUser     = "deviceuser"
+	PackInference      = "inference"
 )
 
 type Config struct {
@@ -50,7 +51,7 @@ type Config struct {
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
 	// Empty means legacy full bundle (everything). PackFoundation excludes
-	// developer, deviceuser, and inference artifacts.
+	// build-workflows, deviceuser, and inference artifacts.
 	Pack string `json:"pack,omitempty"`
 }
 
@@ -103,9 +104,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackDeveloper, PackDeviceUser, PackInference:
+	case "", PackFoundation, PackStorageNetwork, PackBuildWorkflows, PackDeviceUser, PackInference:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, or %q", PackFoundation, PackDeveloper, PackDeviceUser, PackInference)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, or %q", PackFoundation, PackStorageNetwork, PackBuildWorkflows, PackDeviceUser, PackInference)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -145,7 +146,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
-	includeDeveloperAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeveloper
+	includeStorageNetworkAutoAdds := cfg.Pack == "" || cfg.Pack == PackStorageNetwork
 	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
 	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackInference
 	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackFoundation
@@ -191,7 +192,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 	}
 
-	if includeDeveloperAutoAdds {
+	if includeStorageNetworkAutoAdds {
 		artifactServerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ArtifactServerImage.Path)
 		if _, exists := entryByTarget[artifactServerImageTarget]; !exists {
 			if !isCanonicalArtifactServerReference(input.Artifacts.ArtifactServerImage.ImageReference) {
@@ -621,15 +622,28 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		counts[entry.Component]++
 	}
 	switch pack {
-	case PackDeveloper:
+	case PackStorageNetwork:
+		var registryImage, dnsImage, registryChart, dnsChart bool
+		for _, entry := range entries {
+			registryImage = registryImage || (entry.Component == "oci-images" && isCanonicalArtifactServerReference(entry.ImageReference))
+			dnsImage = dnsImage || (entry.Component == "oci-images" && isCanonicalDNSReference(entry.ImageReference))
+			base := strings.ToLower(filepath.Base(entry.Path))
+			registryChart = registryChart || (entry.Component == "chart" && strings.HasPrefix(base, "appliance-registry-"))
+			dnsChart = dnsChart || (entry.Component == "chart" && strings.HasPrefix(base, "appliance-dns-"))
+		}
+		if !registryImage || !dnsImage || !registryChart || !dnsChart {
+			return fmt.Errorf("releasebundle: storage-network delivery pack requires Artifact Server and CoreDNS images and charts")
+		}
+		return nil
+	case PackBuildWorkflows:
 		if counts["chart"] == 0 {
-			return fmt.Errorf("releasebundle: developer pack is missing a workflows chart")
+			return fmt.Errorf("releasebundle: build-workflows pack is missing a workflows chart")
 		}
 		if counts["kubernetes-crds"] == 0 {
-			return fmt.Errorf("releasebundle: developer pack is missing kubernetes-crds")
+			return fmt.Errorf("releasebundle: build-workflows pack is missing kubernetes-crds")
 		}
 		if counts["oci-images"] == 0 {
-			return fmt.Errorf("releasebundle: developer pack must include at least one oci-images archive")
+			return fmt.Errorf("releasebundle: build-workflows pack must include at least one oci-images archive")
 		}
 		var hasWorkflowsChart bool
 		for _, entry := range entries {
@@ -643,7 +657,7 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			}
 		}
 		if !hasWorkflowsChart {
-			return fmt.Errorf("releasebundle: developer pack is missing a workflows chart")
+			return fmt.Errorf("releasebundle: build-workflows pack is missing a workflows chart")
 		}
 		return nil
 	case PackDeviceUser:
@@ -711,9 +725,11 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	case "":
 		return true
 	case PackFoundation:
-		return !entryIsDeveloper(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry)
-	case PackDeveloper:
-		return entryIsDeveloper(entry)
+		return !entryIsStorageNetwork(entry) && !entryIsBuildWorkflows(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry)
+	case PackStorageNetwork:
+		return entryIsStorageNetwork(entry)
+	case PackBuildWorkflows:
+		return entryIsBuildWorkflows(entry)
 	case PackDeviceUser:
 		return entryIsDeviceUser(entry)
 	case PackInference:
@@ -723,7 +739,7 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	}
 }
 
-func entryIsDeveloper(entry EntryConfig) bool {
+func entryIsBuildWorkflows(entry EntryConfig) bool {
 	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
 	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
 	base := strings.ToLower(filepath.Base(target))
@@ -745,6 +761,14 @@ func entryIsDeveloper(entry EntryConfig) bool {
 		strings.Contains(sourceBase, "workspace-provisioner") {
 		return true
 	}
+	return false
+}
+
+func entryIsStorageNetwork(entry EntryConfig) bool {
+	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
+	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
+	base := strings.ToLower(filepath.Base(target))
+	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
 	if strings.Contains(ref, "artifact-server") || strings.Contains(target, "artifact-server") ||
 		strings.Contains(sourceBase, "artifact-server") ||
 		(entry.Component == "chart" && (strings.HasPrefix(base, "appliance-registry-") || strings.HasPrefix(sourceBase, "appliance-registry-"))) {

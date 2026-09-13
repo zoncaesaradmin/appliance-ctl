@@ -151,27 +151,6 @@ const (
 	DefaultLANDNSZone = "appliance.internal"
 )
 
-// RequiredPacks returns the optional signed pack IDs needed for profile
-// beyond the foundation pack. The foundation pack is always required conceptually and
-// is not listed here.
-func RequiredPacksWithCatalog(profile string, catalog ProfileCatalog) []string {
-	var packs []string
-	if HasCapabilityInCatalog(profile, CapabilityWorkflows, catalog) || HasCapabilityInCatalog(profile, CapabilityBuild, catalog) ||
-		HasCapabilityInCatalog(profile, CapabilityArtifact, catalog) || HasCapabilityInCatalog(profile, CapabilityDNS, catalog) {
-		packs = append(packs, "developer")
-	}
-	// Application Management is foundation code, but direct endpoint exposure
-	// is impossible without the signed deviceuser host-agent pack. Profiles
-	// carrying the application capability therefore always stage that pack.
-	if HasCapabilityInCatalog(profile, CapabilityHost, catalog) || HasCapabilityInCatalog(profile, CapabilityApplications, catalog) {
-		packs = append(packs, "deviceuser")
-	}
-	if HasCapabilityInCatalog(profile, CapabilityInference, catalog) {
-		packs = append(packs, "inference")
-	}
-	return packs
-}
-
 func HasCapabilityInCatalog(profile string, capability Capability, catalog ProfileCatalog) bool {
 	for _, c := range capabilitiesForProfileInCatalog(profile, catalog) {
 		if c == capability {

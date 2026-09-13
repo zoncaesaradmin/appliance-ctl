@@ -19,36 +19,6 @@ const (
 	blobStorageImage          = "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
 )
 
-func TestRequiredPacksWithCatalog(t *testing.T) {
-	catalog := testProfileCatalog()
-	cases := []struct {
-		profile string
-		want    []string
-	}{
-		{productconfig.ProfileCore, nil},
-		{productconfig.ProfileStorage, []string{"developer", "deviceuser"}},
-		{productconfig.ProfileLANDNS, []string{"developer", "deviceuser"}},
-		{productconfig.ProfileStorageLANDNS, []string{"developer", "deviceuser"}},
-		{productconfig.ProfileTraining, []string{"deviceuser"}},
-		{productconfig.ProfileLANLLM, []string{"inference"}},
-		{productconfig.ProfileBuilder, []string{"developer", "deviceuser"}},
-		{productconfig.ProfileBuilderLANDNS, []string{"developer", "deviceuser"}},
-		{productconfig.ProfileBuilderLANLLM, []string{"developer", "deviceuser", "inference"}},
-		{productconfig.ProfileBuilderLANLLMStorageLANDNS, []string{"developer", "deviceuser", "inference"}},
-	}
-	for _, tc := range cases {
-		got := productconfig.RequiredPacksWithCatalog(tc.profile, catalog)
-		if len(got) != len(tc.want) {
-			t.Fatalf("RequiredPacksWithCatalog(%q)=%v, want %v", tc.profile, got, tc.want)
-		}
-		for i := range tc.want {
-			if got[i] != tc.want[i] {
-				t.Fatalf("RequiredPacksWithCatalog(%q)=%v, want %v", tc.profile, got, tc.want)
-			}
-		}
-	}
-}
-
 func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T) {
 	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
