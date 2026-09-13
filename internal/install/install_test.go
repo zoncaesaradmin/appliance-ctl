@@ -182,7 +182,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		"releaseId":     "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
-		"runtimes":      map[string]any{"inference": map[string]string{"package": "std-llm-amd64", "engine": "ollama"}},
+		"runtimes":      map[string]any{"inference": map[string]string{"package": "std-llm-amd64", "inferenceEngine": "ollama", "architecture": "amd64"}},
 		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "artifactServerVersion": "2.1.7", "dnsVersion": "1.14.4", "inferenceVersion": "0.6.5"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
@@ -1714,7 +1714,7 @@ func TestInstall_CPUInferencePreloadsAndConfiguresSharedGateway(t *testing.T) {
 	if installed.ApplianceProfile != "lanllm" {
 		t.Fatalf("profile = %q", installed.ApplianceProfile)
 	}
-	if installed.Runtimes["inference"].Package != "std-llm-amd64" || installed.Runtimes["inference"].Engine != "ollama" {
+	if installed.Runtimes["inference"].Package != "std-llm-amd64" || installed.Runtimes["inference"].InferenceEngine != "ollama" {
 		t.Fatalf("installed runtimes = %v", installed.Runtimes)
 	}
 	values := fcli.helmValues["appliance-inference"]
@@ -1735,7 +1735,7 @@ func TestInstall_CPUInferencePreloadsAndConfiguresSharedGateway(t *testing.T) {
 }
 
 func TestOfflineSourceRejectsWrongSignedInferenceRuntime(t *testing.T) {
-	for _, invalid := range []string{"missing", "engine", "package", "missing-image"} {
+	for _, invalid := range []string{"missing", "inferenceEngine", "package", "missing-image"} {
 		t.Run(invalid, func(t *testing.T) {
 			dir, _ := buildFixtureBundle(t)
 			path := filepath.Join(dir, "release-manifest.json")
@@ -1751,8 +1751,8 @@ func TestOfflineSourceRejectsWrongSignedInferenceRuntime(t *testing.T) {
 			switch invalid {
 			case "missing":
 				delete(doc, "runtimes")
-			case "engine":
-				runtime["engine"] = "vllm"
+			case "inferenceEngine":
+				runtime["inferenceEngine"] = "vllm"
 			case "package":
 				runtime["package"] = "acc-llm-arm64"
 			case "missing-image":

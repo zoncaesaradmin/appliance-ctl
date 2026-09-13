@@ -23,14 +23,19 @@
         "additionalProperties": false,
         "required": [
           "package",
-          "engine"
+          "inferenceEngine",
+          "architecture"
         ],
         "properties": {
           "package": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9-]*$"
           },
-          "engine": {
+          "inferenceEngine": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "architecture": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9-]*$"
           }

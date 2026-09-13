@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 )
 
 func TestSeedHost_ExtractsAndValidatesProfile(t *testing.T) {
@@ -31,10 +32,10 @@ func TestSeedHost_ExtractsAndValidatesProfile(t *testing.T) {
 
 func TestResolvePackage(t *testing.T) {
 	packages := map[string]metadatabundle.PackageDefinition{
-		"std-llm-amd64": {Capabilities: []string{"inference"}, InferenceEngine: "ollama"},
+		"std-llm-amd64": {Capabilities: []string{"inference"}, Runtime: runtimeconfig.Implementation{InferenceEngine: "ollama", Architecture: "amd64"}},
 	}
 	selected, err := metadatabundle.ResolvePackage(packages, "inference", "std-llm-amd64")
-	if err != nil || selected.Engine != "ollama" || selected.Package != "std-llm-amd64" {
+	if err != nil || selected.InferenceEngine != "ollama" || selected.Architecture != "amd64" || selected.Package != "std-llm-amd64" {
 		t.Fatalf("selection=%+v err=%v", selected, err)
 	}
 	packages["duplicate-cpu"] = packages["std-llm-amd64"]

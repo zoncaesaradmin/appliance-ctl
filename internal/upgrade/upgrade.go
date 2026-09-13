@@ -23,6 +23,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
 )
@@ -232,6 +233,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	checks = append(checks, baselineCheck)
 	if baselineCheck.Status != evidence.StatusPass {
 		return nil, checks, fmt.Errorf("upgrade: target host does not match the signed bundle baseline")
+	}
+	if selected, ok := resolved.Runtimes["inference"]; ok {
+		if err := runtimeconfig.ValidateTargetArchitecture(selected, facts.Arch); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "inference-runtime-architecture-match", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("inference package %s targets host architecture %s", selected.Package, facts.Arch),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
 	}
 	// Always include the derived FQDN even when the CLI computed TLSSANs before
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).

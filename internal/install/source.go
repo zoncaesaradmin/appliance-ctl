@@ -224,7 +224,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, err
 		}
 		owner := runtimeOwners["inference"]
-		if owner == nil || owner.Runtimes["inference"].Engine != selected.Engine || b.Runtimes["inference"] != selected {
+		if owner == nil || owner.Runtimes["inference"].InferenceEngine != selected.InferenceEngine || owner.Runtimes["inference"].Architecture != selected.Architecture || b.Runtimes["inference"] != selected {
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires signed inference package %s", effectiveProfile, selected.Package)
 		}
 		if owner.Compatibility.InferenceVersion == "" || owner.Compatibility.InferenceVersion != compat.InferenceVersion {

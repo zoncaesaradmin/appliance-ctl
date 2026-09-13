@@ -181,7 +181,7 @@ func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
 }
 
 func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtimeconfig.Selection{Package: "std-llm-amd64", Engine: "ollama"})
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtimeconfig.Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) 
 }
 
 func TestInferenceValuesRejectUnsupportedRuntime(t *testing.T) {
-	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "acc-llm-arm64", Engine: "vllm"}, {Package: "std-llm-amd64", Engine: "vllm"}} {
+	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "acc-llm-arm64", InferenceEngine: "vllm", Architecture: "arm64"}, {Package: "std-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64"}} {
 		_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtime)
 		cleanup()
 		if err == nil {

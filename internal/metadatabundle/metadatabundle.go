@@ -156,8 +156,8 @@ func LoadProfileCatalogArchive(archivePath string) (map[string]ProfileDefinition
 }
 
 type PackageDefinition struct {
-	Capabilities    []string `yaml:"capabilities"`
-	InferenceEngine string   `yaml:"inferenceEngine"`
+	Capabilities []string                     `yaml:"capabilities"`
+	Runtime      runtimeconfig.Implementation `yaml:"runtime"`
 }
 
 func LoadPackageCatalogArchive(archivePath string) (map[string]PackageDefinition, error) {
@@ -189,13 +189,13 @@ func ResolvePackage(packages map[string]PackageDefinition, capability, packageID
 		if !provides {
 			continue
 		}
-		if capability == "inference" && (strings.TrimSpace(pkg.InferenceEngine) == "" || strings.TrimSpace(id) == "") {
+		if capability == "inference" && (strings.TrimSpace(pkg.Runtime.InferenceEngine) == "" || strings.TrimSpace(pkg.Runtime.Architecture) == "" || strings.TrimSpace(id) == "") {
 			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: invalid runtime declaration in package %q", id)
 		}
 		if selected.Package != "" {
 			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: capability %s is provided by both %s and %s", capability, selected.Package, id)
 		}
-		selected = runtimeconfig.Selection{Package: id, Engine: pkg.InferenceEngine}
+		selected = runtimeconfig.Selection{Package: id, InferenceEngine: pkg.Runtime.InferenceEngine, Architecture: pkg.Runtime.Architecture}
 	}
 	if selected.Package == "" {
 		return selected, fmt.Errorf("metadatabundle: no package provides capability %s", capability)
