@@ -182,6 +182,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		"releaseId":     "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
+		"runtimes":      map[string]any{"inference": map[string]string{"package": "std-llm-amd64", "engine": "ollama"}},
 		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "artifactServerVersion": "2.1.7", "dnsVersion": "1.14.4", "inferenceVersion": "0.6.5"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
@@ -470,6 +471,8 @@ func installTestImageRefsForArchive(path string) []string {
 	switch filepath.Base(path) {
 	case "coredns.tar":
 		return []string{"docker.io/rancher/mirrored-coredns-coredns:1.11.3"}
+	case "inference-runtime.tar":
+		return []string{"registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
 	case "dns-server.tar":
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 	case "blob-storage.tar":
@@ -1694,5 +1697,92 @@ func TestInstall_RequiresNoNetworkAccess(t *testing.T) {
 
 	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
 		t.Fatalf("expected install to succeed offline, got: %v", err)
+	}
+}
+
+func TestInstall_CPUInferencePreloadsAndConfiguresSharedGateway(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ApplianceProfile = "lanllm"
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+	installed, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed.ApplianceProfile != "lanllm" {
+		t.Fatalf("profile = %q", installed.ApplianceProfile)
+	}
+	if installed.Runtimes["inference"].Package != "std-llm-amd64" || installed.Runtimes["inference"].Engine != "ollama" {
+		t.Fatalf("installed runtimes = %v", installed.Runtimes)
+	}
+	values := fcli.helmValues["appliance-inference"]
+	if !strings.Contains(values, "repository: registry.local/inference-runtime") || !strings.Contains(values, "digest: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") {
+		t.Fatalf("CPU runtime values lack the bundled pin: %s", values)
+	}
+	controlPlane := fcli.helmValues[opts.ChartReleaseName]
+	if !strings.Contains(controlPlane, "inference") || !strings.Contains(controlPlane, "http://inference-gateway.inference.svc.cluster.local:8080") {
+		t.Fatalf("standard inference gateway not configured: %s", controlPlane)
+	}
+	preload := findCallIndex(fcli.calls, func(call string) bool {
+		return strings.Contains(call, "import") && strings.Contains(call, "inference-runtime.tar")
+	})
+	deploy := findCallIndex(fcli.calls, func(call string) bool { return strings.Contains(call, "upgrade --install appliance-inference ") })
+	if preload < 0 || deploy <= preload {
+		t.Fatalf("runtime must preload before Helm: %v", fcli.calls)
+	}
+}
+
+func TestOfflineSourceRejectsWrongSignedInferenceRuntime(t *testing.T) {
+	for _, invalid := range []string{"missing", "engine", "package", "missing-image"} {
+		t.Run(invalid, func(t *testing.T) {
+			dir, _ := buildFixtureBundle(t)
+			path := filepath.Join(dir, "release-manifest.json")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc map[string]any
+			if err := json.Unmarshal(data, &doc); err != nil {
+				t.Fatal(err)
+			}
+			runtime := doc["runtimes"].(map[string]any)["inference"].(map[string]any)
+			switch invalid {
+			case "missing":
+				delete(doc, "runtimes")
+			case "engine":
+				runtime["engine"] = "vllm"
+			case "package":
+				runtime["package"] = "acc-llm-arm64"
+			case "missing-image":
+				var entries []any
+				for _, entry := range doc["entries"].([]any) {
+					if !strings.Contains(entry.(map[string]any)["path"].(string), "inference-runtime") {
+						entries = append(entries, entry)
+					}
+				}
+				doc["entries"] = entries
+			}
+			data, err = json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			public, private, err := ed25519.GenerateKey(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "release-manifest.sig"), ed25519.Sign(private, data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			pub := verify.PublicKey{ID: "release-signing-key", Key: public}
+			_, _, err = (install.OfflineSource{BundleDir: dir, PublicKey: &pub}).Resolve(context.Background(), "lanllm")
+			if err == nil || (!strings.Contains(err.Error(), "inference") && !strings.Contains(err.Error(), "runtime")) {
+				t.Fatalf("invalid signed runtime accepted: %v", err)
+			}
+		})
 	}
 }

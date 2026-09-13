@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/releasebundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/releaseinput"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
@@ -56,6 +57,14 @@ func buildReleaseInputDirForCLI(t *testing.T) string {
 	for rel, content := range files {
 		writeReleaseFixtureFile(t, root, rel, content, 0o640)
 	}
+	metadataPath := filepath.Join(root, "appliance-metadata-bundle-2.4.0.0.tar.zst")
+	if err := metadatabundle.WriteInstallTestArchive(metadataPath, "2.4.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	metadataInfo, err := os.Stat(metadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	digestOf := func(rel string) string {
 		digest, err := verify.Digest(filepath.Join(root, rel))
@@ -91,7 +100,7 @@ func buildReleaseInputDirForCLI(t *testing.T) string {
 			"blobStorageImage":      map[string]any{"path": "blob-storage.oci.tar.zst", "digest": digestOf("blob-storage.oci.tar.zst"), "sizeBytes": len("blob-storage-image"), "imageReference": "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 			"inferenceRuntimeImage": map[string]any{"path": "inference-runtime.oci.tar.zst", "digest": digestOf("inference-runtime.oci.tar.zst"), "sizeBytes": len("inference-image"), "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
 			"inferenceChart":        map[string]any{"path": "appliance-inference-0.6.5.tgz", "digest": digestOf("appliance-inference-0.6.5.tgz"), "sizeBytes": len("inference-chart")},
-			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
+			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": metadataInfo.Size()},
 			"configurationSchema":   map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":         map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
 			"checksums":             map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("checksums")},

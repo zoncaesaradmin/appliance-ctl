@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,7 +38,7 @@ const (
 	PackFoundation  = "foundation"
 	PackDevPlatform = "dev-platform"
 	PackDeviceUser  = "deviceuser"
-	PackInference   = "inference"
+	PackStdLLMAMD64 = "std-llm-amd64"
 )
 
 type Config struct {
@@ -50,7 +52,7 @@ type Config struct {
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
 	// Empty means legacy full bundle (everything). PackFoundation excludes
-	// dev-platform, deviceuser, and inference artifacts.
+	// dev-platform, deviceuser, and the selected inference package artifacts.
 	Pack string `json:"pack,omitempty"`
 }
 
@@ -74,14 +76,15 @@ type manifestEntry struct {
 }
 
 type manifestDoc struct {
-	SchemaVersion int             `json:"schemaVersion"`
-	BundleVersion string          `json:"bundleVersion"`
-	ReleaseID     string          `json:"releaseId"`
-	HostBaseline  HostBaseline    `json:"hostBaseline"`
-	BuiltAt       string          `json:"builtAt"`
-	Compatibility any             `json:"compatibility"`
-	SigningKeyID  string          `json:"signingKeyId"`
-	Entries       []manifestEntry `json:"entries"`
+	Runtimes      map[string]runtimeconfig.Selection `json:"runtimes,omitempty"`
+	SchemaVersion int                                `json:"schemaVersion"`
+	BundleVersion string                             `json:"bundleVersion"`
+	ReleaseID     string                             `json:"releaseId"`
+	HostBaseline  HostBaseline                       `json:"hostBaseline"`
+	BuiltAt       string                             `json:"builtAt"`
+	Compatibility any                                `json:"compatibility"`
+	SigningKeyID  string                             `json:"signingKeyId"`
+	Entries       []manifestEntry                    `json:"entries"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -103,9 +106,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackDevPlatform, PackDeviceUser, PackInference:
+	case "", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLMAMD64:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, or %q", PackFoundation, PackDevPlatform, PackDeviceUser, PackInference)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, or %q", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLMAMD64)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -148,10 +151,10 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	includeFoundationMDNSAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
 	includeDevPlatformAutoAdds := cfg.Pack == "" || cfg.Pack == PackDevPlatform
 	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
-	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackInference
+	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackStdLLMAMD64
 	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackFoundation
-	if cfg.Pack == PackInference {
-		// Inference packs are auto-add only; drop any leftover cfg entries.
+	if cfg.Pack == PackStdLLMAMD64 {
+		// CPU LLM packs are auto-add only; drop any leftover cfg entries.
 		entryByTarget = map[string]EntryConfig{}
 	}
 
@@ -282,12 +285,25 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 	}
 
+	runtimes := map[string]runtimeconfig.Selection{}
 	if includeInferenceAutoAdd {
 		if input.Artifacts.InferenceRuntimeImage.Path == "" || input.Artifacts.InferenceChart.Path == "" {
-			if cfg.Pack == PackInference {
-				return Result{}, fmt.Errorf("releasebundle: inference pack requires release-input inferenceRuntimeImage and inferenceChart")
+			if cfg.Pack == PackStdLLMAMD64 {
+				return Result{}, fmt.Errorf("releasebundle: std-llm-amd64 pack requires release-input inferenceRuntimeImage and inferenceChart")
 			}
 		} else {
+			packages, err := metadatabundle.LoadPackageCatalogArchive(input.Artifacts.MetadataBundle.Path)
+			if err != nil {
+				return Result{}, fmt.Errorf("releasebundle: runtime package metadata: %w", err)
+			}
+			selected, err := metadatabundle.ResolvePackage(packages, "inference", cfg.Pack)
+			if err != nil {
+				return Result{}, err
+			}
+			if err := runtimeconfig.ValidateInference(selected); err != nil {
+				return Result{}, err
+			}
+			runtimes["inference"] = selected
 			inferenceImageTarget := "oci-images/" + filepath.Base(input.Artifacts.InferenceRuntimeImage.Path)
 			if _, exists := entryByTarget[inferenceImageTarget]; !exists {
 				if !isCanonicalInferenceRuntimeReference(input.Artifacts.InferenceRuntimeImage.ImageReference) {
@@ -398,6 +414,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		HostBaseline:  cfg.HostBaseline,
 		BuiltAt:       time.Now().UTC().Format(time.RFC3339),
 		Compatibility: compatibility,
+		Runtimes:      runtimes,
 		SigningKeyID:  cfg.SigningKeyID,
 		Entries:       manifestEntries,
 	}
@@ -674,12 +691,12 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			return fmt.Errorf("releasebundle: deviceuser pack requires the in-cluster host-agent image")
 		}
 		return nil
-	case PackInference:
+	case PackStdLLMAMD64:
 		if counts["chart"] == 0 {
-			return fmt.Errorf("releasebundle: inference pack is missing appliance-inference chart")
+			return fmt.Errorf("releasebundle: std-llm-amd64 pack is missing appliance-inference chart")
 		}
 		if counts["oci-images"] == 0 {
-			return fmt.Errorf("releasebundle: inference pack must include the inference-runtime image")
+			return fmt.Errorf("releasebundle: std-llm-amd64 pack must include the inference-runtime image")
 		}
 		var hasInferenceChart, hasInferenceImage bool
 		for _, entry := range entries {
@@ -692,10 +709,10 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			}
 		}
 		if !hasInferenceChart {
-			return fmt.Errorf("releasebundle: inference pack is missing appliance-inference chart")
+			return fmt.Errorf("releasebundle: std-llm-amd64 pack is missing appliance-inference chart")
 		}
 		if !hasInferenceImage {
-			return fmt.Errorf("releasebundle: inference pack is missing inference-runtime image")
+			return fmt.Errorf("releasebundle: std-llm-amd64 pack is missing inference-runtime image")
 		}
 		return nil
 	}
@@ -737,7 +754,7 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 		return entryIsStorageNetwork(entry) || entryIsBuildWorkflows(entry)
 	case PackDeviceUser:
 		return entryIsDeviceUser(entry)
-	case PackInference:
+	case PackStdLLMAMD64:
 		return entryIsInference(entry)
 	default:
 		return false

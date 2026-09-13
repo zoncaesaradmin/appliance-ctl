@@ -2,6 +2,7 @@ package productconfig
 
 import (
 	"fmt"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -709,12 +710,18 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, dnsZone, nsIPv4 string
 	return tmp.Name(), cleanup, nil
 }
 
-func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string) (string, func(), error) {
+func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string, runtime runtimeconfig.Selection) (string, func(), error) {
+	if err := runtimeconfig.ValidateInference(runtime); err != nil {
+		return "", func() {}, err
+	}
 	if !validInferenceRuntimeImageDigest(inferenceRuntimeImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid inference-runtime image reference %q", inferenceRuntimeImageReference)
 	}
 	values := map[string]any{
 		"namespace": map[string]any{"create": false, "name": "inference"},
+		// The chart currently requires its internal CPU setting. This is fixed
+		// by the supported std-llm-amd64 package and is not a profile selector.
+		"runtime": map[string]any{"variant": "cpu", "engine": runtime.Engine},
 		"image": map[string]any{
 			"repository": "registry.local/inference-runtime",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(inferenceRuntimeImageReference), "registry.local/inference-runtime@"),

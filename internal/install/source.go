@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"fmt"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,6 +22,7 @@ import (
 // Install and Upgrade consume these paths without caring about bundle
 // layout details.
 type Resolved struct {
+	Runtimes            map[string]runtimeconfig.Selection
 	BundleVersion       string
 	ReleaseID           string
 	HostBaseline        bundle.HostBaseline
@@ -97,7 +99,7 @@ type Source interface {
 type OfflineSource struct {
 	BundleDir string
 	// PackDirs are additional signed pack bundle directories (dev-platform,
-	// deviceuser, inference) verified with the same public key and merged into Resolved.
+	// deviceuser, std-llm-amd64) verified with the same public key and merged into Resolved.
 	PackDirs  []string
 	PublicKey *verify.PublicKey
 }
@@ -123,6 +125,10 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	view := mergedBundle{primary: b, packs: packs}
 	compat := mergeCompatibility(b, packs)
+	runtimeOwners, err := runtimeBundleOwners(b, packs)
+	if err != nil {
+		return Resolved{}, checks, err
+	}
 
 	k3sBinaryPath, ok := b.Path("k3s-binary")
 	if !ok {
@@ -203,11 +209,40 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: %w", err)
 		}
 	}
+	runtimes := map[string]runtimeconfig.Selection{}
+	if inferenceEnabled {
+		packages, err := metadatabundle.LoadPackageCatalogArchive(metadataBundleArchivePath)
+		if err != nil {
+			return Resolved{}, checks, err
+		}
+		selectedPackage := b.Runtimes["inference"].Package
+		selected, err := metadatabundle.ResolvePackage(packages, "inference", selectedPackage)
+		if err != nil {
+			return Resolved{}, checks, err
+		}
+		if err := runtimeconfig.ValidateInference(selected); err != nil {
+			return Resolved{}, checks, err
+		}
+		owner := runtimeOwners["inference"]
+		if owner == nil || owner.Runtimes["inference"].Engine != selected.Engine || b.Runtimes["inference"] != selected {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires signed inference package %s", effectiveProfile, selected.Package)
+		}
+		if owner.Compatibility.InferenceVersion == "" || owner.Compatibility.InferenceVersion != compat.InferenceVersion {
+			return Resolved{}, checks, fmt.Errorf("install: inference runtime version is missing or inconsistent across delivery packs")
+		}
+		if _, err := requiredInferenceChartPath(owner); err != nil {
+			return Resolved{}, checks, err
+		}
+		if _, err := requiredInferenceImageReference(owner); err != nil {
+			return Resolved{}, checks, err
+		}
+		runtimes["inference"] = selected
+	}
 	inferenceChartPath := ""
-	if inferenceEnabled && strings.TrimSpace(compat.InferenceVersion) != "" {
+	if inferenceEnabled {
 		inferenceChartPath, err = requiredInferenceChartPath(view)
 		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the inference pack was not provided: %w", effectiveProfile, err)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the std-llm-amd64 pack was not provided: %w", effectiveProfile, err)
 		}
 	}
 	// Foundation always supplies the host-side mDNS daemon and packages. The
@@ -264,15 +299,16 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		}
 	}
 	inferenceImageReference := ""
-	if inferenceEnabled && strings.TrimSpace(compat.InferenceVersion) != "" {
+	if inferenceEnabled {
 		inferenceImageReference, err = requiredInferenceImageReference(view)
 		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the inference pack was not provided: %w", effectiveProfile, err)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the std-llm-amd64 pack was not provided: %w", effectiveProfile, err)
 		}
 	}
 	messageBrokerImageReference := optionalMessageBrokerImageReference(view)
 
 	return Resolved{
+		Runtimes:                           runtimes,
 		BundleVersion:                      b.BundleVersion,
 		ReleaseID:                          b.ReleaseID,
 		HostBaseline:                       b.HostBaseline,
@@ -753,4 +789,23 @@ func (r Resolved) InferenceComponentVersion(version string) string {
 		return version
 	}
 	return ""
+}
+
+// A runtime must be supplied by exactly one signed pack from the same release.
+// Reject duplicate variants even when they share an engine or identical image.
+func runtimeBundleOwners(primary *bundle.Bundle, packs []*bundle.Bundle) (map[string]*bundle.Bundle, error) {
+	owners := map[string]*bundle.Bundle{}
+	all := append([]*bundle.Bundle{primary}, packs...)
+	for _, pack := range all {
+		if len(pack.Runtimes) > 0 && pack.BundleVersion != primary.BundleVersion {
+			return nil, fmt.Errorf("install: runtime pack version %q does not match foundation %q", pack.BundleVersion, primary.BundleVersion)
+		}
+		for capability := range pack.Runtimes {
+			if owners[capability] != nil {
+				return nil, fmt.Errorf("install: multiple delivery packs supply runtime %q; select exactly one variant", capability)
+			}
+			owners[capability] = pack
+		}
+	}
+	return owners, nil
 }

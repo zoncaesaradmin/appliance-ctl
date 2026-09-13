@@ -6,6 +6,7 @@ package metadatabundle
 import (
 	"archive/tar"
 	"fmt"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"io"
 	"os"
 	"path/filepath"
@@ -144,50 +145,112 @@ func LoadProfileCatalogDirectory(dir string) (map[string]ProfileDefinition, erro
 // bundle archive before installation. This avoids a second, code-owned list of
 // profile capability mappings in zonctl.
 func LoadProfileCatalogArchive(archivePath string) (map[string]ProfileDefinition, error) {
+	var catalog profileCatalogFile
+	if err := readCatalogArchive(archivePath, "profiles/catalog.yaml", &catalog); err != nil {
+		return nil, err
+	}
+	if len(catalog.Profiles) == 0 {
+		return nil, fmt.Errorf("metadatabundle: profiles catalog in archive is empty")
+	}
+	return catalog.Profiles, nil
+}
+
+type PackageDefinition struct {
+	Capabilities []string                                `yaml:"capabilities"`
+	Runtimes     map[string]runtimeconfig.Implementation `yaml:"runtimes"`
+}
+
+func LoadPackageCatalogArchive(archivePath string) (map[string]PackageDefinition, error) {
+	var catalog struct {
+		Packages map[string]PackageDefinition `yaml:"packages"`
+	}
+	if err := readCatalogArchive(archivePath, "packages/catalog.yaml", &catalog); err != nil {
+		return nil, err
+	}
+	if len(catalog.Packages) == 0 {
+		return nil, fmt.Errorf("metadatabundle: packages catalog in archive is empty")
+	}
+	return catalog.Packages, nil
+}
+
+// ResolvePackage selects the explicitly selected package that provides a capability.
+// Engine identity is provided by package metadata, never inferred from an image
+// name, host GPU detection, or an unverified operator values file.
+func ResolvePackage(packages map[string]PackageDefinition, capability, packageID string) (runtimeconfig.Selection, error) {
+	var selected runtimeconfig.Selection
+	for id, pkg := range packages {
+		if packageID != "" && id != packageID {
+			continue
+		}
+		runtime, ok := pkg.Runtimes[capability]
+		provides := false
+		for _, c := range pkg.Capabilities {
+			provides = provides || c == capability
+		}
+		if !provides {
+			continue
+		}
+		if !ok || strings.TrimSpace(runtime.Engine) == "" || strings.TrimSpace(id) == "" {
+			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: invalid runtime declaration in package %q", id)
+		}
+		if selected.Package != "" {
+			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: capability %s is provided by both %s and %s", capability, selected.Package, id)
+		}
+		selected = runtimeconfig.Selection{Package: id, Engine: runtime.Engine}
+	}
+	if selected.Package == "" {
+		return selected, fmt.Errorf("metadatabundle: no package provides capability %s", capability)
+	}
+	return selected, nil
+}
+
+func readCatalogArchive(archivePath, catalogPath string, target any) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer f.Close()
 	zr, err := zstd.NewReader(f)
 	if err != nil {
-		return nil, fmt.Errorf("metadatabundle: open archive: %w", err)
+		return fmt.Errorf("metadatabundle: open archive: %w", err)
 	}
 	defer zr.Close()
-
 	tr := tar.NewReader(zr)
+	found := false
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("metadatabundle: read archive: %w", err)
+			return fmt.Errorf("metadatabundle: read archive: %w", err)
 		}
 		name := filepath.ToSlash(filepath.Clean(hdr.Name))
-		if !strings.HasSuffix(name, "/profiles/catalog.yaml") || hdr.Typeflag != tar.TypeReg {
+		if !strings.HasSuffix(name, "/"+catalogPath) || hdr.Typeflag != tar.TypeReg {
 			continue
 		}
+		if found {
+			return fmt.Errorf("metadatabundle: duplicate %s in archive", catalogPath)
+		}
 		if hdr.Size < 0 || hdr.Size > 1024*1024 {
-			return nil, fmt.Errorf("metadatabundle: profiles catalog archive entry has invalid size %d", hdr.Size)
+			return fmt.Errorf("metadatabundle: %s entry has invalid size %d", catalogPath, hdr.Size)
 		}
 		data, err := io.ReadAll(io.LimitReader(tr, hdr.Size+1))
 		if err != nil {
-			return nil, fmt.Errorf("metadatabundle: read profiles catalog from archive: %w", err)
+			return err
 		}
 		if int64(len(data)) != hdr.Size {
-			return nil, fmt.Errorf("metadatabundle: truncated profiles catalog in archive")
+			return fmt.Errorf("metadatabundle: truncated %s in archive", catalogPath)
 		}
-		var catalog profileCatalogFile
-		if err := yaml.Unmarshal(data, &catalog); err != nil {
-			return nil, fmt.Errorf("metadatabundle: parse profiles catalog from archive: %w", err)
+		if err := yaml.Unmarshal(data, target); err != nil {
+			return fmt.Errorf("metadatabundle: parse %s: %w", catalogPath, err)
 		}
-		if len(catalog.Profiles) == 0 {
-			return nil, fmt.Errorf("metadatabundle: profiles catalog in archive is empty")
-		}
-		return catalog.Profiles, nil
+		found = true
 	}
-	return nil, fmt.Errorf("metadatabundle: archive has no profiles/catalog.yaml")
+	if !found {
+		return fmt.Errorf("metadatabundle: archive has no %s", catalogPath)
+	}
+	return nil
 }
 
 // ProfileIDs returns sorted profile ids from profiles/catalog.yaml under dir.

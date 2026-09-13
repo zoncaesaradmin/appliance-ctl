@@ -151,3 +151,16 @@ type denyAllEntitlements struct{}
 func (denyAllEntitlements) IsEntitled(productconfig.ModuleDescriptor, productconfig.EntitlementContext) bool {
 	return false
 }
+
+func TestInferenceModuleRequiresSharedCapability(t *testing.T) {
+	for _, capability := range []productconfig.Capability{"inference", "other"} {
+		catalog := productconfig.ProfileCatalog{
+			"test-inference": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, capability}},
+		}
+		modules := productconfig.ResolveModulesWithCatalog("test-inference", catalog, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+		got := productconfig.ModuleEnabled(modules, productconfig.ModuleNameInferenceRuntime)
+		if got != (capability == productconfig.CapabilityInference) {
+			t.Errorf("capability %q enables inference = %v", capability, got)
+		}
+	}
+}

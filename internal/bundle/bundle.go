@@ -9,6 +9,7 @@ package bundle
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"os"
 	"path/filepath"
 
@@ -56,6 +57,7 @@ type HostBaseline struct {
 // path is guaranteed to exist under RootDir with a digest and size that
 // matched the signed manifest at load time.
 type Bundle struct {
+	Runtimes      map[string]runtimeconfig.Selection
 	RootDir       string
 	BundleVersion string
 	ReleaseID     string
@@ -65,9 +67,10 @@ type Bundle struct {
 }
 
 type manifestDoc struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	BundleVersion string `json:"bundleVersion"`
-	ReleaseID     string `json:"releaseId"`
+	Runtimes      map[string]runtimeconfig.Selection `json:"runtimes"`
+	SchemaVersion int                                `json:"schemaVersion"`
+	BundleVersion string                             `json:"bundleVersion"`
+	ReleaseID     string                             `json:"releaseId"`
 	HostBaseline  struct {
 		OS        string `json:"os"`
 		OSVersion string `json:"osVersion"`
@@ -127,6 +130,7 @@ func Load(rootDir string, pub *verify.PublicKey) (*Bundle, []evidence.Check, err
 	}
 
 	b := &Bundle{
+		Runtimes:      doc.Runtimes,
 		RootDir:       rootDir,
 		BundleVersion: doc.BundleVersion,
 		ReleaseID:     doc.ReleaseID,

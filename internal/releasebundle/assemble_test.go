@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,6 +58,14 @@ func buildReleaseInputDir(t *testing.T) string {
 		writeTestFile(t, root, rel, content, 0o640)
 	}
 
+	metadataPath := filepath.Join(root, "appliance-metadata-bundle-2.4.0.0.tar.zst")
+	if err := metadatabundle.WriteInstallTestArchive(metadataPath, "2.4.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	metadataInfo, err := os.Stat(metadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	digestOf := func(rel string) string {
 		digest, err := verify.Digest(filepath.Join(root, rel))
 		if err != nil {
@@ -91,7 +100,7 @@ func buildReleaseInputDir(t *testing.T) string {
 			"blobStorageImage":      map[string]any{"path": "blob-storage.oci.tar.zst", "digest": digestOf("blob-storage.oci.tar.zst"), "sizeBytes": len("blob-storage-image"), "imageReference": "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 			"inferenceRuntimeImage": map[string]any{"path": "inference-runtime.oci.tar.zst", "digest": digestOf("inference-runtime.oci.tar.zst"), "sizeBytes": len("inference-image"), "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
 			"inferenceChart":        map[string]any{"path": "appliance-inference-0.6.5.tgz", "digest": digestOf("appliance-inference-0.6.5.tgz"), "sizeBytes": len("inference-chart")},
-			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
+			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": metadataInfo.Size()},
 			"configurationSchema":   map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
 			"compatibility":         map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
 			"checksums":             map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("checksums")},
@@ -409,7 +418,7 @@ func TestAssemblePackDeviceUserOnly(t *testing.T) {
 	}
 }
 
-func TestAssemblePackInferenceOnly(t *testing.T) {
+func TestAssemblePackStdLLMAMD64Only(t *testing.T) {
 	releaseInputDir := buildReleaseInputDir(t)
 	staging := t.TempDir()
 	writeTestFile(t, staging, "zonctl", "zonctl-binary", 0o750)
@@ -435,11 +444,11 @@ func TestAssemblePackInferenceOnly(t *testing.T) {
 		SchemaVersion:         1,
 		BundleVersion:         "9.1.0",
 		ReleaseInputDir:       releaseInputDir,
-		BundleDir:             filepath.Join(t.TempDir(), "bundle-inference"),
+		BundleDir:             filepath.Join(t.TempDir(), "bundle-std-llm-amd64"),
 		SigningKeyID:          "release-signing-key",
 		SigningPrivateKeyPath: privateKeyPath,
 		HostBaseline:          releasebundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
-		Pack:                  releasebundle.PackInference,
+		Pack:                  releasebundle.PackStdLLMAMD64,
 		Entries: []releasebundle.EntryConfig{
 			{SourcePath: filepath.Join(staging, "zonctl"), TargetPath: "zonctl", Component: "appliance", Executable: true},
 			{SourcePath: filepath.Join(staging, "k3s"), TargetPath: "k3s/binary/k3s", Component: "k3s-binary", Executable: true},
@@ -451,15 +460,15 @@ func TestAssemblePackInferenceOnly(t *testing.T) {
 
 	result, err := releasebundle.Assemble(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("expected inference pack assembly to succeed, got: %v", err)
+		t.Fatalf("expected std-llm-amd64 pack assembly to succeed, got: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-runtime.oci.tar.zst")); err != nil {
-		t.Fatalf("inference pack must include runtime image: %v", err)
+		t.Fatalf("std-llm-amd64 pack must include runtime image: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "chart", "appliance-inference-0.6.5.tgz")); err != nil {
-		t.Fatalf("inference pack must include inference chart: %v", err)
+		t.Fatalf("std-llm-amd64 pack must include inference chart: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "zonctl")); !os.IsNotExist(err) {
-		t.Fatalf("inference pack must not include foundation appliance binary, stat err=%v", err)
+		t.Fatalf("std-llm-amd64 pack must not include foundation appliance binary, stat err=%v", err)
 	}
 }

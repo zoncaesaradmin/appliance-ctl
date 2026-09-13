@@ -162,6 +162,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		"releaseId":     "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
+		"runtimes":      map[string]any{"inference": map[string]string{"package": "std-llm-amd64", "engine": "ollama"}},
 		"compatibility": map[string]any{
 			"k3sVersion": spec.k3sVersion, "chartVersion": spec.chartVersion,
 			"artifactServerVersion":   "2.1.7",
@@ -1293,4 +1294,52 @@ func helmReleaseNameFromCall(call string) string {
 		}
 	}
 	return ""
+}
+
+func TestUpgrade_RefusesCPUInferenceRemoval(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "lanllm")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := newUpgradeOrchestrator(fake, fcli)
+	opts := env.options("2.4.0")
+	opts.ApplianceProfile = "core"
+	_, _, err := orch.Upgrade(context.Background(), install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}, opts)
+	if err == nil || !strings.Contains(err.Error(), "not supported in place") || !strings.Contains(err.Error(), "inference") {
+		t.Fatalf("expected inference removal refusal, got %v", err)
+	}
+	if len(fake.calls) != 0 || len(fcli.calls) != 0 {
+		t.Fatalf("mutation before refusal: %v %v", fake.calls, fcli.calls)
+	}
+}
+
+func TestUpgrade_CPUInferencePreservesSharedRelease(t *testing.T) {
+	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "lanllm")
+	bundleDir, pub := buildBundle(t, bundleSpec{
+		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
+		supportedSources: []string{"2.3.0"},
+	})
+	fake := &fakeK3s{}
+	fcli := &fakeCLI{}
+	orch := newUpgradeOrchestrator(fake, fcli)
+	opts := env.options("2.4.0")
+	installed, _, err := orch.Upgrade(context.Background(), install.OfflineSource{BundleDir: bundleDir, PublicKey: &pub}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed.ApplianceProfile != "lanllm" {
+		t.Fatalf("profile = %q", installed.ApplianceProfile)
+	}
+	if installed.Runtimes["inference"].Engine != "ollama" {
+		t.Fatalf("runtime not preserved: %v", installed.Runtimes)
+	}
+	if !strings.Contains(fcli.helmValues["appliance-inference"], "repository: registry.local/inference-runtime") {
+		t.Fatalf("missing shared inference release: %v", fcli.helmValues)
+	}
+	if !strings.Contains(fcli.helmValues[opts.ChartReleaseName], "inference") {
+		t.Fatalf("standard capability missing from control-plane values: %s", fcli.helmValues[opts.ChartReleaseName])
+	}
 }

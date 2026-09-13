@@ -190,6 +190,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	targetWorkflows := resolved.WorkflowsEnabled
 	targetDNS := resolved.DNSEnabled
 	targetInference := resolved.InferenceEnabled
+	if previous, ok := installed.Runtimes["inference"]; ok && targetInference && previous != resolved.Runtimes["inference"] {
+		return nil, checks, fmt.Errorf("upgrade: inference package/engine changes require an explicit supported migration")
+	}
 	targetApplications := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplications, resolved.ProfileCatalog)
 	targetBuild := resolved.BuildEnabled
 	targetLANDiscovery := resolved.LANDiscoveryEnabled
@@ -260,7 +263,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
 	if targetInference {
-		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference)
+		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.Runtimes["inference"])
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
@@ -976,6 +979,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		ApplianceProfile:    effectiveProfile,
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
+		Runtimes:            resolved.Runtimes,
 		Components: state.Components{
 			K3sVersion:            resolved.Compatibility.K3sVersion,
 			ChartVersion:          resolved.Compatibility.ChartVersion,

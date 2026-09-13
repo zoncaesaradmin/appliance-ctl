@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 )
 
 func TestSeedHost_ExtractsAndValidatesProfile(t *testing.T) {
@@ -26,5 +27,19 @@ func TestSeedHost_ExtractsAndValidatesProfile(t *testing.T) {
 	}
 	if err := metadatabundle.ValidateProfile(seeded.ExtractedDir, "missing"); err == nil {
 		t.Fatal("expected missing profile to fail")
+	}
+}
+
+func TestResolvePackage(t *testing.T) {
+	packages := map[string]metadatabundle.PackageDefinition{
+		"std-llm-amd64": {Capabilities: []string{"inference"}, Runtimes: map[string]runtimeconfig.Implementation{"inference": {Engine: "ollama"}}},
+	}
+	selected, err := metadatabundle.ResolvePackage(packages, "inference", "std-llm-amd64")
+	if err != nil || selected.Engine != "ollama" || selected.Package != "std-llm-amd64" {
+		t.Fatalf("selection=%+v err=%v", selected, err)
+	}
+	packages["duplicate-cpu"] = packages["std-llm-amd64"]
+	if _, err := metadatabundle.ResolvePackage(packages, "inference", ""); err == nil {
+		t.Fatal("ambiguous inference package accepted")
 	}
 }

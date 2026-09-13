@@ -16,6 +16,27 @@
     "entries"
   ],
   "properties": {
+    "runtimes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "package",
+          "engine"
+        ],
+        "properties": {
+          "package": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "engine": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        }
+      }
+    },
     "schemaVersion": { "const": 1 },
     "bundleVersion": {
       "type": "string",

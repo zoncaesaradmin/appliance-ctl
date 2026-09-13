@@ -1,6 +1,7 @@
 package productconfig_test
 
 import (
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,7 +181,7 @@ func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
 }
 
 func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage)
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtimeconfig.Selection{Package: "std-llm-amd64", Engine: "ollama"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,7 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 	if !strings.Contains(text, "repository: registry.local/inference-runtime") ||
 		!strings.Contains(text, "digest: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") ||
 		!strings.Contains(text, "name: inference") ||
-		!strings.Contains(text, "create: false") {
+		!strings.Contains(text, "create: false") || !strings.Contains(text, "engine: ollama") || !strings.Contains(text, "variant: cpu") {
 		t.Fatalf("unexpected inference values:\n%s", text)
 	}
 	// Chart owns persistence defaults (static hostPath PV+PVC). Installer
@@ -428,5 +429,15 @@ func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) 
 	}
 	if !strings.Contains(string(text), "buildCatalog:") {
 		t.Fatalf("prepared values missing empty buildCatalog:\n%s", text)
+	}
+}
+
+func TestInferenceValuesRejectUnsupportedRuntime(t *testing.T) {
+	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "acc-llm-arm64", Engine: "vllm"}, {Package: "std-llm-amd64", Engine: "vllm"}} {
+		_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtime)
+		cleanup()
+		if err == nil {
+			t.Fatalf("unsupported runtime accepted: %+v", runtime)
+		}
 	}
 }

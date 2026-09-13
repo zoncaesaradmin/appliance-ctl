@@ -279,7 +279,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
 	if resolved.InferenceEnabled {
-		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference)
+		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.Runtimes["inference"])
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
@@ -1189,6 +1189,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ApplianceProfile:    effectiveProfile,
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
+		Runtimes:            resolved.Runtimes,
 		Components: state.Components{
 			K3sVersion:            resolved.Compatibility.K3sVersion,
 			ChartVersion:          resolved.Compatibility.ChartVersion,

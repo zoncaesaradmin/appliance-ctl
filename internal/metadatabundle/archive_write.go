@@ -73,6 +73,7 @@ sections:
   - profiles
   - capabilities
 `, metadataVersion, strings.TrimSuffix(metadataVersion, ".0")),
+		dirName + "/packages/catalog.yaml":     "packages:\n  std-llm-amd64:\n    capabilities: [inference]\n    runtimes:\n      inference: {engine: ollama}\n",
 		dirName + "/profiles/catalog.yaml":     catalog.String(),
 		dirName + "/capabilities/catalog.yaml": installTestCapabilitiesYAML(),
 	}
@@ -124,7 +125,7 @@ func installTestCapabilitiesYAML() string {
     displayName: LAN DNS
     requires: [base, host]
   inference:
-    displayName: Inference
+    displayName: Standard Inference
     requires: [base]
   video:
     displayName: Video

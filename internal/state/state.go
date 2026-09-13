@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"os"
 	"path/filepath"
 	"time"
@@ -53,19 +54,20 @@ type Operation struct {
 // InstalledState is the on-host record of exactly what is installed,
 // matching schemas/installed-state.v1.schema.json.
 type InstalledState struct {
-	SchemaVersion       int          `json:"schemaVersion"`
-	ApplianceInstanceID string       `json:"applianceInstanceId"`
-	InstalledVersion    string       `json:"installedVersion"`
-	InstalledReleaseID  string       `json:"installedReleaseId"`
-	ApplianceProfile    string       `json:"applianceProfile,omitempty"`
-	ApplianceName       string       `json:"applianceName,omitempty"`
-	DNSZone             string       `json:"dnsZone,omitempty"`
-	Components          Components   `json:"components"`
-	K3sOwnership        K3sOwnership `json:"k3sOwnership"`
-	LastOperation       Operation    `json:"lastOperation"`
-	History             []Operation  `json:"history,omitempty"`
-	CreatedAt           time.Time    `json:"createdAt"`
-	UpdatedAt           time.Time    `json:"updatedAt"`
+	Runtimes            map[string]runtimeconfig.Selection `json:"runtimes,omitempty"`
+	SchemaVersion       int                                `json:"schemaVersion"`
+	ApplianceInstanceID string                             `json:"applianceInstanceId"`
+	InstalledVersion    string                             `json:"installedVersion"`
+	InstalledReleaseID  string                             `json:"installedReleaseId"`
+	ApplianceProfile    string                             `json:"applianceProfile,omitempty"`
+	ApplianceName       string                             `json:"applianceName,omitempty"`
+	DNSZone             string                             `json:"dnsZone,omitempty"`
+	Components          Components                         `json:"components"`
+	K3sOwnership        K3sOwnership                       `json:"k3sOwnership"`
+	LastOperation       Operation                          `json:"lastOperation"`
+	History             []Operation                        `json:"history,omitempty"`
+	CreatedAt           time.Time                          `json:"createdAt"`
+	UpdatedAt           time.Time                          `json:"updatedAt"`
 }
 
 // Load reads and schema-validates the installed-state record at path. It

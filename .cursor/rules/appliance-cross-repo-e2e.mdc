@@ -21,7 +21,7 @@ Runtime:             config.*ImageDigest == digest pin → workflow pod image (I
 ```
 
 Names today (product packs): `workspace-provisioner` (build-workflows pack),
-`artifact-server`, `coredns` (base), `inference-runtime` (inference pack).
+`artifact-server`, `coredns` (base), `inference-runtime` (cpu-llm pack).
 `dev-build` is **build-host tooling only** and is not packaged into product packs.
 Operator build catalogs use explicit digest-pinned builder images.
 
