@@ -68,10 +68,26 @@ func EnsureMDNSEnabled(ctx context.Context, socketPath, applianceName string) er
 	if err := client.WaitReady(ctx, readyTimeout); err != nil {
 		return err
 	}
-	if _, err := client.ApplyMDNS(ctx, MDNSApplyRequest{Desired: true, ApplianceName: applianceName}); err != nil {
-		return fmt.Errorf("hostagent: enable appliance mDNS: %w", err)
+	var status MDNSStatus
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		status, err = client.ApplyMDNS(ctx, MDNSApplyRequest{Desired: true, ApplianceName: applianceName})
+		if err != nil {
+			return fmt.Errorf("hostagent: enable appliance mDNS: %w", err)
+		}
+		if status.Actual == "active" {
+			return nil
+		}
+		// Avahi can briefly report inactive while systemd finishes bringing up
+		// the network-bound service. Retry before declaring installation failed.
+		if attempt < 3 {
+			time.Sleep(time.Second)
+		}
 	}
-	return nil
+	// The host-agent API returns a status body for service-start failures so
+	// callers can inspect the reason. Installation must not treat desired=true
+	// as success while avahi-daemon is still inactive.
+	return fmt.Errorf("hostagent: enable appliance mDNS: %s (%s)", status.Message, status.Reason)
 }
 
 // EnsureMDNSDisabled turns off only mDNS. Upgrades use it when a target
