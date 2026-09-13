@@ -33,11 +33,10 @@ type EntryConfig struct {
 }
 
 const (
-	PackFoundation     = "foundation"
-	PackBuildWorkflows = "build-workflows"
-	PackStorageNetwork = "storage-network"
-	PackDeviceUser     = "deviceuser"
-	PackInference      = "inference"
+	PackFoundation  = "foundation"
+	PackDevPlatform = "dev-platform"
+	PackDeviceUser  = "deviceuser"
+	PackInference   = "inference"
 )
 
 type Config struct {
@@ -51,7 +50,7 @@ type Config struct {
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
 	// Empty means legacy full bundle (everything). PackFoundation excludes
-	// build-workflows, deviceuser, and inference artifacts.
+	// dev-platform, deviceuser, and inference artifacts.
 	Pack string `json:"pack,omitempty"`
 }
 
@@ -104,9 +103,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackStorageNetwork, PackBuildWorkflows, PackDeviceUser, PackInference:
+	case "", PackFoundation, PackDevPlatform, PackDeviceUser, PackInference:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, or %q", PackFoundation, PackStorageNetwork, PackBuildWorkflows, PackDeviceUser, PackInference)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, or %q", PackFoundation, PackDevPlatform, PackDeviceUser, PackInference)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -146,7 +145,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
-	includeStorageNetworkAutoAdds := cfg.Pack == "" || cfg.Pack == PackStorageNetwork
+	includeDevPlatformAutoAdds := cfg.Pack == "" || cfg.Pack == PackDevPlatform
 	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
 	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackInference
 	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackFoundation
@@ -192,7 +191,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 	}
 
-	if includeStorageNetworkAutoAdds {
+	if includeDevPlatformAutoAdds {
 		artifactServerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ArtifactServerImage.Path)
 		if _, exists := entryByTarget[artifactServerImageTarget]; !exists {
 			if !isCanonicalArtifactServerReference(input.Artifacts.ArtifactServerImage.ImageReference) {
@@ -622,7 +621,7 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		counts[entry.Component]++
 	}
 	switch pack {
-	case PackStorageNetwork:
+	case PackDevPlatform:
 		var registryImage, dnsImage, registryChart, dnsChart bool
 		for _, entry := range entries {
 			registryImage = registryImage || (entry.Component == "oci-images" && isCanonicalArtifactServerReference(entry.ImageReference))
@@ -632,18 +631,16 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			dnsChart = dnsChart || (entry.Component == "chart" && strings.HasPrefix(base, "appliance-dns-"))
 		}
 		if !registryImage || !dnsImage || !registryChart || !dnsChart {
-			return fmt.Errorf("releasebundle: storage-network delivery pack requires Artifact Server and CoreDNS images and charts")
+			return fmt.Errorf("releasebundle: dev-platform pack requires Artifact Server and CoreDNS images and charts")
 		}
-		return nil
-	case PackBuildWorkflows:
 		if counts["chart"] == 0 {
-			return fmt.Errorf("releasebundle: build-workflows pack is missing a workflows chart")
+			return fmt.Errorf("releasebundle: dev-platform pack is missing a workflows chart")
 		}
 		if counts["kubernetes-crds"] == 0 {
-			return fmt.Errorf("releasebundle: build-workflows pack is missing kubernetes-crds")
+			return fmt.Errorf("releasebundle: dev-platform pack is missing kubernetes-crds")
 		}
 		if counts["oci-images"] == 0 {
-			return fmt.Errorf("releasebundle: build-workflows pack must include at least one oci-images archive")
+			return fmt.Errorf("releasebundle: dev-platform pack must include at least one oci-images archive")
 		}
 		var hasWorkflowsChart bool
 		for _, entry := range entries {
@@ -657,7 +654,7 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			}
 		}
 		if !hasWorkflowsChart {
-			return fmt.Errorf("releasebundle: build-workflows pack is missing a workflows chart")
+			return fmt.Errorf("releasebundle: dev-platform pack is missing a workflows chart")
 		}
 		return nil
 	case PackDeviceUser:
@@ -726,10 +723,8 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 		return true
 	case PackFoundation:
 		return !entryIsStorageNetwork(entry) && !entryIsBuildWorkflows(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry)
-	case PackStorageNetwork:
-		return entryIsStorageNetwork(entry)
-	case PackBuildWorkflows:
-		return entryIsBuildWorkflows(entry)
+	case PackDevPlatform:
+		return entryIsStorageNetwork(entry) || entryIsBuildWorkflows(entry)
 	case PackDeviceUser:
 		return entryIsDeviceUser(entry)
 	case PackInference:
