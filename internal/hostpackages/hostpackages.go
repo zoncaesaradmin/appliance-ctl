@@ -298,7 +298,7 @@ func isServiceEnabled(name string) (bool, error) {
 		return strings.TrimSpace(out) == "enabled", nil
 	}
 	text := err.Error()
-	if strings.Contains(text, "disabled") || strings.Contains(text, "static") || strings.Contains(text, "indirect") || strings.Contains(text, "not-found") || strings.Contains(text, "No such file") {
+	if strings.Contains(text, "disabled") || strings.Contains(text, "static") || strings.Contains(text, "indirect") || strings.Contains(text, "masked") || strings.Contains(text, "not-found") || strings.Contains(text, "No such file") {
 		return false, nil
 	}
 	return false, fmt.Errorf("hostpackages: systemctl is-enabled %s: %w", name, err)
