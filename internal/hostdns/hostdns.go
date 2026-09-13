@@ -512,6 +512,12 @@ func uniqueHostNames(hostname string, aliases []string) []string {
 		if strings.HasSuffix(strings.ToLower(strings.TrimSuffix(strings.TrimSpace(alias), ".")), ".local") {
 			continue
 		}
+		// manage.ap belongs exclusively to the Wi-Fi AP's private management
+		// network. It must resolve through the AP's DHCP/DNS path to 10.42.0.1,
+		// never as a static alias for the appliance LAN address.
+		if strings.EqualFold(strings.TrimSuffix(strings.TrimSpace(alias), "."), "manage.ap") {
+			continue
+		}
 		add(alias)
 	}
 	return out
