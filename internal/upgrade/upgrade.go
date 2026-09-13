@@ -525,8 +525,13 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				return func() error { return nil }, nil
 			}
 		}
+		serviceName := ""
+		if targetLANDiscovery {
+			serviceName = hostpackages.MDNSServiceName
+		}
 		hostPackagesRollback, err = installHostPackages(hostpackages.InstallSpec{
 			RootDir: resolved.HostPackagesRootDir, OS: facts.OS, OSVersion: facts.OSVersion, Arch: facts.Arch,
+			ServiceName: serviceName,
 		})
 		if err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install host packages: %w", err), rollback)

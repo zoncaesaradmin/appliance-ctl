@@ -36,6 +36,7 @@ var (
 	startService        = systemctlStart
 	stopService         = systemctlStop
 	restartService      = systemctlRestart
+	unmaskService       = systemctlUnmask
 	debPackageName      = packageNameFromDeb
 )
 
@@ -78,10 +79,10 @@ var stockDaemonUnitsToQuiesce = []string{
 // Packages are installed at product install / upgrade time so day-2 Enable can
 // start services without dpkg/apt.
 //
-// When ServiceName is empty (normal install path), no feature service is
-// enabled or started — only packages land and stock postinst-started units
-// (avahi, hostapd, dnsmasq) are stopped/disabled/masked until Admin API
-// desired=true.
+// When ServiceName is empty, no feature service is enabled or started — only
+// packages land and stock postinst-started units (avahi, hostapd, dnsmasq)
+// are stopped/disabled/masked. A selected service is explicitly unmasked
+// before enable/restart so a pre-existing systemd mask cannot block install.
 func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	serviceName := strings.TrimSpace(spec.ServiceName)
 	packageDir, err := ResolvePackageDir(spec.RootDir, spec.OS, spec.OSVersion, spec.Arch)
@@ -178,6 +179,10 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 		return nil, err
 	}
 	if serviceName != "" {
+		if err := unmaskService(serviceName); err != nil {
+			_ = rollback()
+			return nil, err
+		}
 		if err := enableService(serviceName); err != nil {
 			_ = rollback()
 			return nil, err
@@ -192,8 +197,8 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 
 // QuiesceStockDaemonUnits stops, disables, and masks stock avahi/hostapd/dnsmasq
 // units so package install does not leave mDNS or Wi-Fi AP "on", and stock
-// dnsmasq cannot block appliance-dns. Day-2 enable via host-agent unmasks and
-// starts the units it needs. Missing units are ignored.
+// dnsmasq cannot block appliance-dns. A selected service is unmasked by
+// InstallRequiredPackages after this reset. Missing units are ignored.
 func QuiesceStockDaemonUnits() error {
 	var errs []error
 	for _, unit := range stockDaemonUnitsToQuiesce {
@@ -347,6 +352,14 @@ func systemctlRestart(name string) error {
 	_, err := runCommand("systemctl", "restart", name)
 	if err != nil {
 		return fmt.Errorf("hostpackages: restart %s: %w", name, err)
+	}
+	return nil
+}
+
+func systemctlUnmask(name string) error {
+	_, err := runCommand("systemctl", "unmask", name)
+	if err != nil && !missingUnitError(err) {
+		return fmt.Errorf("hostpackages: unmask %s: %w", name, err)
 	}
 	return nil
 }

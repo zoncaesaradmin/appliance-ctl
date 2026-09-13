@@ -658,7 +658,7 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 }
 
-func TestInstall_StagesHostPackagesWithoutEnablingServices(t *testing.T) {
+func TestInstall_StagesHostPackagesAndManagesMDNSForLANDiscovery(t *testing.T) {
 	dir, pub := buildFixtureBundleWithOptions(t, false, true)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "storage-landns"
@@ -679,8 +679,8 @@ func TestInstall_StagesHostPackagesWithoutEnablingServices(t *testing.T) {
 		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
 			packagesCalled = true
 			gotSpec = spec
-			if spec.ServiceName != "" {
-				t.Fatalf("package staging must not enable a service, got %q", spec.ServiceName)
+			if spec.ServiceName != hostpackages.MDNSServiceName {
+				t.Fatalf("lan-discovery install must manage mDNS service, got %q", spec.ServiceName)
 			}
 			return func() error { return nil }, nil
 		},
@@ -700,28 +700,20 @@ func TestInstall_StagesHostPackagesWithoutEnablingServices(t *testing.T) {
 	if gotSpec.RootDir != wantRoot {
 		t.Fatalf("InstallHostPackages root = %q, want %q", gotSpec.RootDir, wantRoot)
 	}
-	var sawPackages, sawWifi, sawMDNS bool
+	var sawPackages, sawWifi bool
 	for _, check := range checks {
 		switch check.ID {
 		case "host-packages-installed":
 			sawPackages = true
-			if strings.Contains(check.Message, "enabled avahi") {
-				t.Fatalf("install must not enable mDNS: %q", check.Message)
-			}
-		case "host-wifi-ap-applied", "host-mdns-installed":
-			if check.ID == "host-wifi-ap-applied" {
-				sawWifi = true
-			}
-			if check.ID == "host-mdns-installed" {
-				sawMDNS = true
-			}
+		case "host-wifi-ap-applied":
+			sawWifi = true
 		}
 	}
 	if !sawPackages {
 		t.Fatal("expected host-packages-installed evidence")
 	}
-	if sawWifi || sawMDNS {
-		t.Fatal("install must not enable mDNS, client Wi-Fi, or Wi-Fi AP (day-2 API only)")
+	if sawWifi {
+		t.Fatal("install must not enable client Wi-Fi or Wi-Fi AP")
 	}
 }
 
@@ -798,8 +790,8 @@ func TestInstall_InstallsHostPackagesForHostCapableProfile(t *testing.T) {
 		},
 		InstallHostPackages: func(spec hostpackages.InstallSpec) (func() error, error) {
 			called = true
-			if spec.ServiceName != "" {
-				t.Fatalf("host-capable install must not enable services, ServiceName=%q", spec.ServiceName)
+			if spec.ServiceName != hostpackages.MDNSServiceName {
+				t.Fatalf("lan-discovery install must manage mDNS service, ServiceName=%q", spec.ServiceName)
 			}
 			if !strings.Contains(spec.RootDir, "host-packages") {
 				t.Fatalf("RootDir = %q", spec.RootDir)
@@ -815,7 +807,7 @@ func TestInstall_InstallsHostPackagesForHostCapableProfile(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 	if !called {
-		t.Fatal("host-capable profile must install host packages (mdns+wifi-client+wifi-ap debs) without enabling services")
+		t.Fatal("host-capable profile must install host packages and manage mDNS (Wi-Fi services remain off)")
 	}
 	var saw bool
 	for _, check := range checks {
@@ -855,8 +847,8 @@ func TestInstall_InstallsBundledHostPackages(t *testing.T) {
 			if spec.OS != "ubuntu" || spec.OSVersion != "24.04" || spec.Arch != "amd64" {
 				t.Fatalf("unexpected host package spec: %+v", spec)
 			}
-			if spec.ServiceName != "" {
-				t.Fatalf("ServiceName = %q, want empty (no enable at install)", spec.ServiceName)
+			if spec.ServiceName != hostpackages.MDNSServiceName {
+				t.Fatalf("ServiceName = %q, want %q", spec.ServiceName, hostpackages.MDNSServiceName)
 			}
 			return func() error { return nil }, nil
 		},

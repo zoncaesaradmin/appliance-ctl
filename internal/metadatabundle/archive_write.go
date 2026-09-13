@@ -17,17 +17,17 @@ import (
 // install/upgrade fixtures.
 func InstallTestProfileCatalog() map[string][]string {
 	return map[string][]string{
-		"core":                          {"base", "files"},
-		"builder":                       {"base", "host", "files", "workflows", "build", "artifact"},
-		"storage":                       {"base", "host", "files", "artifact"},
-		"landns":                        {"base", "host", "files", "dns"},
-		"storage-landns":                {"base", "host", "files", "artifact", "dns"},
-		"builder-landns":                {"base", "host", "files", "workflows", "build", "artifact", "dns"},
-		"builder-storage-landns":        {"base", "host", "files", "workflows", "build", "artifact", "dns"},
-		"lanllm":                        {"base", "inference"},
-		"builder-lanllm":                {"base", "host", "files", "workflows", "build", "artifact", "inference"},
-		"builder-lanllm-storage-landns": {"base", "host", "files", "workflows", "build", "artifact", "dns", "inference"},
-		"training":                      {"base", "files", "video", "plaintext-http"},
+		"core":                          {"base", "lan-discovery", "files"},
+		"builder":                       {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact"},
+		"storage":                       {"base", "lan-discovery", "host", "files", "artifact"},
+		"landns":                        {"base", "lan-discovery", "host", "files", "dns"},
+		"storage-landns":                {"base", "lan-discovery", "host", "files", "artifact", "dns"},
+		"builder-landns":                {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns"},
+		"builder-storage-landns":        {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns"},
+		"lanllm":                        {"base", "lan-discovery", "inference"},
+		"builder-lanllm":                {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact", "inference"},
+		"builder-lanllm-storage-landns": {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns", "inference"},
+		"training":                      {"base", "lan-discovery", "files", "video", "plaintext-http"},
 	}
 }
 

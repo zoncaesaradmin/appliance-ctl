@@ -483,8 +483,13 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 				return func() error { return nil }, nil
 			}
 		}
+		serviceName := ""
+		if resolved.LANDiscoveryEnabled {
+			serviceName = hostpackages.MDNSServiceName
+		}
 		hostPackagesRollback, err := installHostPackages(hostpackages.InstallSpec{
 			RootDir: resolved.HostPackagesRootDir, OS: facts.OS, OSVersion: facts.OSVersion, Arch: facts.Arch,
+			ServiceName: serviceName,
 		})
 		if err != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: install host packages: %w", err), runRollbacks())
