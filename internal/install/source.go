@@ -21,20 +21,21 @@ import (
 // Install and Upgrade consume these paths without caring about bundle
 // layout details.
 type Resolved struct {
-	BundleVersion    string
-	ReleaseID        string
-	HostBaseline     bundle.HostBaseline
-	Compatibility    bundle.Compatibility
-	EffectiveProfile string
-	ProfileCatalog   productconfig.ProfileCatalog
-	HostEnabled      bool
-	FilesEnabled     bool
-	ArtifactEnabled  bool
-	DNSEnabled       bool
-	InferenceEnabled bool
-	BuildEnabled     bool
-	WorkflowsEnabled bool
-	ZonctlBinaryPath string
+	BundleVersion       string
+	ReleaseID           string
+	HostBaseline        bundle.HostBaseline
+	Compatibility       bundle.Compatibility
+	EffectiveProfile    string
+	ProfileCatalog      productconfig.ProfileCatalog
+	LANDiscoveryEnabled bool
+	HostEnabled         bool
+	FilesEnabled        bool
+	ArtifactEnabled     bool
+	DNSEnabled          bool
+	InferenceEnabled    bool
+	BuildEnabled        bool
+	WorkflowsEnabled    bool
+	ZonctlBinaryPath    string
 	// HelperBinaryPaths are durable host tools (currently helm) installed
 	// next to zonctl-real so status/verify work without the temp bundle PATH.
 	HelperBinaryPaths []string
@@ -161,6 +162,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, profileCatalog, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	applicationsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplications, profileCatalog)
+	lanDiscoveryEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityLANDiscovery, profileCatalog)
 	// Direct application endpoints require the same deviceuser host-agent
 	// boundary as Wi-Fi and host details, even when the profile omits the
 	// user-facing host capability.
@@ -208,19 +210,16 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the inference pack was not provided: %w", effectiveProfile, err)
 		}
 	}
-	hostAgentBinaryPath := ""
-	if hostEnabled {
-		hostAgentBinaryPath, err = applianceBinaryPath(view, "appliance-host-agentd")
-		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: %w", err)
-		}
+	// Foundation always supplies the host-side mDNS daemon and packages. The
+	// lan-discovery capability controls activation; host still controls host
+	// APIs and the in-cluster host-agent image.
+	hostAgentBinaryPath, err := applianceBinaryPath(view, "appliance-host-agentd")
+	if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: foundation mDNS requires host agent daemon: %w", err)
 	}
-	hostPackagesRootDir := ""
-	if hostEnabled {
-		hostPackagesRootDir = componentRootDir(view, "host-packages")
-		if hostPackagesRootDir == "" {
-			return Resolved{}, checks, fmt.Errorf("install: host capability requires the deviceuser pack with host-packages (mdns + wifi-client + wifi-ap offline debs for day-2 enablement)")
-		}
+	hostPackagesRootDir := componentRootDir(view, "host-packages")
+	if hostPackagesRootDir == "" {
+		return Resolved{}, checks, fmt.Errorf("install: foundation mDNS requires host-packages")
 	}
 	messageBrokerChartPath := optionalMessageBrokerChartPath(view)
 
@@ -280,6 +279,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		Compatibility:                      compat,
 		EffectiveProfile:                   effectiveProfile,
 		ProfileCatalog:                     profileCatalog,
+		LANDiscoveryEnabled:                lanDiscoveryEnabled,
 		HostEnabled:                        hostEnabled,
 		FilesEnabled:                       filesEnabled,
 		ArtifactEnabled:                    artifactEnabled,

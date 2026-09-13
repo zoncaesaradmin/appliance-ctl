@@ -506,6 +506,12 @@ func uniqueHostNames(hostname string, aliases []string) []string {
 	}
 	add(hostname)
 	for _, alias := range aliases {
+		// .local belongs to mDNS. The appliance advertises exactly one such
+		// name through Avahi: <appliance-name>.local. Do not make stale node
+		// names appear as managed unicast /etc/hosts aliases.
+		if strings.HasSuffix(strings.ToLower(strings.TrimSuffix(strings.TrimSpace(alias), ".")), ".local") {
+			continue
+		}
 		add(alias)
 	}
 	return out

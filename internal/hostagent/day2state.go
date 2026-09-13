@@ -53,7 +53,7 @@ func EnsureDay2FeaturesDisabled(ctx context.Context, socketPath string) error {
 // host-agent installation. Wi-Fi modes remain explicitly opt-in; mDNS is the
 // low-friction local discovery baseline needed by appliance and reviewed app
 // host names such as jellyfin.local.
-func EnsureMDNSEnabled(ctx context.Context, socketPath string) error {
+func EnsureMDNSEnabled(ctx context.Context, socketPath, applianceName string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -68,9 +68,32 @@ func EnsureMDNSEnabled(ctx context.Context, socketPath string) error {
 	if err := client.WaitReady(ctx, readyTimeout); err != nil {
 		return err
 	}
-	if _, err := client.ApplyMDNS(ctx, MDNSApplyRequest{Desired: true}); err != nil {
-		return fmt.Errorf("hostagent: enable default mdns: %w", err)
+	if _, err := client.ApplyMDNS(ctx, MDNSApplyRequest{Desired: true, ApplianceName: applianceName}); err != nil {
+		return fmt.Errorf("hostagent: enable appliance mDNS: %w", err)
 	}
+	return nil
+}
+
+// EnsureMDNSDisabled turns off only mDNS. Upgrades use it when a target
+// appliance profile omits lan-discovery, without changing operator-managed
+// Wi-Fi settings.
+func EnsureMDNSDisabled(ctx context.Context, socketPath string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !testingShortSocketPath(socketPath) {
+		client := NewClient(socketPath)
+		if err := client.WaitReady(ctx, 20*time.Second); err != nil {
+			return err
+		}
+		if _, err := client.ApplyMDNS(ctx, MDNSApplyRequest{Desired: false}); err != nil {
+			return fmt.Errorf("hostagent: disable mdns: %w", err)
+		}
+	}
+	if err := clearDay2Paths([]string{DefaultMDNSStateDir}); err != nil {
+		return err
+	}
+	bestEffortStopMDNS(ctx)
 	return nil
 }
 
@@ -162,7 +185,8 @@ func bestEffortStopWifiProcesses() {
 
 // MDNSApplyRequest is the body for day-2 apply of host mDNS.
 type MDNSApplyRequest struct {
-	Desired bool `json:"desired"`
+	Desired       bool   `json:"desired"`
+	ApplianceName string `json:"applianceName,omitempty"`
 }
 
 // MDNSStatus is the status JSON for host mDNS (no secrets).

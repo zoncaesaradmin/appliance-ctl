@@ -170,9 +170,9 @@ type Orchestrator struct {
 	// stale mDNS state) after host-agent install. Nil uses
 	// hostagent.EnsureDay2FeaturesDisabled.
 	EnsureDay2FeaturesDisabled func(context.Context, string) error
-	// EnsureMDNSEnabled enables the appliance's default local discovery service
-	// after the host agent is ready. Wi-Fi modes remain disabled.
-	EnsureMDNSEnabled func(context.Context, string) error
+	// EnsureMDNSEnabled enables mDNS when the selected appliance profile has
+	// the lan-discovery capability. Wi-Fi modes remain disabled.
+	EnsureMDNSEnabled func(context.Context, string, string) error
 }
 
 // NewOrchestrator wires an Orchestrator to the real K3s, ctr, helm/kubectl,
@@ -459,11 +459,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if baselineCheck.Status != evidence.StatusPass {
 		return nil, checks, failInstall(fmt.Errorf("install: target host does not match the signed bundle baseline"), runRollbacks())
 	}
-	if resolved.HostEnabled {
-		// Stage offline host packages with the deviceuser pack so day-2 host
-		// operations never need apt. Services remain disabled until enabled by API.
+	{
+		// Foundation stages host packages that support mDNS. The lan-discovery
+		// capability controls activation. Wi-Fi services remain disabled unless
+		// their host APIs are enabled by a profile that includes host.
 		if resolved.HostPackagesRootDir == "" {
-			return nil, checks, failInstall(fmt.Errorf("install: host capability requires deviceuser host-packages (mdns + wifi-client + wifi-ap)"), runRollbacks())
+			return nil, checks, failInstall(fmt.Errorf("install: foundation mDNS requires host-packages"), runRollbacks())
 		}
 		installHostPackages := o.InstallHostPackages
 		if installHostPackages == nil {
@@ -480,7 +481,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		rollbacks = append(rollbacks, hostPackagesRollback)
 		checks = append(checks, evidence.Check{
 			ID: "host-packages-installed", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("installed offline host packages from %s for day-2 mDNS, client Wi-Fi, and Wi-Fi AP (services remain off until enabled via API)", resolved.HostPackagesRootDir),
+			Message:   fmt.Sprintf("installed offline host packages from %s for foundation mDNS; Wi-Fi services remain off until enabled via host APIs", resolved.HostPackagesRootDir),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
@@ -730,7 +731,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	if resolved.HostEnabled {
+	{
 		installHostAgent := o.InstallHostAgent
 		if installHostAgent == nil {
 			installHostAgent = func(hostagent.InstallSpec) (func() error, error) {
@@ -755,7 +756,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 		// Reset optional Wi-Fi modes and stale host state. mDNS is then enabled
-		// below as the appliance's default local-discovery service.
+		// only when the selected profile declares lan-discovery.
 		ensureDay2Off := o.EnsureDay2FeaturesDisabled
 		if ensureDay2Off == nil {
 			ensureDay2Off = hostagent.EnsureDay2FeaturesDisabled
@@ -768,18 +769,26 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Message:   "host client Wi-Fi and Wi-Fi AP disabled (enable via Admin UI after first admin login)",
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
-		enableMDNS := o.EnsureMDNSEnabled
-		if enableMDNS == nil {
-			enableMDNS = hostagent.EnsureMDNSEnabled
+		if resolved.LANDiscoveryEnabled {
+			enableMDNS := o.EnsureMDNSEnabled
+			if enableMDNS == nil {
+				enableMDNS = hostagent.EnsureMDNSEnabled
+			}
+			if err := enableMDNS(ctx, opts.HostAgentSocketPath, identity.Name); err != nil {
+				return nil, checks, failInstall(fmt.Errorf("install: enable lan-discovery mDNS: %w", err), runRollbacks())
+			}
+			checks = append(checks, evidence.Check{
+				ID: "host-mdns-enabled", Category: "host", Status: evidence.StatusPass,
+				Message:   "lan-discovery mDNS enabled for appliance discovery",
+				Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+			})
+		} else {
+			checks = append(checks, evidence.Check{
+				ID: "host-mdns-disabled", Category: "host", Status: evidence.StatusPass,
+				Message:   "lan-discovery capability is not enabled; host mDNS remains disabled",
+				Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+			})
 		}
-		if err := enableMDNS(ctx, opts.HostAgentSocketPath); err != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: enable default host mdns: %w", err), runRollbacks())
-		}
-		checks = append(checks, evidence.Check{
-			ID: "host-mdns-enabled", Category: "host", Status: evidence.StatusPass,
-			Message:   "host mDNS enabled by default for appliance and reviewed application discovery",
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
 	}
 
 	clusterRun := o.ClusterRun

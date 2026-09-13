@@ -818,7 +818,7 @@ func TestInstall_InstallsHostPackagesForHostCapableProfile(t *testing.T) {
 	for _, check := range checks {
 		if check.ID == "host-packages-installed" {
 			saw = true
-			if !strings.Contains(check.Message, "day-2") {
+			if !strings.Contains(check.Message, "foundation mDNS") {
 				t.Fatalf("unexpected evidence message: %q", check.Message)
 			}
 		}

@@ -7,6 +7,8 @@ func TestDeliveryPacksAreDisjoint(t *testing.T) {
 		entry EntryConfig
 		pack  string
 	}{
+		{EntryConfig{Component: "appliance", TargetPath: "bin/appliance-host-agentd"}, PackFoundation},
+		{EntryConfig{Component: "host-packages", TargetPath: "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb"}, PackFoundation},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/artifact-server@sha256:pin"}, PackDevPlatform},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/coredns@sha256:pin"}, PackDevPlatform},
 		{EntryConfig{Component: "chart", TargetPath: "chart/appliance-registry-1.tgz"}, PackDevPlatform},

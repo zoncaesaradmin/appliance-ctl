@@ -341,7 +341,6 @@ func TestAssemblePackFoundationExcludesWorkflowAndInference(t *testing.T) {
 	}
 	for _, path := range []string{
 		"oci-images/appliance-host-agent.oci.tar.zst",
-		"bin/appliance-host-agentd",
 		"oci-images/artifact-server.oci.tar.zst",
 		"chart/appliance-registry-2.1.7.tgz",
 		"oci-images/coredns.oci.tar.zst",
@@ -349,6 +348,14 @@ func TestAssemblePackFoundationExcludesWorkflowAndInference(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join(result.BundleDir, path)); !os.IsNotExist(err) {
 			t.Fatalf("foundation pack must exclude %s, stat err=%v", path, err)
+		}
+	}
+	for _, path := range []string{
+		"bin/appliance-host-agentd",
+		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb",
+	} {
+		if _, err := os.Stat(filepath.Join(result.BundleDir, path)); err != nil {
+			t.Fatalf("foundation pack must include mDNS support %s: %v", path, err)
 		}
 	}
 }
@@ -392,8 +399,6 @@ func TestAssemblePackDeviceUserOnly(t *testing.T) {
 	for _, path := range []string{
 		"oci-images/appliance-host-agent.oci.tar.zst",
 		"oci-images/jellyfin.oci.tar.zst",
-		"bin/appliance-host-agentd",
-		"host-packages/ubuntu/24.04/amd64/avahi-daemon.deb",
 	} {
 		if _, err := os.Stat(filepath.Join(result.BundleDir, path)); err != nil {
 			t.Fatalf("deviceuser pack must include %s: %v", path, err)

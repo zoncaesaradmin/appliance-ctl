@@ -17,7 +17,7 @@ func TestEnsureHostsEntry_IdempotentAndReplaceable(t *testing.T) {
 	HostsPath = hosts
 	t.Cleanup(func() { HostsPath = prev })
 
-	wrote, err := ensureHostsEntry("zonsyssrv1", "192.168.1.101", []string{"zonsyssrv1.example.com", "192.0.2.1", "zonsyssrv1"})
+	wrote, err := ensureHostsEntry("zonsyssrv1", "192.168.1.101", []string{"zonsyssrv1.example.com", "zonsyssrv1.local", "192.0.2.1", "zonsyssrv1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,6 +31,9 @@ func TestEnsureHostsEntry_IdempotentAndReplaceable(t *testing.T) {
 	text := string(data)
 	if !strings.Contains(text, hostsBeginMarker) || !strings.Contains(text, "192.168.1.101 zonsyssrv1 zonsyssrv1.example.com") {
 		t.Fatalf("unexpected hosts content:\n%s", text)
+	}
+	if strings.Contains(text, "zonsyssrv1.local") {
+		t.Fatalf("managed hosts block must not add a node .local alias:\n%s", text)
 	}
 
 	wrote, err = ensureHostsEntry("zonsyssrv1", "192.168.1.101", []string{"zonsyssrv1.example.com"})

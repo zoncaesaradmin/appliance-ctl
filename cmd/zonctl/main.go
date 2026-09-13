@@ -228,14 +228,14 @@ func installTLSSANs(opts cliOptions) []string {
 		fqdn = identity.FQDN
 	}
 	extra := append([]string(nil), opts.tlsSANs...)
-	// Always include management AP SANs and hostname.local so day-2 mDNS /
+	// Always include management AP SANs and appliance-name.local so mDNS /
 	// Wi-Fi AP enablement works with the install-time certificate
-	// (https://manage.ap/, https://10.42.0.1/, https://<host>.local/).
+	// (https://manage.ap/, https://10.42.0.1/, https://<appliance-name>.local/).
 	extra = append([]string{
 		productconfig.WifiAPManagementHostname,
 		productconfig.WifiAPManagementAddress,
 	}, extra...)
-	if san := hostMDNSTLSSAN(opts.nodeName); san != "" {
+	if san := applianceMDNSTLSSAN(opts.applianceName); san != "" {
 		extra = append([]string{san}, extra...)
 	}
 	return effectiveTLSSANs(opts.nodeName, fqdn, extra...)
@@ -264,20 +264,12 @@ func effectiveTLSSANs(nodeName, fqdn string, extra ...string) []string {
 	return out
 }
 
-func hostMDNSTLSSAN(nodeName string) string {
-	shortHost := strings.ToLower(strings.TrimSpace(nodeName))
-	shortHost = strings.TrimSuffix(shortHost, ".local")
-	shortHost = strings.TrimSuffix(shortHost, ".")
-	if shortHost == "" {
+func applianceMDNSTLSSAN(applianceName string) string {
+	applianceName, err := productconfig.NormalizeApplianceName(applianceName)
+	if err != nil {
 		return ""
 	}
-	if strings.Contains(shortHost, ".") {
-		shortHost = strings.SplitN(shortHost, ".", 2)[0]
-	}
-	if _, err := productconfig.NormalizeApplianceName(shortHost); err != nil {
-		return ""
-	}
-	return shortHost + ".local"
+	return applianceName + ".local"
 }
 
 func parseOptionalBool(value string) (bool, bool, error) {

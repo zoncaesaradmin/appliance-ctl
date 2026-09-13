@@ -145,6 +145,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
+	includeFoundationMDNSAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
 	includeDevPlatformAutoAdds := cfg.Pack == "" || cfg.Pack == PackDevPlatform
 	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
 	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackInference
@@ -167,6 +168,20 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 	}
 
+	if includeFoundationMDNSAutoAdds {
+		// The host-side daemon and its offline packages provide the appliance
+		// baseline mDNS responder. They do not grant the host capability.
+		hostAgentBinaryTarget := "bin/" + filepath.Base(input.Artifacts.HostAgentBinary.Path)
+		if _, exists := entryByTarget[hostAgentBinaryTarget]; !exists {
+			entryByTarget[hostAgentBinaryTarget] = EntryConfig{
+				SourcePath: input.Artifacts.HostAgentBinary.Path,
+				TargetPath: hostAgentBinaryTarget,
+				Component:  "appliance",
+				Executable: true,
+			}
+		}
+	}
+
 	if includeDeviceUserAutoAdds {
 		hostAgentImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostAgentImage.Path)
 		if _, exists := entryByTarget[hostAgentImageTarget]; !exists {
@@ -178,15 +193,6 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 				TargetPath:     hostAgentImageTarget,
 				Component:      "oci-images",
 				ImageReference: input.Artifacts.HostAgentImage.ImageReference,
-			}
-		}
-		hostAgentBinaryTarget := "bin/" + filepath.Base(input.Artifacts.HostAgentBinary.Path)
-		if _, exists := entryByTarget[hostAgentBinaryTarget]; !exists {
-			entryByTarget[hostAgentBinaryTarget] = EntryConfig{
-				SourcePath: input.Artifacts.HostAgentBinary.Path,
-				TargetPath: hostAgentBinaryTarget,
-				Component:  "appliance",
-				Executable: true,
 			}
 		}
 	}
@@ -350,7 +356,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			return Result{}, err
 		}
 	}
-	if includeDeviceUserAutoAdds {
+	if includeFoundationMDNSAutoAdds {
 		if err := addDirectoryEntries(cfg.BundleDir, input.Artifacts.HostPackages.Path, "host-packages", &manifestEntries); err != nil {
 			return Result{}, err
 		}
@@ -658,20 +664,14 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		}
 		return nil
 	case PackDeviceUser:
-		var hasHostAgentImage, hasHostAgentBinary, hasHostPackages bool
+		var hasHostAgentImage bool
 		for _, entry := range entries {
 			if entry.Component == "oci-images" && isCanonicalHostAgentReference(entry.ImageReference) {
 				hasHostAgentImage = true
 			}
-			if entry.Component == "appliance" && strings.EqualFold(filepath.Base(entry.Path), "appliance-host-agentd") {
-				hasHostAgentBinary = true
-			}
-			if entry.Component == "host-packages" {
-				hasHostPackages = true
-			}
 		}
-		if !hasHostAgentImage || !hasHostAgentBinary || !hasHostPackages {
-			return fmt.Errorf("releasebundle: deviceuser pack requires host-agent image, host-agent daemon, and host-packages")
+		if !hasHostAgentImage {
+			return fmt.Errorf("releasebundle: deviceuser pack requires the in-cluster host-agent image")
 		}
 		return nil
 	case PackInference:
@@ -698,6 +698,16 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			return fmt.Errorf("releasebundle: inference pack is missing inference-runtime image")
 		}
 		return nil
+	}
+	if pack == PackFoundation {
+		var hasHostAgentDaemon, hasMDNSPackage bool
+		for _, entry := range entries {
+			hasHostAgentDaemon = hasHostAgentDaemon || (entry.Component == "appliance" && strings.EqualFold(filepath.Base(entry.Path), "appliance-host-agentd"))
+			hasMDNSPackage = hasMDNSPackage || (entry.Component == "host-packages" && strings.Contains(strings.ToLower(filepath.Base(entry.Path)), "avahi-daemon"))
+		}
+		if !hasHostAgentDaemon || !hasMDNSPackage {
+			return fmt.Errorf("releasebundle: foundation pack requires host-agent daemon and Avahi mDNS package")
+		}
 	}
 
 	requiredSingles := []string{"appliance", "k3s-binary", "chart", "configuration"}
@@ -780,11 +790,9 @@ func entryIsStorageNetwork(entry EntryConfig) bool {
 func entryIsDeviceUser(entry EntryConfig) bool {
 	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
 	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
-	base := strings.ToLower(filepath.Base(target))
 	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
 
-	return entry.Component == "host-packages" || strings.HasPrefix(target, "host-packages/") ||
-		strings.Contains(ref, "appliance-host-agent") || base == "appliance-host-agentd" || sourceBase == "appliance-host-agentd" ||
+	return strings.Contains(ref, "appliance-host-agent") ||
 		strings.HasPrefix(ref, "registry.local/jellyfin@sha256:") || strings.Contains(target, "jellyfin") || strings.Contains(sourceBase, "jellyfin")
 }
 

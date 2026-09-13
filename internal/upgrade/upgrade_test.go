@@ -513,13 +513,13 @@ func TestUpgrade_PreservesInstalledApplianceProfileWhenFlagOmitted(t *testing.T)
 	}
 }
 
-func TestUpgrade_HostProfileReenablesDefaultMDNS(t *testing.T) {
+func TestUpgrade_LANDiscoveryProfileEnablesMDNS(t *testing.T) {
 	env := setupEnvironment(t, "2.3.0", "v1.30.0+k3s1", "2.3.0", "training")
 	bundleDir, pub := buildBundle(t, bundleSpec{
 		bundleVersion: "2.4.0", k3sVersion: "v1.30.4+k3s1", chartVersion: "2.4.0",
 		supportedSources: []string{"2.3.0"},
 		profiles: map[string][]string{
-			"training": {"base", "host", "files", "video", "plaintext-http"},
+			"training": {"base", "lan-discovery", "host", "files", "video", "plaintext-http"},
 		},
 	})
 
@@ -531,12 +531,15 @@ func TestUpgrade_HostProfileReenablesDefaultMDNS(t *testing.T) {
 		installedHostAgent = true
 		return func() error { return nil }, nil
 	}
-	orch.EnsureMDNSEnabled = func(_ context.Context, socket string) error {
+	orch.EnsureMDNSEnabled = func(_ context.Context, socket, applianceName string) error {
 		if socket != env.options("2.4.0").HostAgentSocketPath {
 			t.Fatalf("host-agent socket = %q", socket)
 		}
 		if !installedHostAgent {
 			t.Fatal("mDNS enabled before host agent installation")
+		}
+		if applianceName != "testapp" {
+			t.Fatalf("mDNS appliance name = %q, want testapp", applianceName)
 		}
 		enabledMDNS = true
 		return nil
@@ -548,7 +551,7 @@ func TestUpgrade_HostProfileReenablesDefaultMDNS(t *testing.T) {
 		t.Fatalf("upgrade: %v", err)
 	}
 	if !enabledMDNS {
-		t.Fatal("expected host profile upgrade to enable default mDNS")
+		t.Fatal("expected lan-discovery profile upgrade to enable mDNS")
 	}
 	for _, check := range checks {
 		if check.ID == "host-mdns-enabled" {

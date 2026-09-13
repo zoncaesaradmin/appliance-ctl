@@ -87,6 +87,7 @@ type Capability string
 
 const (
 	CapabilityBase          Capability = "base"
+	CapabilityLANDiscovery  Capability = "lan-discovery"
 	CapabilityHost          Capability = "host"
 	CapabilityWorkflows     Capability = "workflows"
 	CapabilityBuild         Capability = "build"
@@ -345,7 +346,7 @@ func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	delete(config, "applianceCatalog")
 	config["applianceName"] = identity.Name
 	config["dnsZoneName"] = identity.Zone
-	// mDNS is enabled by the installer whenever the host capability is present;
+	// mDNS is enabled by the installer for every appliance;
 	// Wi-Fi AP stays explicitly day-2. Neither value is a chart-side policy.
 	delete(config, "hostMDNSEnabled")
 	delete(config, "hostWifiAPEnabled")
