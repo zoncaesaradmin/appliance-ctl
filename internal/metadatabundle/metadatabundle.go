@@ -156,8 +156,8 @@ func LoadProfileCatalogArchive(archivePath string) (map[string]ProfileDefinition
 }
 
 type PackageDefinition struct {
-	Capabilities []string                                `yaml:"capabilities"`
-	Runtimes     map[string]runtimeconfig.Implementation `yaml:"runtimes"`
+	Capabilities    []string `yaml:"capabilities"`
+	InferenceEngine string   `yaml:"inferenceEngine"`
 }
 
 func LoadPackageCatalogArchive(archivePath string) (map[string]PackageDefinition, error) {
@@ -182,7 +182,6 @@ func ResolvePackage(packages map[string]PackageDefinition, capability, packageID
 		if packageID != "" && id != packageID {
 			continue
 		}
-		runtime, ok := pkg.Runtimes[capability]
 		provides := false
 		for _, c := range pkg.Capabilities {
 			provides = provides || c == capability
@@ -190,13 +189,13 @@ func ResolvePackage(packages map[string]PackageDefinition, capability, packageID
 		if !provides {
 			continue
 		}
-		if !ok || strings.TrimSpace(runtime.Engine) == "" || strings.TrimSpace(id) == "" {
+		if capability == "inference" && (strings.TrimSpace(pkg.InferenceEngine) == "" || strings.TrimSpace(id) == "") {
 			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: invalid runtime declaration in package %q", id)
 		}
 		if selected.Package != "" {
 			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: capability %s is provided by both %s and %s", capability, selected.Package, id)
 		}
-		selected = runtimeconfig.Selection{Package: id, Engine: runtime.Engine}
+		selected = runtimeconfig.Selection{Package: id, Engine: pkg.InferenceEngine}
 	}
 	if selected.Package == "" {
 		return selected, fmt.Errorf("metadatabundle: no package provides capability %s", capability)

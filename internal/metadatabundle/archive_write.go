@@ -73,7 +73,7 @@ sections:
   - profiles
   - capabilities
 `, metadataVersion, strings.TrimSuffix(metadataVersion, ".0")),
-		dirName + "/packages/catalog.yaml":     "packages:\n  std-llm-amd64:\n    capabilities: [inference]\n    runtimes:\n      inference: {engine: ollama}\n",
+		dirName + "/packages/catalog.yaml":     "packages:\n  std-llm-amd64:\n    capabilities: [inference]\n    inferenceEngine: ollama\n",
 		dirName + "/profiles/catalog.yaml":     catalog.String(),
 		dirName + "/capabilities/catalog.yaml": installTestCapabilitiesYAML(),
 	}
