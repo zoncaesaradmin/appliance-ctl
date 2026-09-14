@@ -1164,6 +1164,7 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		hostdirs.ArtifactServerLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:           {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.VideoMediaProjectionDir:  {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:           {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -1203,9 +1204,10 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 }
 
 // Core profile still runs the control plane, UI, and workflow controller, so
-// zonctl must seed those host-visible log directories itself, but it must not
-// create builder-only workspace storage.
-func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
+// zonctl must seed their host-visible paths, including the control-plane's
+// always-mounted video-media hostPath. It must not create builder-only
+// workspace storage.
+func TestInstall_CoreProfileOwnsRequiredHostPaths(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
 	opts.WorkspaceRootDir = filepath.Join(t.TempDir(), "workspaces")
@@ -1229,10 +1231,11 @@ func TestInstall_CoreProfileOwnsOnlyServiceLogDirectories(t *testing.T) {
 		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.VideoMediaProjectionDir: {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
-		t.Fatalf("expected only core service log ownership %v, got %v", wantOwnedPaths, ownedPaths)
+		t.Fatalf("expected core required host path ownership %v, got %v", wantOwnedPaths, ownedPaths)
 	}
 	for path, want := range wantOwnedPaths {
 		if got, ok := ownedPaths[path]; !ok || got != want {
@@ -1271,6 +1274,7 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir:    {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.VideoMediaProjectionDir: {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
