@@ -297,7 +297,15 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			if err != nil {
 				return Result{}, fmt.Errorf("releasebundle: runtime package metadata: %w", err)
 			}
-			selected, err := metadatabundle.ResolvePackage(packages, "inference", cfg.Pack)
+			// The legacy single-bundle form has no pack ID. It represents the
+			// standard CPU delivery, so retain that explicit selection rather
+			// than asking the complete catalog to choose between architecture
+			// variants. Split inference packs use their own pack ID directly.
+			inferencePackage := cfg.Pack
+			if inferencePackage == "" {
+				inferencePackage = PackStdLLMAMD64
+			}
+			selected, err := metadatabundle.ResolvePackage(packages, "inference", inferencePackage)
 			if err != nil {
 				return Result{}, err
 			}

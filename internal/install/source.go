@@ -215,7 +215,15 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		if err != nil {
 			return Resolved{}, checks, err
 		}
-		selectedPackage := b.Runtimes["inference"].Package
+		// Inference is delivered by an optional runtime pack, not foundation.
+		// Select the package declared by the unique signed runtime owner so the
+		// complete metadata catalog may safely contain future architecture
+		// variants of the same capability.
+		owner := runtimeOwners["inference"]
+		if owner == nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires an inference runtime pack", effectiveProfile)
+		}
+		selectedPackage := owner.Runtimes["inference"].Package
 		selected, err := metadatabundle.ResolvePackage(packages, "inference", selectedPackage)
 		if err != nil {
 			return Resolved{}, checks, err
@@ -223,8 +231,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		if err := runtimeconfig.ValidateInference(selected); err != nil {
 			return Resolved{}, checks, err
 		}
-		owner := runtimeOwners["inference"]
-		if owner == nil || owner.Runtimes["inference"].InferenceEngine != selected.InferenceEngine || owner.Runtimes["inference"].Architecture != selected.Architecture || b.Runtimes["inference"] != selected {
+		if owner.Runtimes["inference"] != selected {
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires signed inference package %s", effectiveProfile, selected.Package)
 		}
 		if owner.Compatibility.InferenceVersion == "" || owner.Compatibility.InferenceVersion != compat.InferenceVersion {
