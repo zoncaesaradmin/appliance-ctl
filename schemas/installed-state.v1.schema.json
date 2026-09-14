@@ -35,20 +35,8 @@
     },
     "applianceProfile": {
       "type": "string",
-      "enum": [
-        "core",
-        "builder",
-        "storage",
-        "landns",
-        "storage-landns",
-        "builder-landns",
-        "builder-storage-landns",
-        "lanllm",
-        "builder-lanllm",
-        "builder-lanllm-storage-landns",
-        "training"
-      ],
-      "description": "Product-facing appliance profile selected for this installation."
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Product-facing appliance profile selected from the signed metadata catalog for this installation."
     },
     "applianceName": {
       "type": "string",

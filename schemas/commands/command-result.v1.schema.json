@@ -355,19 +355,7 @@
                 },
                 "applianceProfile": {
                   "type": "string",
-                  "enum": [
-                    "core",
-                    "builder",
-                    "storage",
-                    "landns",
-                    "storage-landns",
-                    "builder-landns",
-                    "builder-storage-landns",
-                    "lanllm",
-                    "builder-lanllm",
-                    "builder-lanllm-storage-landns",
-                    "training"
-                  ]
+                  "pattern": "^[a-z][a-z0-9-]*$"
                 },
                 "metadataVersion": {
                   "type": "string"
@@ -652,19 +640,7 @@
                 },
                 "applianceProfile": {
                   "type": "string",
-                  "enum": [
-                    "core",
-                    "builder",
-                    "storage",
-                    "landns",
-                    "storage-landns",
-                    "builder-landns",
-                    "builder-storage-landns",
-                    "lanllm",
-                    "builder-lanllm",
-                    "builder-lanllm-storage-landns",
-                    "training"
-                  ]
+                  "pattern": "^[a-z][a-z0-9-]*$"
                 },
                 "metadataVersion": {
                   "type": "string"

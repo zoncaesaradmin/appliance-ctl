@@ -3,6 +3,7 @@
   "applianceInstanceId": "9f4d6b1e-2a3c-4e5f-8b1a-7c6d5e4f3a2b",
   "installedVersion": "2.4.0",
   "installedReleaseId": "01J8QK3F9G7XA6P0V6ZC9N6R4T",
+  "applianceProfile": "private-ai",
   "components": {
     "k3sVersion": "v1.30.4+k3s1",
     "chartVersion": "2.4.0"
