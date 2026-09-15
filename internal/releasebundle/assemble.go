@@ -188,6 +188,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	if includeDeviceUserAutoAdds {
+		if strings.TrimSpace(input.Artifacts.HostAgentImage.Path) == "" {
+			return Result{}, fmt.Errorf("releasebundle: deviceuser pack requires hostAgentImage in release-input")
+		}
 		hostAgentImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostAgentImage.Path)
 		if _, exists := entryByTarget[hostAgentImageTarget]; !exists {
 			if !isCanonicalHostAgentReference(input.Artifacts.HostAgentImage.ImageReference) {
@@ -203,6 +206,12 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	if includeDevPlatformAutoAdds {
+		if strings.TrimSpace(input.Artifacts.ArtifactServerImage.Path) == "" || strings.TrimSpace(input.Artifacts.ArtifactServerChart.Path) == "" {
+			return Result{}, fmt.Errorf("releasebundle: dev-platform pack requires artifactServerImage and artifactServerChart in release-input")
+		}
+		if strings.TrimSpace(input.Artifacts.DnsImage.Path) == "" || strings.TrimSpace(input.Artifacts.DnsChart.Path) == "" {
+			return Result{}, fmt.Errorf("releasebundle: dev-platform pack requires dnsImage and dnsChart in release-input")
+		}
 		artifactServerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ArtifactServerImage.Path)
 		if _, exists := entryByTarget[artifactServerImageTarget]; !exists {
 			if !isCanonicalArtifactServerReference(input.Artifacts.ArtifactServerImage.ImageReference) {
@@ -406,9 +415,13 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	compatibility := map[string]any{
 		"k3sVersion":              input.Compatibility.K3sVersion,
 		"chartVersion":            input.Compatibility.ChartVersion,
-		"artifactServerVersion":   input.Compatibility.ArtifactServerVersion,
-		"dnsVersion":              input.Compatibility.DnsVersion,
 		"supportedUpgradeSources": supportedUpgradeSources,
+	}
+	if strings.TrimSpace(input.Compatibility.ArtifactServerVersion) != "" {
+		compatibility["artifactServerVersion"] = input.Compatibility.ArtifactServerVersion
+	}
+	if strings.TrimSpace(input.Compatibility.DnsVersion) != "" {
+		compatibility["dnsVersion"] = input.Compatibility.DnsVersion
 	}
 	if strings.TrimSpace(input.Compatibility.InferenceVersion) != "" {
 		compatibility["inferenceVersion"] = input.Compatibility.InferenceVersion

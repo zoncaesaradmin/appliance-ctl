@@ -188,18 +188,28 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 	artifacts := []verify.Artifact{
 		{Name: "control-plane-image", Path: input.Artifacts.ControlPlaneImage.Path, ExpectedDigest: input.Artifacts.ControlPlaneImage.Digest, ExpectedSizeBytes: input.Artifacts.ControlPlaneImage.SizeBytes},
 		{Name: "ui-image", Path: input.Artifacts.UIImage.Path, ExpectedDigest: input.Artifacts.UIImage.Digest, ExpectedSizeBytes: input.Artifacts.UIImage.SizeBytes},
-		{Name: "host-agent-image", Path: input.Artifacts.HostAgentImage.Path, ExpectedDigest: input.Artifacts.HostAgentImage.Digest, ExpectedSizeBytes: input.Artifacts.HostAgentImage.SizeBytes},
 		{Name: "host-agent-binary", Path: input.Artifacts.HostAgentBinary.Path, ExpectedDigest: input.Artifacts.HostAgentBinary.Digest, ExpectedSizeBytes: input.Artifacts.HostAgentBinary.SizeBytes},
 		{Name: "appliance-chart", Path: input.Artifacts.ApplianceChart.Path, ExpectedDigest: input.Artifacts.ApplianceChart.Digest, ExpectedSizeBytes: input.Artifacts.ApplianceChart.SizeBytes},
-		{Name: "artifact-server-image", Path: input.Artifacts.ArtifactServerImage.Path, ExpectedDigest: input.Artifacts.ArtifactServerImage.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerImage.SizeBytes},
-		{Name: "artifact-server-chart", Path: input.Artifacts.ArtifactServerChart.Path, ExpectedDigest: input.Artifacts.ArtifactServerChart.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerChart.SizeBytes},
-		{Name: "dns-image", Path: input.Artifacts.DnsImage.Path, ExpectedDigest: input.Artifacts.DnsImage.Digest, ExpectedSizeBytes: input.Artifacts.DnsImage.SizeBytes},
-		{Name: "dns-chart", Path: input.Artifacts.DnsChart.Path, ExpectedDigest: input.Artifacts.DnsChart.Digest, ExpectedSizeBytes: input.Artifacts.DnsChart.SizeBytes},
 		{Name: "blob-storage-image", Path: input.Artifacts.BlobStorageImage.Path, ExpectedDigest: input.Artifacts.BlobStorageImage.Digest, ExpectedSizeBytes: input.Artifacts.BlobStorageImage.SizeBytes},
 		{Name: "metadata-bundle", Path: input.Artifacts.MetadataBundle.Path, ExpectedDigest: input.Artifacts.MetadataBundle.Digest, ExpectedSizeBytes: input.Artifacts.MetadataBundle.SizeBytes},
 		{Name: "configuration-schema", Path: input.Artifacts.ConfigurationSchema.Path, ExpectedDigest: input.Artifacts.ConfigurationSchema.Digest, ExpectedSizeBytes: input.Artifacts.ConfigurationSchema.SizeBytes},
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
 		{Name: "checksums", Path: input.Artifacts.Checksums.Path, ExpectedDigest: input.Artifacts.Checksums.Digest, ExpectedSizeBytes: input.Artifacts.Checksums.SizeBytes},
+	}
+	if input.Artifacts.HostAgentImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "host-agent-image", Path: input.Artifacts.HostAgentImage.Path, ExpectedDigest: input.Artifacts.HostAgentImage.Digest, ExpectedSizeBytes: input.Artifacts.HostAgentImage.SizeBytes})
+	}
+	if input.Artifacts.ArtifactServerImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "artifact-server-image", Path: input.Artifacts.ArtifactServerImage.Path, ExpectedDigest: input.Artifacts.ArtifactServerImage.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerImage.SizeBytes})
+	}
+	if input.Artifacts.ArtifactServerChart.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "artifact-server-chart", Path: input.Artifacts.ArtifactServerChart.Path, ExpectedDigest: input.Artifacts.ArtifactServerChart.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerChart.SizeBytes})
+	}
+	if input.Artifacts.DnsImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "dns-image", Path: input.Artifacts.DnsImage.Path, ExpectedDigest: input.Artifacts.DnsImage.Digest, ExpectedSizeBytes: input.Artifacts.DnsImage.SizeBytes})
+	}
+	if input.Artifacts.DnsChart.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "dns-chart", Path: input.Artifacts.DnsChart.Path, ExpectedDigest: input.Artifacts.DnsChart.Digest, ExpectedSizeBytes: input.Artifacts.DnsChart.SizeBytes})
 	}
 	if input.Artifacts.MessageBrokerImage.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{Name: "message-broker-image", Path: input.Artifacts.MessageBrokerImage.Path, ExpectedDigest: input.Artifacts.MessageBrokerImage.Digest, ExpectedSizeBytes: input.Artifacts.MessageBrokerImage.SizeBytes})
