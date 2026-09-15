@@ -145,7 +145,7 @@ const (
 	DefaultDNSReadyURL = "http://dns-server.dns.svc.cluster.local:8181/ready"
 	// DefaultInferenceGatewayBaseURL is the in-cluster OpenAI-compatible
 	// gateway Service used when the inference capability is enabled. The
-	// control plane authenticates and reverse-proxies /inference/v1/* here.
+	// control plane authenticates and reverse-proxies /ai/v1/* here.
 	DefaultInferenceGatewayBaseURL = "http://inference-gateway.inference.svc.cluster.local:8080"
 	// DefaultLANDNSZone is the CoreDNS local-zone suffix for LAN A records.
 	// Must not be ".local" — systemd-resolved (and dig) treat .local as
@@ -272,6 +272,14 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 }
 
 func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, registry...)
+}
+
+func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, registry ...string) (string, func(), error) {
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, registry...)
+}
+
+func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", profileCatalog)
 	if err != nil {
 		return "", func() {}, err
@@ -381,8 +389,23 @@ func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if inferenceEnabled {
 		config["inferenceGatewayBaseURL"] = DefaultInferenceGatewayBaseURL
+		if runtime != nil {
+			if err := runtimeconfig.ValidateInference(*runtime); err != nil {
+				return "", func() {}, fmt.Errorf("product config: %w", err)
+			}
+			config["inferenceRuntimePackage"] = runtime.Package
+			config["inferenceEngine"] = runtime.InferenceEngine
+			config["inferenceArchitecture"] = runtime.Architecture
+			config["inferenceSupportedModes"] = runtimeconfig.EffectiveModes(*runtime)
+			config["inferenceMode"] = "cpu"
+		}
 	} else {
 		delete(config, "inferenceGatewayBaseURL")
+		delete(config, "inferenceRuntimePackage")
+		delete(config, "inferenceEngine")
+		delete(config, "inferenceArchitecture")
+		delete(config, "inferenceSupportedModes")
+		delete(config, "inferenceMode")
 	}
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
@@ -633,6 +656,24 @@ func PrepareRegistryValuesFile(baseDir, artifactServerImageReference, fqdn strin
 	return tmp.Name(), cleanup, nil
 }
 
+func inferenceNVIDIARuntimeAvailable(supportedModes []string) bool {
+	hasCUDA := false
+	for _, mode := range supportedModes {
+		if strings.EqualFold(strings.TrimSpace(mode), "cuda") {
+			hasCUDA = true
+			break
+		}
+	}
+	if !hasCUDA {
+		return false
+	}
+	if _, err := os.Stat("/dev/nvidiactl"); err != nil {
+		return false
+	}
+	config, err := os.ReadFile("/var/lib/rancher/k3s/agent/etc/containerd/config.toml")
+	return err == nil && strings.Contains(strings.ToLower(string(config)), "nvidia")
+}
+
 // PrepareDNSValuesFile renders the small installer-owned values layer for
 // the separate appliance-dns (CoreDNS) release. The chart archive stays
 // immutable; install supplies the digest pin, upstream resolvers, zone
@@ -719,13 +760,23 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string, 
 	}
 	values := map[string]any{
 		"namespace": map[string]any{"create": false, "name": "inference"},
-		// The chart currently requires its internal CPU setting. This is fixed
-		// by the supported std-llm-amd64 package and is not a profile selector.
-		"runtime": map[string]any{"variant": "cpu", "engine": runtime.InferenceEngine},
+		"runtime": map[string]any{
+			// The runtime chooses the highest usable mode from the signed
+			// package modes. CPU is the safe fallback, not the preference.
+			"mode":           "auto",
+			"engine":         runtime.InferenceEngine,
+			"supportedModes": runtimeconfig.EffectiveModes(runtime),
+		},
 		"image": map[string]any{
 			"repository": "registry.local/inference-runtime",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(inferenceRuntimeImageReference), "registry.local/inference-runtime@"),
 			"pullPolicy": "IfNotPresent",
+		},
+		"gpu": map[string]any{
+			"enabled":            inferenceNVIDIARuntimeAvailable(runtimeconfig.EffectiveModes(runtime)),
+			"runtimeClassName":   "nvidia",
+			"visibleDevices":     "all",
+			"driverCapabilities": "all",
 		},
 	}
 	rendered, err := yaml.Marshal(values)

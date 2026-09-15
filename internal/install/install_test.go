@@ -182,7 +182,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		"releaseId":     "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
-		"runtimes":      map[string]any{"inference": map[string]string{"package": "std-llm-amd64", "inferenceEngine": "ollama", "architecture": "amd64"}},
+		"runtimes":      map[string]any{"inference": map[string]any{"package": "std-llm-amd64", "inferenceEngine": "ollama", "architecture": "amd64", "supportedModes": []string{"cpu"}}},
 		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "artifactServerVersion": "2.1.7", "dnsVersion": "1.14.4", "inferenceVersion": "0.6.5"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
@@ -1718,7 +1718,7 @@ func TestInstall_CPUInferencePreloadsAndConfiguresSharedGateway(t *testing.T) {
 		t.Fatalf("CPU runtime values lack the bundled pin: %s", values)
 	}
 	controlPlane := fcli.helmValues[opts.ChartReleaseName]
-	if !strings.Contains(controlPlane, "inference") || !strings.Contains(controlPlane, "http://inference-gateway.inference.svc.cluster.local:8080") {
+	if !strings.Contains(controlPlane, "inference") || !strings.Contains(controlPlane, "http://inference-gateway.inference.svc.cluster.local:8080") || !strings.Contains(controlPlane, "inferenceMode: cpu") {
 		t.Fatalf("standard inference gateway not configured: %s", controlPlane)
 	}
 	preload := findCallIndex(fcli.calls, func(call string) bool {

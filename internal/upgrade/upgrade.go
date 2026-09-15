@@ -191,7 +191,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	targetWorkflows := resolved.WorkflowsEnabled
 	targetDNS := resolved.DNSEnabled
 	targetInference := resolved.InferenceEnabled
-	if previous, ok := installed.Runtimes["inference"]; ok && targetInference && previous != resolved.Runtimes["inference"] {
+	if previous, ok := installed.Runtimes["inference"]; ok && targetInference && !runtimeconfig.Equal(previous, resolved.Runtimes["inference"]) {
 		return nil, checks, fmt.Errorf("upgrade: inference package/engine changes require an explicit supported migration")
 	}
 	targetBuild := resolved.BuildEnabled

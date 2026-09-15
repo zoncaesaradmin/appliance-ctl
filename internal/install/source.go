@@ -231,7 +231,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		if err := runtimeconfig.ValidateInference(selected); err != nil {
 			return Resolved{}, checks, err
 		}
-		if owner.Runtimes["inference"] != selected {
+		if !runtimeconfig.Equal(owner.Runtimes["inference"], selected) {
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires signed inference package %s", effectiveProfile, selected.Package)
 		}
 		if owner.Compatibility.InferenceVersion == "" || owner.Compatibility.InferenceVersion != compat.InferenceVersion {
@@ -249,7 +249,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if inferenceEnabled {
 		inferenceChartPath, err = requiredInferenceChartPath(view)
 		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the std-llm-amd64 pack was not provided: %w", effectiveProfile, err)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but its selected inference runtime pack was not provided: %w", effectiveProfile, err)
 		}
 	}
 	// Foundation always supplies the host-side mDNS daemon and packages. The
@@ -309,7 +309,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if inferenceEnabled {
 		inferenceImageReference, err = requiredInferenceImageReference(view)
 		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but the std-llm-amd64 pack was not provided: %w", effectiveProfile, err)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but its selected inference runtime pack was not provided: %w", effectiveProfile, err)
 		}
 	}
 	messageBrokerImageReference := optionalMessageBrokerImageReference(view)

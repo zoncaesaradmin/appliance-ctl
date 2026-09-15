@@ -195,7 +195,7 @@ func ResolvePackage(packages map[string]PackageDefinition, capability, packageID
 		if selected.Package != "" {
 			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: capability %s is provided by both %s and %s", capability, selected.Package, id)
 		}
-		selected = runtimeconfig.Selection{Package: id, InferenceEngine: pkg.Runtime.InferenceEngine, Architecture: pkg.Runtime.Architecture}
+		selected = runtimeconfig.Selection{Package: id, InferenceEngine: pkg.Runtime.InferenceEngine, Architecture: pkg.Runtime.Architecture, SupportedModes: append([]string(nil), pkg.Runtime.SupportedModes...)}
 	}
 	if selected.Package == "" {
 		return selected, fmt.Errorf("metadatabundle: no package provides capability %s", capability)
