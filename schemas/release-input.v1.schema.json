@@ -80,6 +80,10 @@
         },
         "blobStorageImage": { "$ref": "#/$defs/artifact", "description": "Pinned S3-compatible foundation blob-storage OCI image archive." },
         "inferenceRuntimeImage": { "$ref": "#/$defs/artifact" },
+        "inferenceManagerImage": {
+          "$ref": "#/$defs/artifact",
+          "description": "Optional; required when packaging an inference pack (thin manager image)."
+        },
         "inferenceChart": { "$ref": "#/$defs/artifact" },
         "metadataBundle": {
           "$ref": "#/$defs/artifact",

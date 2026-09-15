@@ -106,6 +106,12 @@
       "sizeBytes": 31457280,
       "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
     },
+    "inferenceManagerImage": {
+      "path": "inference-manager.oci.tar.zst",
+      "digest": "sha256:0d57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
+      "sizeBytes": 1048576,
+      "imageReference": "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
     "inferenceChart": {
       "path": "appliance-inference-0.6.5.tgz",
       "digest": "sha256:0c57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",

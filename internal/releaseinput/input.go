@@ -63,6 +63,7 @@ type Artifacts struct {
 	DnsChart                FileArtifact
 	BlobStorageImage        FileArtifact
 	InferenceRuntimeImage   FileArtifact
+	InferenceManagerImage   FileArtifact
 	InferenceChart          FileArtifact
 	MetadataBundle          FileArtifact
 	MessageBrokerImage      FileArtifact
@@ -97,6 +98,7 @@ type doc struct {
 		DnsChart                fileArtifact   `json:"dnsChart"`
 		BlobStorageImage        fileArtifact   `json:"blobStorageImage"`
 		InferenceRuntimeImage   fileArtifact   `json:"inferenceRuntimeImage"`
+		InferenceManagerImage   fileArtifact   `json:"inferenceManagerImage"`
 		InferenceChart          fileArtifact   `json:"inferenceChart"`
 		MetadataBundle          fileArtifact   `json:"metadataBundle"`
 		MessageBrokerImage      fileArtifact   `json:"messageBrokerImage"`
@@ -166,6 +168,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			DnsChart:                toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
 			BlobStorageImage:        toFileArtifact(rootDir, parsed.Artifacts.BlobStorageImage),
 			InferenceRuntimeImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceRuntimeImage),
+			InferenceManagerImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceManagerImage),
 			InferenceChart:          toFileArtifact(rootDir, parsed.Artifacts.InferenceChart),
 			MetadataBundle:          toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
 			MessageBrokerImage:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerImage),
@@ -223,6 +226,14 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			Path:              input.Artifacts.InferenceRuntimeImage.Path,
 			ExpectedDigest:    input.Artifacts.InferenceRuntimeImage.Digest,
 			ExpectedSizeBytes: input.Artifacts.InferenceRuntimeImage.SizeBytes,
+		})
+	}
+	if input.Artifacts.InferenceManagerImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "inference-manager-image",
+			Path:              input.Artifacts.InferenceManagerImage.Path,
+			ExpectedDigest:    input.Artifacts.InferenceManagerImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.InferenceManagerImage.SizeBytes,
 		})
 	}
 	if input.Artifacts.InferenceChart.Path != "" {

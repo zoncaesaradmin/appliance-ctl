@@ -17,6 +17,7 @@ const (
 	artifactServerImage       = "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	inferenceRuntimeImage     = "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	inferenceManagerImage     = "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 	blobStorageImage          = "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
 )
 
@@ -181,7 +182,7 @@ func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
 }
 
 func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtimeconfig.Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64", SupportedModes: []string{"cpu"}})
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64", SupportedModes: []string{"cpu"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,6 +194,8 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 	text := string(data)
 	if !strings.Contains(text, "repository: registry.local/inference-runtime") ||
 		!strings.Contains(text, "digest: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") ||
+		!strings.Contains(text, "repository: registry.local/inference-manager") ||
+		!strings.Contains(text, "digest: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") ||
 		!strings.Contains(text, "name: inference") ||
 		!strings.Contains(text, "create: false") || !strings.Contains(text, "engine: ollama") || !strings.Contains(text, "mode: auto") || !strings.Contains(text, "supportedModes:") {
 		t.Fatalf("unexpected inference values:\n%s", text)
@@ -212,7 +215,7 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 }
 
 func TestPrepareInferenceValuesFile_VLLMDefaultsToCPU(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtimeconfig.Selection{
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
 		Package: "acc-llm-arm64", InferenceEngine: "vllm", Architecture: "arm64", SupportedModes: []string{"cpu", "cuda"},
 	})
 	if err != nil {
@@ -230,7 +233,7 @@ func TestPrepareInferenceValuesFile_VLLMDefaultsToCPU(t *testing.T) {
 }
 
 func TestPrepareInferenceValuesFile_VLLMAMD64DefaultsToCPU(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtimeconfig.Selection{
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
 		Package: "acc-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64", SupportedModes: []string{"cpu"},
 	})
 	if err != nil {
@@ -469,7 +472,7 @@ func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) 
 
 func TestInferenceValuesRejectUnsupportedRuntime(t *testing.T) {
 	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "std-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64", SupportedModes: []string{"cpu"}}, {Package: "acc-llm-arm64", InferenceEngine: "vllm", Architecture: "arm64", SupportedModes: []string{"tensor"}}} {
-		_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, runtime)
+		_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtime)
 		cleanup()
 		if err == nil {
 			t.Fatalf("unsupported runtime accepted: %+v", runtime)

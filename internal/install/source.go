@@ -73,8 +73,12 @@ type Resolved struct {
 	// InferenceImageReference is the bundled, digest-pinned
 	// registry.local/inference-runtime image reference used for the
 	// inference capability.
-	InferenceImageReference     string
-	MessageBrokerImageReference string
+	InferenceImageReference string
+	// InferenceManagerImageReference is the bundled, digest-pinned
+	// registry.local/inference-manager image reference used for the
+	// inference capability.
+	InferenceManagerImageReference string
+	MessageBrokerImageReference    string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -243,6 +247,9 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		if _, err := requiredInferenceImageReference(owner); err != nil {
 			return Resolved{}, checks, err
 		}
+		if _, err := requiredInferenceManagerImageReference(owner); err != nil {
+			return Resolved{}, checks, err
+		}
 		runtimes["inference"] = selected
 	}
 	inferenceChartPath := ""
@@ -273,7 +280,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -306,10 +313,15 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		}
 	}
 	inferenceImageReference := ""
+	inferenceManagerImageReference := ""
 	if inferenceEnabled {
 		inferenceImageReference, err = requiredInferenceImageReference(view)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but its selected inference runtime pack was not provided: %w", effectiveProfile, err)
+		}
+		inferenceManagerImageReference, err = requiredInferenceManagerImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but its selected inference manager pack was not provided: %w", effectiveProfile, err)
 		}
 	}
 	messageBrokerImageReference := optionalMessageBrokerImageReference(view)
@@ -351,6 +363,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		BlobStorageImageReference:          blobStorageImageReference,
 		DNSImageReference:                  dnsImageReference,
 		InferenceImageReference:            inferenceImageReference,
+		InferenceManagerImageReference:     inferenceManagerImageReference,
 		MessageBrokerImageReference:        messageBrokerImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
@@ -410,6 +423,10 @@ func isDNSImageReference(ref string) bool {
 
 func isInferenceRuntimeImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/inference-runtime@sha256:")
+}
+
+func isInferenceManagerImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/inference-manager@sha256:")
 }
 
 func isMessageBrokerImageReference(ref string) bool {
@@ -522,6 +539,23 @@ func requiredInferenceImageReference(b entrySource) (string, error) {
 	}
 	if found == "" {
 		return "", fmt.Errorf("bundle has no canonical registry.local/inference-runtime@sha256 image entry")
+	}
+	return found, nil
+}
+
+func requiredInferenceManagerImageReference(b entrySource) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isInferenceManagerImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple inference-manager image entries")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no canonical registry.local/inference-manager@sha256 image entry")
 	}
 	return found, nil
 }
@@ -768,7 +802,8 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 			if strings.HasPrefix(image.Name, "registry.local/coredns@") && !r.DNSEnabled {
 				continue
 			}
-			if strings.HasPrefix(image.Name, "registry.local/inference-runtime@") && !r.InferenceEnabled {
+			if (strings.HasPrefix(image.Name, "registry.local/inference-runtime@") ||
+				strings.HasPrefix(image.Name, "registry.local/inference-manager@")) && !r.InferenceEnabled {
 				continue
 			}
 		}

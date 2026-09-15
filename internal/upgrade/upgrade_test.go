@@ -81,6 +81,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image " + spec.bundleVersion, "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 		{"oci-images/blob-storage.tar", "oci-images", "fake blob storage image " + spec.bundleVersion, "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image " + spec.bundleVersion, "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+		{"oci-images/inference-manager.tar", "oci-images", "fake inference-manager image " + spec.bundleVersion, "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 	}
 	if spec.includeWorkflows {
 		entries = append(entries,
@@ -1270,6 +1271,8 @@ func upgradeTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 	case "inference-runtime.tar":
 		return []string{"registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+	case "inference-manager.tar":
+		return []string{"registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
 	case "workflow-controller.tar":
 		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
 	case "workflow-executor.tar":
@@ -1340,6 +1343,9 @@ func TestUpgrade_CPUInferencePreservesSharedRelease(t *testing.T) {
 	}
 	if !strings.Contains(fcli.helmValues["appliance-inference"], "repository: registry.local/inference-runtime") {
 		t.Fatalf("missing shared inference release: %v", fcli.helmValues)
+	}
+	if !strings.Contains(fcli.helmValues["appliance-inference"], "repository: registry.local/inference-manager") {
+		t.Fatalf("missing inference manager pin: %v", fcli.helmValues)
 	}
 	if !strings.Contains(fcli.helmValues[opts.ChartReleaseName], "inference") {
 		t.Fatalf("standard capability missing from control-plane values: %s", fcli.helmValues[opts.ChartReleaseName])

@@ -298,9 +298,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 
 	runtimes := map[string]runtimeconfig.Selection{}
 	if includeInferenceAutoAdd {
-		if input.Artifacts.InferenceRuntimeImage.Path == "" || input.Artifacts.InferenceChart.Path == "" {
+		if input.Artifacts.InferenceRuntimeImage.Path == "" || input.Artifacts.InferenceManagerImage.Path == "" || input.Artifacts.InferenceChart.Path == "" {
 			if cfg.Pack == PackStdLLMAMD64 || cfg.Pack == PackAccLLMAMD64 || cfg.Pack == PackAccLLMARM64 {
-				return Result{}, fmt.Errorf("releasebundle: %s pack requires release-input inferenceRuntimeImage and inferenceChart", cfg.Pack)
+				return Result{}, fmt.Errorf("releasebundle: %s pack requires release-input inferenceRuntimeImage, inferenceManagerImage, and inferenceChart", cfg.Pack)
 			}
 		} else {
 			packages, err := metadatabundle.LoadPackageCatalogArchive(input.Artifacts.MetadataBundle.Path)
@@ -333,6 +333,18 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 					TargetPath:     inferenceImageTarget,
 					Component:      "oci-images",
 					ImageReference: input.Artifacts.InferenceRuntimeImage.ImageReference,
+				}
+			}
+			inferenceManagerTarget := "oci-images/" + filepath.Base(input.Artifacts.InferenceManagerImage.Path)
+			if _, exists := entryByTarget[inferenceManagerTarget]; !exists {
+				if !isCanonicalInferenceManagerReference(input.Artifacts.InferenceManagerImage.ImageReference) {
+					return Result{}, fmt.Errorf("releasebundle: inference-manager imageReference must be registry.local/inference-manager@sha256:<64 lowercase hex>, got %q", input.Artifacts.InferenceManagerImage.ImageReference)
+				}
+				entryByTarget[inferenceManagerTarget] = EntryConfig{
+					SourcePath:     input.Artifacts.InferenceManagerImage.Path,
+					TargetPath:     inferenceManagerTarget,
+					Component:      "oci-images",
+					ImageReference: input.Artifacts.InferenceManagerImage.ImageReference,
 				}
 			}
 			inferenceChartBase := filepath.Base(input.Artifacts.InferenceChart.Path)
@@ -510,6 +522,19 @@ func isCanonicalDNSReference(ref string) bool {
 
 func isCanonicalInferenceRuntimeReference(ref string) bool {
 	const prefix = "registry.local/inference-runtime@sha256:"
+	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
+		return false
+	}
+	for _, c := range strings.TrimPrefix(ref, prefix) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCanonicalInferenceManagerReference(ref string) bool {
+	const prefix = "registry.local/inference-manager@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}
@@ -718,10 +743,10 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		if counts["chart"] == 0 {
 			return fmt.Errorf("releasebundle: %s pack is missing appliance-inference chart", pack)
 		}
-		if counts["oci-images"] == 0 {
-			return fmt.Errorf("releasebundle: %s pack must include the inference-runtime image", pack)
+		if counts["oci-images"] < 2 {
+			return fmt.Errorf("releasebundle: %s pack must include inference-runtime and inference-manager images", pack)
 		}
-		var hasInferenceChart, hasInferenceImage bool
+		var hasInferenceChart, hasInferenceImage, hasInferenceManager bool
 		for _, entry := range entries {
 			base := strings.ToLower(filepath.Base(entry.Path))
 			if entry.Component == "chart" && strings.HasPrefix(base, "appliance-inference-") {
@@ -730,12 +755,18 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			if entry.Component == "oci-images" && isCanonicalInferenceRuntimeReference(entry.ImageReference) {
 				hasInferenceImage = true
 			}
+			if entry.Component == "oci-images" && isCanonicalInferenceManagerReference(entry.ImageReference) {
+				hasInferenceManager = true
+			}
 		}
 		if !hasInferenceChart {
 			return fmt.Errorf("releasebundle: %s pack is missing appliance-inference chart", pack)
 		}
 		if !hasInferenceImage {
 			return fmt.Errorf("releasebundle: %s pack is missing inference-runtime image", pack)
+		}
+		if !hasInferenceManager {
+			return fmt.Errorf("releasebundle: %s pack is missing inference-manager image", pack)
 		}
 		return nil
 	}
@@ -843,7 +874,9 @@ func entryIsInference(entry EntryConfig) bool {
 	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
 
 	if strings.Contains(ref, "inference-runtime") || strings.Contains(target, "inference-runtime") ||
-		strings.Contains(sourceBase, "inference-runtime") {
+		strings.Contains(sourceBase, "inference-runtime") ||
+		strings.Contains(ref, "inference-manager") || strings.Contains(target, "inference-manager") ||
+		strings.Contains(sourceBase, "inference-manager") {
 		return true
 	}
 	if entry.Component == "chart" && (strings.HasPrefix(base, "appliance-inference-") ||

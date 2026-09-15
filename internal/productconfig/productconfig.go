@@ -751,12 +751,15 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, dnsZone, nsIPv4 string
 	return tmp.Name(), cleanup, nil
 }
 
-func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string, runtime runtimeconfig.Selection) (string, func(), error) {
+func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference string, runtime runtimeconfig.Selection) (string, func(), error) {
 	if err := runtimeconfig.ValidateInference(runtime); err != nil {
 		return "", func() {}, err
 	}
 	if !validInferenceRuntimeImageDigest(inferenceRuntimeImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid inference-runtime image reference %q", inferenceRuntimeImageReference)
+	}
+	if !validInferenceManagerImageDigest(inferenceManagerImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid inference-manager image reference %q", inferenceManagerImageReference)
 	}
 	values := map[string]any{
 		"namespace": map[string]any{"create": false, "name": "inference"},
@@ -770,6 +773,11 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference string, 
 		"image": map[string]any{
 			"repository": "registry.local/inference-runtime",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(inferenceRuntimeImageReference), "registry.local/inference-runtime@"),
+			"pullPolicy": "IfNotPresent",
+		},
+		"managerImage": map[string]any{
+			"repository": "registry.local/inference-manager",
+			"digest":     strings.TrimPrefix(strings.TrimSpace(inferenceManagerImageReference), "registry.local/inference-manager@"),
 			"pullPolicy": "IfNotPresent",
 		},
 		"gpu": map[string]any{
@@ -838,6 +846,15 @@ func validDNSImageDigest(image string) bool {
 func validInferenceRuntimeImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/inference-runtime@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
+}
+
+func validInferenceManagerImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/inference-manager@sha256:") || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

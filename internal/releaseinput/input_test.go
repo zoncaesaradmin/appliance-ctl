@@ -42,6 +42,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "blob-storage.oci.tar.zst", "blob-storage-image")
 	writeFile(t, root, "inference-runtime.oci.tar.zst", "inference-image")
+	writeFile(t, root, "inference-manager.oci.tar.zst", "inference-manager-image")
 	writeFile(t, root, "appliance-inference-0.6.5.tgz", "inference-chart")
 	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
@@ -85,6 +86,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 			"dnsChart":              map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"blobStorageImage":      map[string]any{"path": "blob-storage.oci.tar.zst", "digest": digestOf("blob-storage.oci.tar.zst"), "sizeBytes": len("blob-storage-image"), "imageReference": "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 			"inferenceRuntimeImage": map[string]any{"path": "inference-runtime.oci.tar.zst", "digest": digestOf("inference-runtime.oci.tar.zst"), "sizeBytes": len("inference-image"), "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+			"inferenceManagerImage": map[string]any{"path": "inference-manager.oci.tar.zst", "digest": digestOf("inference-manager.oci.tar.zst"), "sizeBytes": len("inference-manager-image"), "imageReference": "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 			"inferenceChart":        map[string]any{"path": "appliance-inference-0.6.5.tgz", "digest": digestOf("appliance-inference-0.6.5.tgz"), "sizeBytes": len("inference-chart")},
 			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
 			"configurationSchema":   map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
@@ -157,6 +159,7 @@ func TestLoad_ValidReleaseInputWithOptionalWorkflowsArtifacts(t *testing.T) {
 	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "blob-storage.oci.tar.zst", "blob-storage-image")
 	writeFile(t, root, "inference-runtime.oci.tar.zst", "inference-image")
+	writeFile(t, root, "inference-manager.oci.tar.zst", "inference-manager-image")
 	writeFile(t, root, "appliance-inference-0.6.5.tgz", "inference-chart")
 	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
@@ -205,6 +208,7 @@ func TestLoad_ValidReleaseInputWithOptionalWorkflowsArtifacts(t *testing.T) {
 			"dnsChart":                map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"blobStorageImage":        map[string]any{"path": "blob-storage.oci.tar.zst", "digest": digestOf("blob-storage.oci.tar.zst"), "sizeBytes": len("blob-storage-image"), "imageReference": "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 			"inferenceRuntimeImage":   map[string]any{"path": "inference-runtime.oci.tar.zst", "digest": digestOf("inference-runtime.oci.tar.zst"), "sizeBytes": len("inference-image"), "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+			"inferenceManagerImage":   map[string]any{"path": "inference-manager.oci.tar.zst", "digest": digestOf("inference-manager.oci.tar.zst"), "sizeBytes": len("inference-manager-image"), "imageReference": "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 			"inferenceChart":          map[string]any{"path": "appliance-inference-0.6.5.tgz", "digest": digestOf("appliance-inference-0.6.5.tgz"), "sizeBytes": len("inference-chart")},
 			"metadataBundle":          map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
 			"configurationSchema":     map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
@@ -293,6 +297,7 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 	writeFile(t, root, "appliance-dns-1.14.4.tgz", "dns-chart")
 	writeFile(t, root, "blob-storage.oci.tar.zst", "blob-storage-image")
 	writeFile(t, root, "inference-runtime.oci.tar.zst", "inference-image")
+	writeFile(t, root, "inference-manager.oci.tar.zst", "inference-manager-image")
 	writeFile(t, root, "appliance-inference-0.6.5.tgz", "inference-chart")
 	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
@@ -336,6 +341,7 @@ func TestLoad_ValidReleaseInputWithoutOptionalUpgradeSources(t *testing.T) {
 			"dnsChart":              map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"blobStorageImage":      map[string]any{"path": "blob-storage.oci.tar.zst", "digest": digestOf("blob-storage.oci.tar.zst"), "sizeBytes": len("blob-storage-image"), "imageReference": "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 			"inferenceRuntimeImage": map[string]any{"path": "inference-runtime.oci.tar.zst", "digest": digestOf("inference-runtime.oci.tar.zst"), "sizeBytes": len("inference-image"), "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+			"inferenceManagerImage": map[string]any{"path": "inference-manager.oci.tar.zst", "digest": digestOf("inference-manager.oci.tar.zst"), "sizeBytes": len("inference-manager-image"), "imageReference": "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 			"inferenceChart":        map[string]any{"path": "appliance-inference-0.6.5.tgz", "digest": digestOf("appliance-inference-0.6.5.tgz"), "sizeBytes": len("inference-chart")},
 			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
 			"configurationSchema":   map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
@@ -453,8 +459,8 @@ func TestLoad_ValidReleaseInputWithoutOptionalInference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected release input without optional inference to load, got: %v", err)
 	}
-	if in.Artifacts.InferenceRuntimeImage.Path != "" || in.Artifacts.InferenceChart.Path != "" {
-		t.Fatalf("expected empty inference artifacts, got image=%q chart=%q", in.Artifacts.InferenceRuntimeImage.Path, in.Artifacts.InferenceChart.Path)
+	if in.Artifacts.InferenceRuntimeImage.Path != "" || in.Artifacts.InferenceManagerImage.Path != "" || in.Artifacts.InferenceChart.Path != "" {
+		t.Fatalf("expected empty inference artifacts, got image=%q manager=%q chart=%q", in.Artifacts.InferenceRuntimeImage.Path, in.Artifacts.InferenceManagerImage.Path, in.Artifacts.InferenceChart.Path)
 	}
 	if in.Compatibility.InferenceVersion != "" {
 		t.Fatalf("expected empty inferenceVersion, got %q", in.Compatibility.InferenceVersion)

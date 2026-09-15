@@ -124,6 +124,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 		{"oci-images/blob-storage.tar", "oci-images", "fake blob storage image tar", "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image tar", "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+		{"oci-images/inference-manager.tar", "oci-images", "fake inference-manager image tar", "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 	}
 	if includeWorkflows {
 		entries = append(entries,
@@ -473,6 +474,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"docker.io/rancher/mirrored-coredns-coredns:1.11.3"}
 	case "inference-runtime.tar":
 		return []string{"registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+	case "inference-manager.tar":
+		return []string{"registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
 	case "dns-server.tar":
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 	case "blob-storage.tar":
@@ -1716,6 +1719,9 @@ func TestInstall_CPUInferencePreloadsAndConfiguresSharedGateway(t *testing.T) {
 	values := fcli.helmValues["appliance-inference"]
 	if !strings.Contains(values, "repository: registry.local/inference-runtime") || !strings.Contains(values, "digest: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") {
 		t.Fatalf("CPU runtime values lack the bundled pin: %s", values)
+	}
+	if !strings.Contains(values, "repository: registry.local/inference-manager") || !strings.Contains(values, "digest: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") {
+		t.Fatalf("CPU manager values lack the bundled pin: %s", values)
 	}
 	controlPlane := fcli.helmValues[opts.ChartReleaseName]
 	if !strings.Contains(controlPlane, "inference") || !strings.Contains(controlPlane, "http://inference-gateway.inference.svc.cluster.local:8080") || !strings.Contains(controlPlane, "inferenceMode: cpu") {

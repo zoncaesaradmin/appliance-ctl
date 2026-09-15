@@ -44,6 +44,7 @@ func buildReleaseInputDir(t *testing.T) string {
 		"appliance-dns-1.14.4.tgz":                          "dns-chart",
 		"blob-storage.oci.tar.zst":                          "blob-storage-image",
 		"inference-runtime.oci.tar.zst":                     "inference-image",
+		"inference-manager.oci.tar.zst":                     "inference-manager-image",
 		"appliance-inference-0.6.5.tgz":                     "inference-chart",
 		"appliance-metadata-bundle-2.4.0.0.tar.zst":         "metadata-bundle-bytes",
 		"configuration.schema.json":                         `{"type":"object"}`,
@@ -99,6 +100,7 @@ func buildReleaseInputDir(t *testing.T) string {
 			"dnsChart":              map[string]any{"path": "appliance-dns-1.14.4.tgz", "digest": digestOf("appliance-dns-1.14.4.tgz"), "sizeBytes": len("dns-chart")},
 			"blobStorageImage":      map[string]any{"path": "blob-storage.oci.tar.zst", "digest": digestOf("blob-storage.oci.tar.zst"), "sizeBytes": len("blob-storage-image"), "imageReference": "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 			"inferenceRuntimeImage": map[string]any{"path": "inference-runtime.oci.tar.zst", "digest": digestOf("inference-runtime.oci.tar.zst"), "sizeBytes": len("inference-image"), "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+			"inferenceManagerImage": map[string]any{"path": "inference-manager.oci.tar.zst", "digest": digestOf("inference-manager.oci.tar.zst"), "sizeBytes": len("inference-manager-image"), "imageReference": "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 			"inferenceChart":        map[string]any{"path": "appliance-inference-0.6.5.tgz", "digest": digestOf("appliance-inference-0.6.5.tgz"), "sizeBytes": len("inference-chart")},
 			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": metadataInfo.Size()},
 			"configurationSchema":   map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
@@ -464,6 +466,9 @@ func TestAssemblePackStdLLMAMD64Only(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-runtime.oci.tar.zst")); err != nil {
 		t.Fatalf("std-llm-amd64 pack must include runtime image: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-manager.oci.tar.zst")); err != nil {
+		t.Fatalf("std-llm-amd64 pack must include manager image: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "chart", "appliance-inference-0.6.5.tgz")); err != nil {
 		t.Fatalf("std-llm-amd64 pack must include inference chart: %v", err)
