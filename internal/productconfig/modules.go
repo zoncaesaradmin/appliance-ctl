@@ -38,6 +38,7 @@ type ModuleRoute struct {
 	Method       string
 	ExternalPath string
 	UpstreamPath string
+	StripPrefix  string
 	Permission   string
 }
 
@@ -140,8 +141,8 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 			BaseURL:              DefaultInferenceGatewayBaseURL,
 			SecurityClass:        SecurityClassRestricted,
 			Routes: []ModuleRoute{
-				{Method: "GET", ExternalPath: "/inference/v1/models", UpstreamPath: "/v1/models", Permission: "inference.models.read"},
-				{Method: "POST", ExternalPath: "/inference/v1/chat/completions", UpstreamPath: "/v1/chat/completions", Permission: "inference.use"},
+				// OpenAI-compatible catch-all: strip /inference and forward.
+				{Method: "ANY", ExternalPath: "/inference/{path...}", StripPrefix: "/inference", Permission: "inference.use"},
 			},
 		},
 	}
@@ -173,12 +174,17 @@ func ServiceRegistryConfig(modules []ModuleDescriptor) map[string]any {
 		}
 		routes := make([]map[string]any, 0, len(module.Routes))
 		for _, route := range module.Routes {
-			routes = append(routes, map[string]any{
+			entry := map[string]any{
 				"method":       strings.ToUpper(strings.TrimSpace(route.Method)),
 				"externalPath": strings.TrimSpace(route.ExternalPath),
-				"upstreamPath": strings.TrimSpace(route.UpstreamPath),
 				"permission":   strings.TrimSpace(route.Permission),
-			})
+			}
+			if strip := strings.TrimSpace(route.StripPrefix); strip != "" {
+				entry["stripPrefix"] = strip
+			} else {
+				entry["upstreamPath"] = strings.TrimSpace(route.UpstreamPath)
+			}
+			routes = append(routes, entry)
 		}
 		services = append(services, map[string]any{
 			"name":       strings.TrimSpace(module.Name),
@@ -227,6 +233,7 @@ func normalizeModule(module ModuleDescriptor) ModuleDescriptor {
 		module.Routes[i].Method = strings.ToUpper(strings.TrimSpace(module.Routes[i].Method))
 		module.Routes[i].ExternalPath = strings.TrimSpace(module.Routes[i].ExternalPath)
 		module.Routes[i].UpstreamPath = strings.TrimSpace(module.Routes[i].UpstreamPath)
+		module.Routes[i].StripPrefix = strings.TrimSpace(module.Routes[i].StripPrefix)
 		module.Routes[i].Permission = strings.TrimSpace(module.Routes[i].Permission)
 	}
 	return module

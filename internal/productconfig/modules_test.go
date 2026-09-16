@@ -51,6 +51,38 @@ func TestResolveModulesIncludesInferenceWhenEnabled(t *testing.T) {
 	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameHostAgent) {
 		t.Fatal("lanllm profile should not include host-agent")
 	}
+	module, _ := productconfig.ModuleNamed(modules, productconfig.ModuleNameInferenceRuntime)
+	if len(module.Routes) != 1 {
+		t.Fatalf("inference routes = %#v, want one OpenAI catch-all", module.Routes)
+	}
+	if module.Routes[0].Method != "ANY" ||
+		module.Routes[0].ExternalPath != "/inference/{path...}" ||
+		module.Routes[0].StripPrefix != "/inference" ||
+		module.Routes[0].UpstreamPath != "" {
+		t.Fatalf("inference catch-all = %#v", module.Routes[0])
+	}
+	registry := productconfig.ServiceRegistryConfig(modules)
+	services, _ := registry["services"].([]map[string]any)
+	var inference map[string]any
+	for _, service := range services {
+		if service["name"] == "inference-runtime" {
+			inference = service
+			break
+		}
+	}
+	if inference == nil {
+		t.Fatal("expected inference-runtime in service registry")
+	}
+	routes, _ := inference["routes"].([]map[string]any)
+	if len(routes) != 1 {
+		t.Fatalf("service registry routes = %#v, want one catch-all", routes)
+	}
+	if routes[0]["method"] != "ANY" || routes[0]["externalPath"] != "/inference/{path...}" || routes[0]["stripPrefix"] != "/inference" {
+		t.Fatalf("service registry catch-all = %#v", routes[0])
+	}
+	if _, ok := routes[0]["upstreamPath"]; ok {
+		t.Fatalf("catch-all must omit upstreamPath, got %#v", routes[0])
+	}
 }
 
 func TestResolveModulesIncludesInferenceForBuilderLANLLM(t *testing.T) {
