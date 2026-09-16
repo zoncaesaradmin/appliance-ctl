@@ -905,6 +905,23 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: %w", blobReplicaErr), cleanupOnFailure())
 	}
 
+	// Control-plane pods mount appliance-ca (public ca.crt) and IngressRoutes
+	// reference appliance-tls. Create both before the ace-system release so the
+	// Deployment can schedule and Traefik has a secret to attach.
+	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
+		ControlNamespace:  opts.ChartNamespace,
+		ArtifactNamespace: registryNamespace,
+		IncludeArtifacts:  resolved.ArtifactEnabled,
+		FQDN:              identity.FQDN,
+		NodeIPv4:          nodeIPv4,
+		ExtraSANs:         opts.TLSSANs,
+	})
+	checks = append(checks, tlsPrepared.Checks...)
+	if tlsErr != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", tlsErr), cleanupOnFailure())
+	}
+	rollbacks = append(rollbacks, tlsPrepared.Cleanup)
+
 	set2Result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceSystemRelease)
 	checks = append(checks, set2Result.checks...)
 	if set2Result.err != nil {
@@ -925,20 +942,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, failInstall(fmt.Errorf("install: wait for message broker: %w", waitErr), cleanupOnFailure())
 		}
 	}
-
-	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
-		ControlNamespace:  opts.ChartNamespace,
-		ArtifactNamespace: registryNamespace,
-		IncludeArtifacts:  resolved.ArtifactEnabled,
-		FQDN:              identity.FQDN,
-		NodeIPv4:          nodeIPv4,
-		ExtraSANs:         opts.TLSSANs,
-	})
-	checks = append(checks, tlsPrepared.Checks...)
-	if tlsErr != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: %w", tlsErr), cleanupOnFailure())
-	}
-	rollbacks = append(rollbacks, tlsPrepared.Cleanup)
 
 	// ui-server / host-agent / automation-runtime live in ace-apps (chart appsNamespace).
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {

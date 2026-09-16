@@ -1075,6 +1075,43 @@ func TestInstall_ReplicatesAppsKeysOnlyAfterAceSystemRelease(t *testing.T) {
 	}
 }
 
+func TestInstall_CreatesApplianceTLSBeforeControlPlaneRelease(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+
+	caIndex := findCallIndex(fcli.calls, func(call string) bool {
+		return strings.Contains(call, "create secret generic appliance-ca")
+	})
+	if caIndex < 0 {
+		t.Fatalf("missing appliance-ca create in %v", fcli.calls)
+	}
+	tlsIndex := findCallIndex(fcli.calls, func(call string) bool {
+		return strings.Contains(call, "create secret tls appliance-tls")
+	})
+	if tlsIndex < 0 {
+		t.Fatalf("missing appliance-tls create in %v", fcli.calls)
+	}
+	releaseIndex := findCallIndex(fcli.calls, func(call string) bool {
+		return strings.Contains(call, "helm") &&
+			strings.Contains(call, "upgrade --install "+opts.ChartReleaseName+" ") &&
+			strings.Contains(call, "--namespace "+opts.ChartNamespace)
+	})
+	if releaseIndex < 0 {
+		t.Fatalf("missing ace-system helm install call in %v", fcli.calls)
+	}
+	if caIndex >= releaseIndex || tlsIndex >= releaseIndex {
+		t.Fatalf("expected appliance TLS secrets before ace-system release; ca=%d tls=%d release=%d\ncalls: %v", caIndex, tlsIndex, releaseIndex, fcli.calls)
+	}
+}
+
 func TestInstall_ArtifactProfileUsesApplianceIdentityForRegistry(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
