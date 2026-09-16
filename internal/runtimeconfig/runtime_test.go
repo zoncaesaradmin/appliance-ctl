@@ -3,7 +3,7 @@ package runtimeconfig
 import "testing"
 
 func TestValidateTargetArchitectureNormalizesHostNames(t *testing.T) {
-	runtime := Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64", SupportedModes: []string{"cpu"}}
+	runtime := Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64"}
 	if err := ValidateTargetArchitecture(runtime, "x86_64"); err != nil {
 		t.Fatalf("expected x86_64 to match amd64: %v", err)
 	}
@@ -12,27 +12,43 @@ func TestValidateTargetArchitectureNormalizesHostNames(t *testing.T) {
 	}
 }
 
-func TestLegacyStandardRuntimeDefaultsToCPU(t *testing.T) {
-	legacy := Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64"}
-	if err := ValidateInference(legacy); err != nil {
-		t.Fatalf("legacy standard runtime rejected: %v", err)
+func TestValidateStandardAndAcceleratedRuntimes(t *testing.T) {
+	standard := Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64"}
+	if err := ValidateInference(standard); err != nil {
+		t.Fatalf("standard runtime rejected: %v", err)
 	}
-	if modes := EffectiveModes(legacy); len(modes) != 1 || modes[0] != "cpu" {
-		t.Fatalf("effective modes = %v", modes)
+	if RequiresGPU(standard) {
+		t.Fatal("standard Ollama runtime must not require a GPU")
 	}
-	current := legacy
-	current.SupportedModes = []string{"cpu"}
-	if !Equal(legacy, current) {
-		t.Fatal("legacy and explicit standard CPU selections should compare equal")
+
+	accelerated := Selection{Package: "acc-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64"}
+	if err := ValidateInference(accelerated); err != nil {
+		t.Fatalf("accelerated amd64 runtime rejected: %v", err)
+	}
+	if !RequiresGPU(accelerated) {
+		t.Fatal("accelerated vLLM runtime must require a GPU")
+	}
+	if err := ValidateTargetArchitecture(accelerated, "x86_64"); err != nil {
+		t.Fatalf("accelerated amd64 runtime rejected on x86_64: %v", err)
+	}
+
+	arm := Selection{Package: "acc-llm-arm64", InferenceEngine: "vllm", Architecture: "arm64"}
+	if err := ValidateInference(arm); err != nil {
+		t.Fatalf("accelerated arm64 runtime rejected: %v", err)
+	}
+	if !RequiresGPU(arm) {
+		t.Fatal("accelerated arm64 runtime must require a GPU")
 	}
 }
 
-func TestValidateVLLMAMD64CPU(t *testing.T) {
-	runtime := Selection{Package: "acc-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64", SupportedModes: []string{"cpu"}}
-	if err := ValidateInference(runtime); err != nil {
-		t.Fatalf("vLLM amd64 CPU runtime rejected: %v", err)
+func TestEqualIgnoresAbsentModes(t *testing.T) {
+	left := Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64"}
+	right := Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64"}
+	if !Equal(left, right) {
+		t.Fatal("identical selections should compare equal")
 	}
-	if err := ValidateTargetArchitecture(runtime, "x86_64"); err != nil {
-		t.Fatalf("vLLM amd64 runtime rejected on x86_64: %v", err)
+	right.Architecture = "arm64"
+	if Equal(left, right) {
+		t.Fatal("differing architecture should not compare equal")
 	}
 }

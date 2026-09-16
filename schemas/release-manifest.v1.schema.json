@@ -38,12 +38,6 @@
           "architecture": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9-]*$"
-          },
-          "supportedModes": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": { "enum": ["cpu", "cuda"] }
           }
         }
       }

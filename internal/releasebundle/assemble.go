@@ -7,8 +7,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
-	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,7 +15,9 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/bundle"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/releaseinput"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
 
@@ -617,16 +618,12 @@ func copyEntry(bundleDir string, entry EntryConfig) (manifestEntry, error) {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
 		return manifestEntry{}, fmt.Errorf("releasebundle: create %s: %w", filepath.Dir(destPath), err)
 	}
-	data, err := os.ReadFile(entry.SourcePath)
-	if err != nil {
-		return manifestEntry{}, fmt.Errorf("releasebundle: read %s: %w", entry.SourcePath, err)
-	}
 	mode := os.FileMode(0o640)
 	if entry.Executable {
 		mode = 0o750
 	}
-	if err := os.WriteFile(destPath, data, mode); err != nil {
-		return manifestEntry{}, fmt.Errorf("releasebundle: write %s: %w", destPath, err)
+	if err := linkOrCopyFile(entry.SourcePath, destPath, mode); err != nil {
+		return manifestEntry{}, err
 	}
 	return describeFile(destPath, entry.TargetPath, entry.Component, entry.Executable, entry.ImageReference)
 }
@@ -651,11 +648,7 @@ func addDirectoryEntries(bundleDir, sourceDir, component string, manifestEntries
 		if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 			return err
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(dest, data, 0o640); err != nil {
+		if err := linkOrCopyFile(path, dest, 0o640); err != nil {
 			return err
 		}
 		entry, err := describeFile(dest, target, component, false, "")
@@ -665,6 +658,38 @@ func addDirectoryEntries(bundleDir, sourceDir, component string, manifestEntries
 		*manifestEntries = append(*manifestEntries, entry)
 		return nil
 	})
+}
+
+// linkOrCopyFile prefers a same-filesystem hard link so multi-gigabyte OCI
+// archives are not rewritten during pack assembly. Falls back to a streamed
+// copy when linking is impossible (cross-device, permissions, existing dest).
+func linkOrCopyFile(src, dest string, mode os.FileMode) error {
+	_ = os.Remove(dest)
+	if err := os.Link(src, dest); err == nil {
+		if chmodErr := os.Chmod(dest, mode); chmodErr != nil {
+			return fmt.Errorf("releasebundle: chmod %s: %w", dest, chmodErr)
+		}
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("releasebundle: open %s: %w", src, err)
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return fmt.Errorf("releasebundle: create %s: %w", dest, err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(dest)
+		return fmt.Errorf("releasebundle: copy %s -> %s: %w", src, dest, err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(dest)
+		return fmt.Errorf("releasebundle: close %s: %w", dest, err)
+	}
+	return nil
 }
 
 func describeFile(fullPath, relPath, component string, executable bool, imageReference string) (manifestEntry, error) {

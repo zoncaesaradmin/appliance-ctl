@@ -163,7 +163,7 @@ func buildBundle(t *testing.T, spec bundleSpec) (dir string, pub verify.PublicKe
 		"releaseId":     "01J8QK3F9G7XA6P0V6ZC9N6R4T",
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
-		"runtimes":      map[string]any{"inference": map[string]any{"package": "std-llm-amd64", "inferenceEngine": "ollama", "architecture": "amd64", "supportedModes": []string{"cpu"}}},
+		"runtimes":      map[string]any{"inference": map[string]any{"package": "std-llm-amd64", "inferenceEngine": "ollama", "architecture": "amd64"}},
 		"compatibility": map[string]any{
 			"k3sVersion": spec.k3sVersion, "chartVersion": spec.chartVersion,
 			"artifactServerVersion":   "2.1.7",

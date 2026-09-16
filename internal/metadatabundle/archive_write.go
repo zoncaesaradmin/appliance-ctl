@@ -76,13 +76,13 @@ sections:
 		dirName + "/packages/catalog.yaml": `packages:
   std-llm-amd64:
     capabilities: [inference]
-    runtime: {inferenceEngine: ollama, architecture: amd64, supportedModes: [cpu]}
+    runtime: {inferenceEngine: ollama, architecture: amd64}
   acc-llm-arm64:
     capabilities: [inference]
-    runtime: {inferenceEngine: vllm, architecture: arm64, supportedModes: [cpu, cuda]}
+    runtime: {inferenceEngine: vllm, architecture: arm64}
   acc-llm-amd64:
     capabilities: [inference]
-    runtime: {inferenceEngine: vllm, architecture: amd64, supportedModes: [cpu]}
+    runtime: {inferenceEngine: vllm, architecture: amd64}
 `,
 		dirName + "/profiles/catalog.yaml":     catalog.String(),
 		dirName + "/capabilities/catalog.yaml": installTestCapabilitiesYAML(),

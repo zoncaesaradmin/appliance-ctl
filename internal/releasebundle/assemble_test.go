@@ -6,11 +6,12 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
-	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/releasebundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/releaseinput"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
@@ -205,6 +206,23 @@ func TestAssembleAndVerifyBundle(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "host-packages", "ubuntu", "24.04", "amd64", "avahi-daemon.deb")); err != nil {
 		t.Fatalf("expected host packages to be carried into the bundle: %v", err)
+	}
+
+	// Same-filesystem assembly should hard-link large OCI archives instead of rewriting them.
+	srcOCI := filepath.Join(releaseInputDir, "appliance-ui.oci.tar.zst")
+	dstOCI := filepath.Join(result.BundleDir, "oci-images", "appliance-ui.oci.tar.zst")
+	srcInfo, err := os.Stat(srcOCI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dstInfo, err := os.Stat(dstOCI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcStat, ok1 := srcInfo.Sys().(*syscall.Stat_t)
+	dstStat, ok2 := dstInfo.Sys().(*syscall.Stat_t)
+	if ok1 && ok2 && srcStat.Dev == dstStat.Dev && srcStat.Ino != dstStat.Ino {
+		t.Fatalf("expected hard-linked OCI archive (same inode); src=%d dst=%d", srcStat.Ino, dstStat.Ino)
 	}
 }
 

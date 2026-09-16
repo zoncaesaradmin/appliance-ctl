@@ -182,7 +182,9 @@ func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
 }
 
 func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64", SupportedModes: []string{"cpu"}})
+	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
+	defer restore()
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,16 +199,17 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 		!strings.Contains(text, "repository: registry.local/inference-manager") ||
 		!strings.Contains(text, "digest: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") ||
 		!strings.Contains(text, "name: inference") ||
-		!strings.Contains(text, "create: false") || !strings.Contains(text, "engine: ollama") || !strings.Contains(text, "mode: auto") || !strings.Contains(text, "supportedModes:") {
+		!strings.Contains(text, "create: false") || !strings.Contains(text, "engine: ollama") ||
+		!strings.Contains(text, "gpu:\n    driverCapabilities: all\n    enabled: false") {
 		t.Fatalf("unexpected inference values:\n%s", text)
 	}
-	// Chart owns persistence defaults (static hostPath PV+PVC). Installer
-	// values must not inject a pod-level hostPath or unused logs block.
 	for _, forbidden := range []string{
 		"hostPath:",
 		"/data/zon/logs/inference",
 		"/data/zon/inference/models",
 		"persistence:",
+		"mode:",
+		"supportedModes:",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("inference values unexpectedly contain %q:\n%s", forbidden, text)
@@ -214,9 +217,23 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 	}
 }
 
-func TestPrepareInferenceValuesFile_VLLMDefaultsToCPU(t *testing.T) {
+func TestPrepareInferenceValuesFile_AcceleratedRequiresGPU(t *testing.T) {
+	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
+	defer restore()
+	_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
+		Package: "acc-llm-arm64", InferenceEngine: "vllm", Architecture: "arm64",
+	})
+	cleanup()
+	if err == nil || !strings.Contains(err.Error(), "requires a usable GPU") {
+		t.Fatalf("accelerated pack without GPU error=%v", err)
+	}
+}
+
+func TestPrepareInferenceValuesFile_AcceleratedEnablesGPU(t *testing.T) {
+	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return true })
+	defer restore()
 	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
-		Package: "acc-llm-arm64", InferenceEngine: "vllm", Architecture: "arm64", SupportedModes: []string{"cpu", "cuda"},
+		Package: "acc-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -227,25 +244,13 @@ func TestPrepareInferenceValuesFile_VLLMDefaultsToCPU(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "engine: vllm") || !strings.Contains(text, "mode: auto") {
-		t.Fatalf("vLLM values must use runtime mode selection:\n%s", text)
+	if !strings.Contains(text, "engine: vllm") || !strings.Contains(text, "gpu:\n    driverCapabilities: all\n    enabled: true") {
+		t.Fatalf("accelerated values must enable GPU:\n%s", text)
 	}
-}
-
-func TestPrepareInferenceValuesFile_VLLMAMD64DefaultsToCPU(t *testing.T) {
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
-		Package: "acc-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64", SupportedModes: []string{"cpu"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cleanup()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if text := string(data); !strings.Contains(text, "engine: vllm") || !strings.Contains(text, "mode: auto") || !strings.Contains(text, "gpu:\n    driverCapabilities: all\n    enabled: false") {
-		t.Fatalf("vLLM amd64 values must use runtime mode selection:\n%s", text)
+	for _, forbidden := range []string{"mode:", "supportedModes:"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("inference values unexpectedly contain %q:\n%s", forbidden, text)
+		}
 	}
 }
 
@@ -471,7 +476,7 @@ func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) 
 }
 
 func TestInferenceValuesRejectUnsupportedRuntime(t *testing.T) {
-	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "std-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64", SupportedModes: []string{"cpu"}}, {Package: "acc-llm-arm64", InferenceEngine: "vllm", Architecture: "arm64", SupportedModes: []string{"tensor"}}} {
+	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "std-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64"}, {Package: "acc-llm-arm64", InferenceEngine: "ollama", Architecture: "arm64"}} {
 		_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtime)
 		cleanup()
 		if err == nil {

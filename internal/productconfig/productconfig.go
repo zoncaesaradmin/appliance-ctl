@@ -396,16 +396,12 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 			config["inferenceRuntimePackage"] = runtime.Package
 			config["inferenceEngine"] = runtime.InferenceEngine
 			config["inferenceArchitecture"] = runtime.Architecture
-			config["inferenceSupportedModes"] = runtimeconfig.EffectiveModes(*runtime)
-			config["inferenceMode"] = "cpu"
 		}
 	} else {
 		delete(config, "inferenceGatewayBaseURL")
 		delete(config, "inferenceRuntimePackage")
 		delete(config, "inferenceEngine")
 		delete(config, "inferenceArchitecture")
-		delete(config, "inferenceSupportedModes")
-		delete(config, "inferenceMode")
 	}
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
@@ -656,22 +652,27 @@ func PrepareRegistryValuesFile(baseDir, artifactServerImageReference, fqdn strin
 	return tmp.Name(), cleanup, nil
 }
 
-func inferenceNVIDIARuntimeAvailable(supportedModes []string) bool {
-	hasCUDA := false
-	for _, mode := range supportedModes {
-		if strings.EqualFold(strings.TrimSpace(mode), "cuda") {
-			hasCUDA = true
-			break
-		}
-	}
-	if !hasCUDA {
-		return false
-	}
+func hostNVIDIARuntimeAvailable() bool {
 	if _, err := os.Stat("/dev/nvidiactl"); err != nil {
 		return false
 	}
 	config, err := os.ReadFile("/var/lib/rancher/k3s/agent/etc/containerd/config.toml")
 	return err == nil && strings.Contains(strings.ToLower(string(config)), "nvidia")
+}
+
+// hostNVIDIACheck is overridable in unit tests.
+var hostNVIDIACheck = hostNVIDIARuntimeAvailable
+
+// OverrideHostNVIDIACheckForTest replaces the NVIDIA probe for unit tests.
+// Call the returned function to restore the previous probe.
+func OverrideHostNVIDIACheckForTest(fn func() bool) func() {
+	prev := hostNVIDIACheck
+	if fn == nil {
+		hostNVIDIACheck = hostNVIDIARuntimeAvailable
+	} else {
+		hostNVIDIACheck = fn
+	}
+	return func() { hostNVIDIACheck = prev }
 }
 
 // PrepareDNSValuesFile renders the small installer-owned values layer for
@@ -761,14 +762,16 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferen
 	if !validInferenceManagerImageDigest(inferenceManagerImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid inference-manager image reference %q", inferenceManagerImageReference)
 	}
+	gpuAvailable := hostNVIDIACheck()
+	if runtimeconfig.RequiresGPU(runtime) && !gpuAvailable {
+		return "", func() {}, fmt.Errorf("product config: accelerated inference package %q requires a usable GPU on the install host", runtime.Package)
+	}
+	// Standard (Ollama) may use a host GPU when present; accelerated always does.
+	gpuEnabled := gpuAvailable
 	values := map[string]any{
 		"namespace": map[string]any{"create": false, "name": "inference"},
 		"runtime": map[string]any{
-			// The runtime chooses the highest usable mode from the signed
-			// package modes. CPU is the safe fallback, not the preference.
-			"mode":           "auto",
-			"engine":         runtime.InferenceEngine,
-			"supportedModes": runtimeconfig.EffectiveModes(runtime),
+			"engine": runtime.InferenceEngine,
 		},
 		"image": map[string]any{
 			"repository": "registry.local/inference-runtime",
@@ -781,7 +784,7 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferen
 			"pullPolicy": "IfNotPresent",
 		},
 		"gpu": map[string]any{
-			"enabled":            inferenceNVIDIARuntimeAvailable(runtimeconfig.EffectiveModes(runtime)),
+			"enabled":            gpuEnabled,
 			"runtimeClassName":   "nvidia",
 			"visibleDevices":     "all",
 			"driverCapabilities": "all",
