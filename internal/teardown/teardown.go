@@ -137,12 +137,13 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 }
 
 // FactoryReset does everything Uninstall does, plus wipes dataDir,
-// stateDir, and removes zonctl itself. Builder workspaces are preserved
-// unless wipeWorkspaces is explicitly requested. It refuses outright
-// unless recentBackupVerified or dataLossOverride is true:
-// "factory-reset requires a recent verified backup or a separately
-// confirmed data-loss override," never both silently assumed.
-func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, metadataBundlesDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
+// stateDir, host-visible inference models, and removes zonctl itself.
+// Builder workspaces are preserved unless wipeWorkspaces is explicitly
+// requested. It refuses outright unless recentBackupVerified or
+// dataLossOverride is true: "factory-reset requires a recent verified
+// backup or a separately confirmed data-loss override," never both
+// silently assumed.
+func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, metadataBundlesDir, inferenceModelsDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
 	if !recentBackupVerified && !dataLossOverride {
 		return nil, fmt.Errorf("teardown: factory-reset requires a recent verified backup or an explicit data-loss override")
 	}
@@ -177,6 +178,17 @@ func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPa
 		ID: "teardown-wipe-metadata-bundles", Category: "backup-restore", Status: evidence.StatusPass,
 		Message: "metadata-bundles host directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
+
+	inferenceModelsDir = filepath.Clean(strings.TrimSpace(inferenceModelsDir))
+	if inferenceModelsDir != "" && inferenceModelsDir != "." && inferenceModelsDir != string(filepath.Separator) && filepath.IsAbs(inferenceModelsDir) {
+		if err := os.RemoveAll(inferenceModelsDir); err != nil {
+			return checks, fmt.Errorf("teardown: remove inference models directory: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "teardown-wipe-inference-models", Category: "backup-restore", Status: evidence.StatusPass,
+			Message: "host inference models directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	if wipeWorkspaces {
 		if err := os.RemoveAll(workspaceRootDir); err != nil {

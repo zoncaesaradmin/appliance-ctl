@@ -81,7 +81,7 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	}
 
 	ops := k3s.DefaultOps()
-	checks, err := teardown.FactoryReset(ctx, ops, defaultK3sUnitName, opts.stateDir, defaultK3sBinaryDestPath, defaultK3sConfigPath, defaultK3sRegistriesPath, defaultK3sUnitPath, defaultKubectlSymlinkPath, defaultK3sCNINetworkDir, append([]string(nil), defaultK3sCNIInterfaces...), defaultK3sDataDir, hostdirs.MetadataBundlesDir, defaultWorkspaceRootDir, defaultZonctlRealPath, defaultZonctlLauncherPath, backupVerified, opts.forceDataLoss, opts.wipeWorkspaces)
+	checks, err := teardown.FactoryReset(ctx, ops, defaultK3sUnitName, opts.stateDir, defaultK3sBinaryDestPath, defaultK3sConfigPath, defaultK3sRegistriesPath, defaultK3sUnitPath, defaultKubectlSymlinkPath, defaultK3sCNINetworkDir, append([]string(nil), defaultK3sCNIInterfaces...), defaultK3sDataDir, hostdirs.MetadataBundlesDir, hostdirs.InferenceModelsDir, defaultWorkspaceRootDir, defaultZonctlRealPath, defaultZonctlLauncherPath, backupVerified, opts.forceDataLoss, opts.wipeWorkspaces)
 
 	reportID := "evidence-" + time.Now().UTC().Format("20060102T150405Z0700")
 	if report, buildErr := evidence.BuildReport("factory-reset", version, reportID, checks, time.Now()); buildErr == nil {
@@ -113,9 +113,9 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	logger.Info("factory-reset complete", "backupVerified", backupVerified, "workspacesWiped", opts.wipeWorkspaces)
 	data, _ := json.Marshal(map[string]any{"dataLossAcknowledged": true, "backupVerified": backupVerified, "workspacesWiped": opts.wipeWorkspaces})
 	result.Confirmation = &confirmation{Mode: "non-interactive", AcknowledgedDataLoss: true, Token: opts.confirm}
-	message := "factory-reset complete; platform control data removed; builder workspaces preserved"
+	message := "factory-reset complete; platform control data and inference models removed; builder workspaces preserved"
 	if opts.wipeWorkspaces {
-		message = "factory-reset complete; platform control data and builder workspaces removed"
+		message = "factory-reset complete; platform control data, inference models, and builder workspaces removed"
 	}
 	return finish(result, "succeeded", 0, message, data)
 }

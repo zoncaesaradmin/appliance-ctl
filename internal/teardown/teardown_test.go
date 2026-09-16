@@ -58,6 +58,7 @@ type installedFiles struct {
 	installedStatePath string
 	dataDir            string
 	metadataBundlesDir string
+	inferenceModelsDir string
 	workspaceRootDir   string
 	workspaceFilePath  string
 	zonctlRealPath     string
@@ -84,6 +85,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 		installedStatePath:  filepath.Join(stateDir, "installed-state.json"),
 		dataDir:             filepath.Join(stateDir, "..", "k3s-data"),
 		metadataBundlesDir:  filepath.Join(stateDir, "..", "data", "zon", "metadata-bundles"),
+		inferenceModelsDir:  filepath.Join(stateDir, "..", "data", "zon", "inference", "models"),
 		workspaceRootDir:    filepath.Join(stateDir, "..", "data", "zon", "workspaces"),
 		zonctlRealPath:      filepath.Join(stateDir, "..", "zonctl-lib", "bin", "zonctl-real"),
 		zonctlLauncherPath:  filepath.Join(stateDir, "..", "bin", "zonctl"),
@@ -118,6 +120,12 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 	if err := os.WriteFile(filepath.Join(f.metadataBundlesDir, "appliance-metadata-bundle-2.4.0.0", "bundle.yaml"), []byte("policy: test"), 0o640); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(f.inferenceModelsDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.inferenceModelsDir, "registry.json"), []byte(`{"models":{}}`), 0o640); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(f.workspaceFilePath), 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +137,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 
 func runFactoryResetForTest(t *testing.T, f installedFiles, fake *fakeK3s, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) error {
 	t.Helper()
-	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.metadataBundlesDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
+	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.metadataBundlesDir, f.inferenceModelsDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
 	return err
 }
 
@@ -291,6 +299,9 @@ func TestFactoryReset_WipesDataWithVerifiedBackup(t *testing.T) {
 	}
 	if _, err := os.Stat(f.metadataBundlesDir); !os.IsNotExist(err) {
 		t.Errorf("expected the metadata-bundles directory to be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(f.inferenceModelsDir); !os.IsNotExist(err) {
+		t.Errorf("expected the inference models directory to be removed, stat err=%v", err)
 	}
 }
 
