@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/bundle"
@@ -381,9 +382,10 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		targets = append(targets, target)
 	}
 	sort.Strings(targets)
+	knownDigests := knownDigestsFromReleaseInput(input)
 	for _, target := range targets {
 		entry := entryByTarget[target]
-		manifestEntry, err := copyEntry(cfg.BundleDir, entry)
+		manifestEntry, err := copyEntry(cfg.BundleDir, entry, knownDigests)
 		if err != nil {
 			return Result{}, err
 		}
@@ -410,7 +412,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 	}
 
-	pubEntry, err := describeFile(filepath.Join(cfg.BundleDir, publicKeyTarget), publicKeyTarget, "public-keys", false, "")
+	pubEntry, err := describeFile(filepath.Join(cfg.BundleDir, publicKeyTarget), publicKeyTarget, "public-keys", false, "", "", nil)
 	if err != nil {
 		return Result{}, err
 	}
@@ -606,7 +608,7 @@ func validateConfiguredEntry(entry EntryConfig) error {
 	return nil
 }
 
-func copyEntry(bundleDir string, entry EntryConfig) (manifestEntry, error) {
+func copyEntry(bundleDir string, entry EntryConfig, knownDigests map[string]string) (manifestEntry, error) {
 	srcInfo, err := os.Stat(entry.SourcePath)
 	if err != nil {
 		return manifestEntry{}, fmt.Errorf("releasebundle: stat %s: %w", entry.SourcePath, err)
@@ -625,7 +627,11 @@ func copyEntry(bundleDir string, entry EntryConfig) (manifestEntry, error) {
 	if err := linkOrCopyFile(entry.SourcePath, destPath, mode); err != nil {
 		return manifestEntry{}, err
 	}
-	return describeFile(destPath, entry.TargetPath, entry.Component, entry.Executable, entry.ImageReference)
+	knownDigest := ""
+	if knownDigests != nil {
+		knownDigest = knownDigests[entry.SourcePath]
+	}
+	return describeFile(destPath, entry.TargetPath, entry.Component, entry.Executable, entry.ImageReference, knownDigest, srcInfo)
 }
 
 func addDirectoryEntries(bundleDir, sourceDir, component string, manifestEntries *[]manifestEntry) error {
@@ -651,7 +657,7 @@ func addDirectoryEntries(bundleDir, sourceDir, component string, manifestEntries
 		if err := linkOrCopyFile(path, dest, 0o640); err != nil {
 			return err
 		}
-		entry, err := describeFile(dest, target, component, false, "")
+		entry, err := describeFile(dest, target, component, false, "", "", info)
 		if err != nil {
 			return err
 		}
@@ -692,14 +698,70 @@ func linkOrCopyFile(src, dest string, mode os.FileMode) error {
 	return nil
 }
 
-func describeFile(fullPath, relPath, component string, executable bool, imageReference string) (manifestEntry, error) {
-	digest, err := verify.Digest(fullPath)
-	if err != nil {
-		return manifestEntry{}, err
+func knownDigestsFromReleaseInput(input *releaseinput.Input) map[string]string {
+	out := map[string]string{}
+	if input == nil {
+		return out
 	}
+	add := func(artifact releaseinput.FileArtifact) {
+		if artifact.Path == "" || artifact.Digest == "" {
+			return
+		}
+		out[artifact.Path] = artifact.Digest
+	}
+	add(input.Artifacts.ControlPlaneImage)
+	add(input.Artifacts.UIImage)
+	add(input.Artifacts.HostAgentImage)
+	add(input.Artifacts.HostAgentBinary)
+	add(input.Artifacts.ApplianceChart)
+	add(input.Artifacts.ArtifactServerImage)
+	add(input.Artifacts.ArtifactServerChart)
+	add(input.Artifacts.DnsImage)
+	add(input.Artifacts.DnsChart)
+	add(input.Artifacts.BlobStorageImage)
+	add(input.Artifacts.InferenceRuntimeImage)
+	add(input.Artifacts.InferenceManagerImage)
+	add(input.Artifacts.InferenceChart)
+	add(input.Artifacts.MetadataBundle)
+	add(input.Artifacts.MessageBrokerImage)
+	add(input.Artifacts.MessageBrokerChart)
+	add(input.Artifacts.WorkflowsChart)
+	add(input.Artifacts.WorkflowControllerImage)
+	add(input.Artifacts.WorkflowExecutorImage)
+	add(input.Artifacts.ConfigurationSchema)
+	add(input.Artifacts.Compatibility)
+	add(input.Artifacts.Checksums)
+	for _, image := range input.Artifacts.ExtraOCIImages {
+		add(image)
+	}
+	return out
+}
+
+func sameInode(left, right os.FileInfo) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	ls, ok1 := left.Sys().(*syscall.Stat_t)
+	rs, ok2 := right.Sys().(*syscall.Stat_t)
+	return ok1 && ok2 && ls.Dev == rs.Dev && ls.Ino == rs.Ino
+}
+
+func describeFile(fullPath, relPath, component string, executable bool, imageReference, knownDigest string, sourceInfo os.FileInfo) (manifestEntry, error) {
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return manifestEntry{}, err
+	}
+	digest := ""
+	// releaseinput.Load already verified knownDigest for the source file. When
+	// assembly hard-linked that same inode into the pack, re-hashing would only
+	// re-read multi-gigabyte OCI archives.
+	if knownDigest != "" && sameInode(sourceInfo, info) && info.Size() == sourceInfo.Size() {
+		digest = knownDigest
+	} else {
+		digest, err = verify.Digest(fullPath)
+		if err != nil {
+			return manifestEntry{}, err
+		}
 	}
 	return manifestEntry{
 		Path:           filepath.ToSlash(relPath),
