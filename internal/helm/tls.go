@@ -18,7 +18,8 @@ const (
 	// control-plane and registry IngressRoutes (charts' ingress.tlsSecretName).
 	DefaultApplianceTLSSecret = "appliance-tls"
 	// DefaultApplianceCASecret stores the installer-generated CA used to
-	// reissue leaf certificates. Public CA export for clients is separate.
+	// reissue leaf certificates. Public CA export for clients is served by
+	// the control plane (GET /api/v1/appliance/tls/ca) from the ca.crt key.
 	DefaultApplianceCASecret = "appliance-ca"
 
 	caCertFileName  = "ca.crt"
