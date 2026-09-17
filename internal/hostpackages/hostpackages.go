@@ -65,7 +65,12 @@ func ResolvePackageDir(rootDir, osName, osVersion, arch string) (string, error) 
 // dpkg install. appliance-host-agentd owns hostapd/dnsmasq for management Wi-Fi
 // AP and avahi for mDNS; day-2 Apply unmasks/starts them when the operator
 // enables the feature. Debian stock postinst must not leave them running.
+//
+// avahi-daemon.socket must be quiesced before avahi-daemon.service: socket
+// activation cancels a concurrent service stop ("Job … canceled") and restarts
+// the daemon, which is exactly the race seen on Ubuntu hosts with stock Avahi.
 var stockDaemonUnitsToQuiesce = []string{
+	"avahi-daemon.socket",
 	"avahi-daemon.service",
 	"dnsmasq.service",
 	"hostapd.service",
@@ -341,11 +346,23 @@ func systemctlStart(name string) error {
 }
 
 func systemctlStop(name string) error {
-	_, err := runCommand("systemctl", "stop", name)
-	if err != nil && !missingUnitError(err) {
-		return fmt.Errorf("hostpackages: stop %s: %w", name, err)
+	// Socket activation (and parallel dpkg/postinst start jobs) can cancel a
+	// stop with "Job for <unit> canceled". Retry briefly; callers also stop
+	// sockets before services so most retries never fire.
+	const attempts = 5
+	var last error
+	for i := 0; i < attempts; i++ {
+		_, err := runCommand("systemctl", "stop", name)
+		if err == nil || missingUnitError(err) {
+			return nil
+		}
+		last = err
+		if !jobCanceledError(err) {
+			return fmt.Errorf("hostpackages: stop %s: %w", name, err)
+		}
+		time.Sleep(time.Duration(100*(i+1)) * time.Millisecond)
 	}
-	return nil
+	return fmt.Errorf("hostpackages: stop %s: %w", name, last)
 }
 
 func systemctlRestart(name string) error {
@@ -386,7 +403,15 @@ func missingUnitError(err error) bool {
 		strings.Contains(text, "does not exist")
 }
 
-func runCommand(name string, args ...string) (string, error) {
+func jobCanceledError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "canceled") || strings.Contains(text, "cancelled")
+}
+
+var runCommand = func(name string, args ...string) (string, error) {
 	return runCommandWithTimeout(30*time.Second, name, args...)
 }
 

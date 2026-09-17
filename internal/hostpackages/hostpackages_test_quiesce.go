@@ -2,6 +2,7 @@ package hostpackages
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,21 +29,34 @@ func TestQuiesceStockDaemonUnitsIgnoresMissing(t *testing.T) {
 	if err := QuiesceStockDaemonUnits(); err != nil {
 		t.Fatalf("expected missing units to be ignored, got: %v", err)
 	}
-	// avahi-daemon + dnsmasq + hostapd × stop/disable/mask
-	if len(actions) != 9 {
-		t.Fatalf("actions = %v (len=%d), want stop/disable/mask for three units", actions, len(actions))
+	// avahi-daemon.socket + avahi-daemon.service + dnsmasq + hostapd × stop/disable/mask
+	if len(actions) != 12 {
+		t.Fatalf("actions = %v (len=%d), want stop/disable/mask for four units", actions, len(actions))
 	}
 	found := map[string]bool{}
 	for _, a := range actions {
 		found[a] = true
 	}
-	for _, unit := range []string{"avahi-daemon.service", "dnsmasq.service", "hostapd.service"} {
+	for _, unit := range []string{"avahi-daemon.socket", "avahi-daemon.service", "dnsmasq.service", "hostapd.service"} {
 		for _, op := range []string{"stop", "disable", "mask"} {
 			key := op + ":" + unit
 			if !found[key] {
 				t.Fatalf("missing action %s in %v", key, actions)
 			}
 		}
+	}
+	// Socket must be quiesced before the service so activation cannot cancel stop.
+	socketStop, serviceStop := -1, -1
+	for i, a := range actions {
+		switch a {
+		case "stop:avahi-daemon.socket":
+			socketStop = i
+		case "stop:avahi-daemon.service":
+			serviceStop = i
+		}
+	}
+	if socketStop < 0 || serviceStop < 0 || socketStop > serviceStop {
+		t.Fatalf("avahi socket stop must precede service stop; actions=%v", actions)
 	}
 }
 
@@ -89,7 +103,14 @@ func TestInstallRequiredPackagesUnmasksSelectedServiceBeforeEnable(t *testing.T)
 		t.Fatalf("InstallRequiredPackages: %v", err)
 	}
 
-	wantSuffix := []string{"install", "stop", "disable", "mask", "stop", "disable", "mask", "stop", "disable", "mask", "unmask", "enable", "restart"}
+	wantSuffix := []string{
+		"install",
+		"stop", "disable", "mask", // avahi-daemon.socket
+		"stop", "disable", "mask", // avahi-daemon.service
+		"stop", "disable", "mask", // dnsmasq.service
+		"stop", "disable", "mask", // hostapd.service
+		"unmask", "enable", "restart",
+	}
 	if len(actions) != len(wantSuffix) {
 		t.Fatalf("actions = %v, want %v", actions, wantSuffix)
 	}
@@ -97,5 +118,28 @@ func TestInstallRequiredPackagesUnmasksSelectedServiceBeforeEnable(t *testing.T)
 		if actions[i] != want {
 			t.Fatalf("actions[%d] = %q, want %q; all actions: %v", i, actions[i], want, actions)
 		}
+	}
+}
+
+func TestSystemctlStopRetriesCanceledJobs(t *testing.T) {
+	origRun := runCommand
+	t.Cleanup(func() { runCommand = origRun })
+
+	attempts := 0
+	runCommand = func(name string, args ...string) (string, error) {
+		if name != "systemctl" || len(args) < 2 || args[0] != "stop" {
+			t.Fatalf("unexpected command %s %v", name, args)
+		}
+		attempts++
+		if attempts < 3 {
+			return "", fmt.Errorf("systemctl stop %s: exit status 1: Job for %s canceled.", args[1], args[1])
+		}
+		return "", nil
+	}
+	if err := systemctlStop("avahi-daemon.service"); err != nil {
+		t.Fatalf("systemctlStop: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
 	}
 }
