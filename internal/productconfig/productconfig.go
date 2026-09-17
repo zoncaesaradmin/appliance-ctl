@@ -655,21 +655,18 @@ func PrepareRegistryValuesFile(baseDir, artifactServerImageReference, fqdn strin
 
 func hostNVIDIARuntimeAvailable() bool {
 	// Usable host GPU = NVIDIA character device present (driver loaded) plus
-	// the container toolkit on PATH so install can configure K3s afterward.
+	// nvidia-ctk on PATH so install can configure K3s containerd afterward.
 	// Do NOT require K3s containerd config.toml to already mention "nvidia":
-	// that stanza is an install outcome, not a host prerequisite. Requiring it
-	// false-negatives every fresh acc-llm install (device present, toolkit
-	// present, brand-new K3s with no nvidia runtime yet).
+	// that stanza is an install outcome, not a host prerequisite.
+	// nvidia-container-runtime alone is insufficient: EnsureK3sRuntime always
+	// invokes nvidia-ctk runtime configure.
 	if _, err := os.Stat("/dev/nvidiactl"); err != nil {
 		return false
 	}
-	if _, err := exec.LookPath("nvidia-container-runtime"); err == nil {
-		return true
+	if _, err := exec.LookPath("nvidia-ctk"); err != nil {
+		return false
 	}
-	if _, err := exec.LookPath("nvidia-ctk"); err == nil {
-		return true
-	}
-	return false
+	return true
 }
 
 // hostNVIDIACheck is overridable in unit tests.
