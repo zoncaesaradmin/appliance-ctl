@@ -103,7 +103,7 @@ type Source interface {
 type OfflineSource struct {
 	BundleDir string
 	// PackDirs are additional signed pack bundle directories (dev-platform,
-	// deviceuser, std-llm-amd64) verified with the same public key and merged into Resolved.
+	// deviceuser, std-llm) verified with the same public key and merged into Resolved.
 	PackDirs  []string
 	PublicKey *verify.PublicKey
 }
@@ -232,6 +232,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		if err != nil {
 			return Resolved{}, checks, err
 		}
+		selected.Architecture = strings.TrimSpace(b.HostBaseline.Arch)
 		if err := runtimeconfig.ValidateInference(selected); err != nil {
 			return Resolved{}, checks, err
 		}

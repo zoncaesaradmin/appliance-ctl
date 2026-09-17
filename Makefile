@@ -17,10 +17,13 @@ VERIFY_RACE_LOG := $(VERIFY_LOG_DIR)/verify-race.log
 VERIFY_SCHEMAS_LOG := $(VERIFY_LOG_DIR)/verify-schemas.log
 VERIFY_MODTIDY_LOG := $(VERIFY_LOG_DIR)/verify-modtidy.log
 
+GOOS ?=
+GOARCH ?=
+
 .PHONY: build
 build:
 	mkdir -p $(BIN_DIR)
-	$(GO) build -mod=vendor -ldflags "$(LDFLAGS)" -o $(ZONCTL_BIN) ./cmd/zonctl
+	GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build -mod=vendor -ldflags "$(LDFLAGS)" -o $(ZONCTL_BIN) ./cmd/zonctl
 
 .PHONY: vendor
 ## vendor: refresh the vendored dependency tree (needed after bumping any

@@ -438,7 +438,7 @@ func TestAssemblePackDeviceUserOnly(t *testing.T) {
 	}
 }
 
-func TestAssemblePackStdLLMAMD64Only(t *testing.T) {
+func TestAssemblePackStdLLMOnly(t *testing.T) {
 	releaseInputDir := buildReleaseInputDir(t)
 	staging := t.TempDir()
 	writeTestFile(t, staging, "zonctl", "zonctl-binary", 0o750)
@@ -464,11 +464,11 @@ func TestAssemblePackStdLLMAMD64Only(t *testing.T) {
 		SchemaVersion:         1,
 		BundleVersion:         "9.1.0",
 		ReleaseInputDir:       releaseInputDir,
-		BundleDir:             filepath.Join(t.TempDir(), "bundle-std-llm-amd64"),
+		BundleDir:             filepath.Join(t.TempDir(), "bundle-std-llm"),
 		SigningKeyID:          "release-signing-key",
 		SigningPrivateKeyPath: privateKeyPath,
 		HostBaseline:          releasebundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
-		Pack:                  releasebundle.PackStdLLMAMD64,
+		Pack:                  releasebundle.PackStdLLM,
 		Entries: []releasebundle.EntryConfig{
 			{SourcePath: filepath.Join(staging, "zonctl"), TargetPath: "zonctl", Component: "appliance", Executable: true},
 			{SourcePath: filepath.Join(staging, "k3s"), TargetPath: "k3s/binary/k3s", Component: "k3s-binary", Executable: true},
@@ -480,18 +480,18 @@ func TestAssemblePackStdLLMAMD64Only(t *testing.T) {
 
 	result, err := releasebundle.Assemble(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("expected std-llm-amd64 pack assembly to succeed, got: %v", err)
+		t.Fatalf("expected std-llm pack assembly to succeed, got: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-runtime.oci.tar.zst")); err != nil {
-		t.Fatalf("std-llm-amd64 pack must include runtime image: %v", err)
+		t.Fatalf("std-llm pack must include runtime image: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-manager.oci.tar.zst")); err != nil {
-		t.Fatalf("std-llm-amd64 pack must include manager image: %v", err)
+		t.Fatalf("std-llm pack must include manager image: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "chart", "appliance-inference-0.6.5.tgz")); err != nil {
-		t.Fatalf("std-llm-amd64 pack must include inference chart: %v", err)
+		t.Fatalf("std-llm pack must include inference chart: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "zonctl")); !os.IsNotExist(err) {
-		t.Fatalf("std-llm-amd64 pack must not include foundation appliance binary, stat err=%v", err)
+		t.Fatalf("std-llm pack must not include foundation appliance binary, stat err=%v", err)
 	}
 }

@@ -62,13 +62,13 @@ func isLinuxHost(f host.Facts) bool {
 }
 
 func checkOSArch(f host.Facts) result {
-	if f.OS == SupportedOS && isSupportedOSVersion(f.OSVersion) && f.Arch == SupportedArch {
-		return result{StatusPass, fmt.Sprintf("host is %s %s (%s), matching the qualified baseline", f.OS, f.OSVersion, f.Arch), ""}
+	if f.OS == SupportedOS && isSupportedOSVersion(f.OSVersion) && isSupportedArch(f.Arch) {
+		return result{StatusPass, fmt.Sprintf("host is %s %s (%s), matching a qualified baseline", f.OS, f.OSVersion, f.Arch), ""}
 	}
 	return result{
 		StatusUnsupported,
-		fmt.Sprintf("host is %s %s (%s); qualified baseline is %s %s (%s)", f.OS, f.OSVersion, f.Arch, SupportedOS, strings.Join(SupportedOSVersions, "/"), SupportedArch),
-		fmt.Sprintf("install on %s %s (%s); additional platforms require their own qualification", SupportedOS, strings.Join(SupportedOSVersions, " or "), SupportedArch),
+		fmt.Sprintf("host is %s %s (%s); qualified baseline is %s %s (%s)", f.OS, f.OSVersion, f.Arch, SupportedOS, strings.Join(SupportedOSVersions, "/"), strings.Join(SupportedArchs, "/")),
+		fmt.Sprintf("install on %s %s (%s); additional platforms require their own qualification", SupportedOS, strings.Join(SupportedOSVersions, " or "), strings.Join(SupportedArchs, " or ")),
 	}
 }
 

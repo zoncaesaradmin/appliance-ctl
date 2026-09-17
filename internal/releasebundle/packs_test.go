@@ -7,8 +7,8 @@ func TestDeliveryPacksAreDisjoint(t *testing.T) {
 		entry EntryConfig
 		pack  string
 	}{
-		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/inference-runtime@sha256:pin"}, PackStdLLMAMD64},
-		{EntryConfig{Component: "chart", TargetPath: "chart/appliance-inference-0.6.5.tgz"}, PackStdLLMAMD64},
+		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/inference-runtime@sha256:pin"}, PackStdLLM},
+		{EntryConfig{Component: "chart", TargetPath: "chart/appliance-inference-0.6.5.tgz"}, PackStdLLM},
 		{EntryConfig{Component: "appliance", TargetPath: "bin/appliance-host-agentd"}, PackFoundation},
 		{EntryConfig{Component: "host-packages", TargetPath: "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb"}, PackFoundation},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/artifact-server@sha256:pin"}, PackDevPlatform},
@@ -22,7 +22,7 @@ func TestDeliveryPacksAreDisjoint(t *testing.T) {
 		{EntryConfig{Component: "kubernetes-crds", TargetPath: "kubernetes/crds/workflows.yaml"}, PackDevPlatform},
 	}
 	for _, tc := range cases {
-		for _, pack := range []string{PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLMAMD64} {
+		for _, pack := range []string{PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM} {
 			if got := entryBelongsToPack(tc.entry, pack); got != (pack == tc.pack) {
 				t.Errorf("entry %+v belongs to %s = %v, want owner %s", tc.entry, pack, got, tc.pack)
 			}

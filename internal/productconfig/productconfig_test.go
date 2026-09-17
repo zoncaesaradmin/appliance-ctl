@@ -184,7 +184,7 @@ func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
 func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
 	defer restore()
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "std-llm-amd64", InferenceEngine: "ollama", Architecture: "amd64"})
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "std-llm", InferenceEngine: "ollama", Architecture: "amd64"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestPrepareInferenceValuesFile_AcceleratedRequiresGPU(t *testing.T) {
 	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
 	defer restore()
 	_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
-		Package: "acc-llm-arm64", InferenceEngine: "vllm", Architecture: "arm64",
+		Package: "acc-llm", InferenceEngine: "vllm", Architecture: "arm64",
 	})
 	cleanup()
 	if err == nil || !strings.Contains(err.Error(), "requires a usable GPU") {
@@ -233,7 +233,7 @@ func TestPrepareInferenceValuesFile_AcceleratedEnablesGPU(t *testing.T) {
 	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return true })
 	defer restore()
 	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
-		Package: "acc-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64",
+		Package: "acc-llm", InferenceEngine: "vllm", Architecture: "amd64",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -476,7 +476,7 @@ func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) 
 }
 
 func TestInferenceValuesRejectUnsupportedRuntime(t *testing.T) {
-	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "std-llm-amd64", InferenceEngine: "vllm", Architecture: "amd64"}, {Package: "acc-llm-arm64", InferenceEngine: "ollama", Architecture: "arm64"}} {
+	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "std-llm", InferenceEngine: "vllm", Architecture: "amd64"}, {Package: "acc-llm", InferenceEngine: "ollama", Architecture: "arm64"}} {
 		_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtime)
 		cleanup()
 		if err == nil {

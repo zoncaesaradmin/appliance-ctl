@@ -74,15 +74,12 @@ sections:
   - capabilities
 `, metadataVersion, strings.TrimSuffix(metadataVersion, ".0")),
 		dirName + "/packages/catalog.yaml": `packages:
-  std-llm-amd64:
+  std-llm:
     capabilities: [inference]
-    runtime: {inferenceEngine: ollama, architecture: amd64}
-  acc-llm-arm64:
+    runtime: {inferenceEngine: ollama}
+  acc-llm:
     capabilities: [inference]
-    runtime: {inferenceEngine: vllm, architecture: arm64}
-  acc-llm-amd64:
-    capabilities: [inference]
-    runtime: {inferenceEngine: vllm, architecture: amd64}
+    runtime: {inferenceEngine: vllm}
 `,
 		dirName + "/profiles/catalog.yaml":     catalog.String(),
 		dirName + "/capabilities/catalog.yaml": installTestCapabilitiesYAML(),

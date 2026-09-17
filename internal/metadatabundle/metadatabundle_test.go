@@ -32,13 +32,13 @@ func TestSeedHost_ExtractsAndValidatesProfile(t *testing.T) {
 
 func TestResolvePackage(t *testing.T) {
 	packages := map[string]metadatabundle.PackageDefinition{
-		"std-llm-amd64": {Capabilities: []string{"inference"}, Runtime: runtimeconfig.Implementation{InferenceEngine: "ollama", Architecture: "amd64"}},
+		"std-llm": {Capabilities: []string{"inference"}, Runtime: runtimeconfig.Implementation{InferenceEngine: "ollama"}},
 	}
-	selected, err := metadatabundle.ResolvePackage(packages, "inference", "std-llm-amd64")
-	if err != nil || selected.InferenceEngine != "ollama" || selected.Architecture != "amd64" || selected.Package != "std-llm-amd64" {
+	selected, err := metadatabundle.ResolvePackage(packages, "inference", "std-llm")
+	if err != nil || selected.InferenceEngine != "ollama" || selected.Package != "std-llm" || selected.Architecture != "" {
 		t.Fatalf("selection=%+v err=%v", selected, err)
 	}
-	packages["duplicate-cpu"] = packages["std-llm-amd64"]
+	packages["duplicate-cpu"] = packages["std-llm"]
 	if _, err := metadatabundle.ResolvePackage(packages, "inference", ""); err == nil {
 		t.Fatal("ambiguous inference package accepted")
 	}

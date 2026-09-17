@@ -8,8 +8,9 @@ import (
 )
 
 type Implementation struct {
+	// InferenceEngine is the only package-owned runtime selector.
+	// Product architecture is stamped from hostBaseline at assemble/install.
 	InferenceEngine string `json:"inferenceEngine" yaml:"inferenceEngine"`
-	Architecture    string `json:"architecture" yaml:"architecture"`
 }
 
 func Equal(left, right Selection) bool {
@@ -28,12 +29,17 @@ type Selection struct {
 // metadata declaration alone cannot provide an engine image.
 //
 // Product categories:
-//   - standard (std-llm-*): Ollama; host CPU or GPU is chosen at runtime
-//   - accelerated (acc-llm-*): vLLM; a usable GPU is required
+//   - standard (std-llm): Ollama; host CPU or GPU is chosen at runtime
+//   - accelerated (acc-llm): vLLM; a usable GPU is required
+//
+// Architecture is the product TARGET_ARCH (amd64|arm64), not part of the pack ID.
 func ValidateInference(runtime Selection) error {
-	valid := runtime.Package == "std-llm-amd64" && runtime.InferenceEngine == "ollama" && runtime.Architecture == "amd64" ||
-		runtime.Package == "acc-llm-amd64" && runtime.InferenceEngine == "vllm" && runtime.Architecture == "amd64" ||
-		runtime.Package == "acc-llm-arm64" && runtime.InferenceEngine == "vllm" && runtime.Architecture == "arm64"
+	arch := normalizeArchitecture(runtime.Architecture)
+	if arch != "amd64" && arch != "arm64" {
+		return fmt.Errorf("unsupported inference runtime package=%q inferenceEngine=%q architecture=%q", runtime.Package, runtime.InferenceEngine, runtime.Architecture)
+	}
+	valid := runtime.Package == "std-llm" && runtime.InferenceEngine == "ollama" ||
+		runtime.Package == "acc-llm" && runtime.InferenceEngine == "vllm"
 	if !valid {
 		return fmt.Errorf("unsupported inference runtime package=%q inferenceEngine=%q architecture=%q", runtime.Package, runtime.InferenceEngine, runtime.Architecture)
 	}
@@ -45,9 +51,9 @@ func RequiresGPU(runtime Selection) bool {
 	return strings.EqualFold(strings.TrimSpace(runtime.InferenceEngine), "vllm")
 }
 
-// ValidateTargetArchitecture checks the selected package against the machine
-// that will run it. Bundle assembly deliberately does not call this: a build
-// host may assemble a bundle for a different target architecture.
+// ValidateTargetArchitecture checks the selected product architecture against
+// the machine that will run it. Bundle assembly deliberately does not call
+// this: a build host may assemble a bundle for a different target architecture.
 func ValidateTargetArchitecture(runtime Selection, targetArchitecture string) error {
 	want := normalizeArchitecture(runtime.Architecture)
 	have := normalizeArchitecture(targetArchitecture)
@@ -55,6 +61,10 @@ func ValidateTargetArchitecture(runtime Selection, targetArchitecture string) er
 		return fmt.Errorf("inference runtime package=%q targets architecture %q but install host is %q", runtime.Package, runtime.Architecture, targetArchitecture)
 	}
 	return nil
+}
+
+func NormalizeArchitecture(value string) string {
+	return normalizeArchitecture(value)
 }
 
 func normalizeArchitecture(value string) string {

@@ -176,6 +176,7 @@ func LoadPackageCatalogArchive(archivePath string) (map[string]PackageDefinition
 // ResolvePackage selects the explicitly selected package that provides a capability.
 // Engine identity is provided by package metadata, never inferred from an image
 // name, host GPU detection, or an unverified operator values file.
+// Architecture is filled by the caller from the product hostBaseline.
 func ResolvePackage(packages map[string]PackageDefinition, capability, packageID string) (runtimeconfig.Selection, error) {
 	var selected runtimeconfig.Selection
 	for id, pkg := range packages {
@@ -189,13 +190,13 @@ func ResolvePackage(packages map[string]PackageDefinition, capability, packageID
 		if !provides {
 			continue
 		}
-		if capability == "inference" && (strings.TrimSpace(pkg.Runtime.InferenceEngine) == "" || strings.TrimSpace(pkg.Runtime.Architecture) == "" || strings.TrimSpace(id) == "") {
+		if capability == "inference" && (strings.TrimSpace(pkg.Runtime.InferenceEngine) == "" || strings.TrimSpace(id) == "") {
 			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: invalid runtime declaration in package %q", id)
 		}
 		if selected.Package != "" {
 			return runtimeconfig.Selection{}, fmt.Errorf("metadatabundle: capability %s is provided by both %s and %s", capability, selected.Package, id)
 		}
-		selected = runtimeconfig.Selection{Package: id, InferenceEngine: pkg.Runtime.InferenceEngine, Architecture: pkg.Runtime.Architecture}
+		selected = runtimeconfig.Selection{Package: id, InferenceEngine: pkg.Runtime.InferenceEngine}
 	}
 	if selected.Package == "" {
 		return selected, fmt.Errorf("metadatabundle: no package provides capability %s", capability)

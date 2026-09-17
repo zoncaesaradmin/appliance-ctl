@@ -70,14 +70,14 @@ func TestChecks_MemoryMinimumBoundaryPasses(t *testing.T) {
 	}
 }
 
-func TestChecks_SupportedOSVersions(t *testing.T) {
-	for _, version := range []string{"22.04", "24.04"} {
-		t.Run(version, func(t *testing.T) {
+func TestChecks_SupportedArchitectures(t *testing.T) {
+	for _, arch := range []string{"amd64", "arm64"} {
+		t.Run(arch, func(t *testing.T) {
 			facts := baseFacts()
-			facts.OSVersion = version
+			facts.Arch = arch
 			checks := preflight.Run(facts)
 			if got := statusOf(t, checks, "os-arch-supported"); got != preflight.StatusPass {
-				t.Errorf("expected Ubuntu %s to be supported, got %s", version, got)
+				t.Errorf("expected %s to be supported, got %s", arch, got)
 			}
 		})
 	}
@@ -90,7 +90,7 @@ func TestChecks_UnsupportedHost(t *testing.T) {
 	}{
 		{"wrong-os", func(f *host.Facts) { f.OS = "rhel" }},
 		{"wrong-version", func(f *host.Facts) { f.OSVersion = "20.04" }},
-		{"wrong-arch", func(f *host.Facts) { f.Arch = "arm64" }},
+		{"wrong-arch", func(f *host.Facts) { f.Arch = "ppc64le" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -40,10 +40,13 @@ const (
 	PackFoundation  = "foundation"
 	PackDevPlatform = "dev-platform"
 	PackDeviceUser  = "deviceuser"
-	PackStdLLMAMD64 = "std-llm-amd64"
-	PackAccLLMAMD64 = "acc-llm-amd64"
-	PackAccLLMARM64 = "acc-llm-arm64"
+	PackStdLLM      = "std-llm"
+	PackAccLLM      = "acc-llm"
 )
+
+func IsInferencePack(pack string) bool {
+	return pack == PackStdLLM || pack == PackAccLLM
+}
 
 type Config struct {
 	SchemaVersion         int           `json:"schemaVersion"`
@@ -110,9 +113,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLMAMD64, PackAccLLMAMD64, PackAccLLMARM64:
+	case "", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, or %q", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLMAMD64, PackAccLLMAMD64, PackAccLLMARM64)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, or %q", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -155,9 +158,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	includeFoundationMDNSAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
 	includeDevPlatformAutoAdds := cfg.Pack == "" || cfg.Pack == PackDevPlatform
 	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
-	includeInferenceAutoAdd := cfg.Pack == "" || cfg.Pack == PackStdLLMAMD64 || cfg.Pack == PackAccLLMAMD64 || cfg.Pack == PackAccLLMARM64
+	includeInferenceAutoAdd := cfg.Pack == "" || IsInferencePack(cfg.Pack)
 	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackFoundation
-	if cfg.Pack == PackStdLLMAMD64 || cfg.Pack == PackAccLLMAMD64 || cfg.Pack == PackAccLLMARM64 {
+	if IsInferencePack(cfg.Pack) {
 		// Inference packs are auto-add only; drop any leftover cfg entries.
 		entryByTarget = map[string]EntryConfig{}
 	}
@@ -301,7 +304,7 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	runtimes := map[string]runtimeconfig.Selection{}
 	if includeInferenceAutoAdd {
 		if input.Artifacts.InferenceRuntimeImage.Path == "" || input.Artifacts.InferenceManagerImage.Path == "" || input.Artifacts.InferenceChart.Path == "" {
-			if cfg.Pack == PackStdLLMAMD64 || cfg.Pack == PackAccLLMAMD64 || cfg.Pack == PackAccLLMARM64 {
+			if IsInferencePack(cfg.Pack) {
 				return Result{}, fmt.Errorf("releasebundle: %s pack requires release-input inferenceRuntimeImage, inferenceManagerImage, and inferenceChart", cfg.Pack)
 			}
 		} else {
@@ -310,17 +313,17 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 				return Result{}, fmt.Errorf("releasebundle: runtime package metadata: %w", err)
 			}
 			// The legacy single-bundle form has no pack ID. It represents the
-			// standard CPU delivery, so retain that explicit selection rather
-			// than asking the complete catalog to choose between architecture
-			// variants. Split inference packs use their own pack ID directly.
+			// standard (Ollama) delivery. Split inference packs use their pack ID.
+			// Product architecture comes from hostBaseline, not the pack ID.
 			inferencePackage := cfg.Pack
 			if inferencePackage == "" {
-				inferencePackage = PackStdLLMAMD64
+				inferencePackage = PackStdLLM
 			}
 			selected, err := metadatabundle.ResolvePackage(packages, "inference", inferencePackage)
 			if err != nil {
 				return Result{}, err
 			}
+			selected.Architecture = strings.TrimSpace(cfg.HostBaseline.Arch)
 			if err := runtimeconfig.ValidateInference(selected); err != nil {
 				return Result{}, err
 			}
@@ -826,7 +829,7 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			return fmt.Errorf("releasebundle: deviceuser pack requires the in-cluster host-agent image")
 		}
 		return nil
-	case PackStdLLMAMD64, PackAccLLMAMD64, PackAccLLMARM64:
+	case PackStdLLM, PackAccLLM:
 		if counts["chart"] == 0 {
 			return fmt.Errorf("releasebundle: %s pack is missing appliance-inference chart", pack)
 		}
@@ -895,7 +898,7 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 		return entryIsStorageNetwork(entry) || entryIsBuildWorkflows(entry)
 	case PackDeviceUser:
 		return entryIsDeviceUser(entry)
-	case PackStdLLMAMD64, PackAccLLMAMD64, PackAccLLMARM64:
+	case PackStdLLM, PackAccLLM:
 		return entryIsInference(entry)
 	default:
 		return false
