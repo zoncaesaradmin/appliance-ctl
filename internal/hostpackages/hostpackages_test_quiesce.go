@@ -92,7 +92,7 @@ func TestInstallRequiredPackagesUnmasksSelectedServiceBeforeEnable(t *testing.T)
 	stopService = func(string) error { actions = append(actions, "stop"); return nil }
 	disableService = func(string) error { actions = append(actions, "disable"); return nil }
 	maskService = func(string) error { actions = append(actions, "mask"); return nil }
-	unmaskService = func(string) error { actions = append(actions, "unmask"); return nil }
+	unmaskService = func(name string) error { actions = append(actions, "unmask:"+name); return nil }
 	enableService = func(string) error { actions = append(actions, "enable"); return nil }
 	restartService = func(string) error { actions = append(actions, "restart"); return nil }
 	debPackageName = func(string) (string, error) { return "avahi-daemon", nil }
@@ -109,7 +109,9 @@ func TestInstallRequiredPackagesUnmasksSelectedServiceBeforeEnable(t *testing.T)
 		"stop", "disable", "mask", // avahi-daemon.service
 		"stop", "disable", "mask", // dnsmasq.service
 		"stop", "disable", "mask", // hostapd.service
-		"unmask", "enable", "restart",
+		"unmask:avahi-daemon.socket",
+		"unmask:avahi-daemon.service",
+		"enable", "restart",
 	}
 	if len(actions) != len(wantSuffix) {
 		t.Fatalf("actions = %v, want %v", actions, wantSuffix)

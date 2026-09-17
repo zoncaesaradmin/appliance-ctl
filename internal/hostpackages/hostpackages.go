@@ -76,6 +76,19 @@ var stockDaemonUnitsToQuiesce = []string{
 	"hostapd.service",
 }
 
+// companionUnitsFor returns units that must be unmasked alongside a selected
+// feature service. Ubuntu's avahi-daemon.service Requires=avahi-daemon.socket,
+// so restart fails with "Unit avahi-daemon.socket is masked" unless the socket
+// is unmasked too. Quiesce still masks both; enable paths unmask companions.
+func companionUnitsFor(serviceName string) []string {
+	switch strings.TrimSpace(serviceName) {
+	case mdnsServiceName:
+		return []string{"avahi-daemon.socket"}
+	default:
+		return nil
+	}
+}
+
 // InstallRequiredPackages installs missing offline .deb files under the bundle
 // host-packages tree for this OS/arch (mdns + wifi-client + wifi-ap closures in the
 // complete product super-set). Packages already install-ok on the host are
@@ -184,6 +197,14 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 		return nil, err
 	}
 	if serviceName != "" {
+		// Unmask Required companion units (e.g. avahi-daemon.socket) before the
+		// selected service; systemd refuses restart while a Required unit is masked.
+		for _, unit := range companionUnitsFor(serviceName) {
+			if err := unmaskService(unit); err != nil {
+				_ = rollback()
+				return nil, err
+			}
+		}
 		if err := unmaskService(serviceName); err != nil {
 			_ = rollback()
 			return nil, err
