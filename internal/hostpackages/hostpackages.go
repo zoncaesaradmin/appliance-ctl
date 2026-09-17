@@ -13,6 +13,7 @@ import (
 )
 
 const mdnsServiceName = "avahi-daemon.service"
+const mdnsSocketName = "avahi-daemon.socket"
 
 // InstallSpec selects the installer-owned host package set for the
 // current target host. RootDir points at the extracted bundle's
@@ -35,9 +36,10 @@ var (
 	disableService      = systemctlDisable
 	startService        = systemctlStart
 	stopService         = systemctlStop
-	restartService      = systemctlRestart
 	unmaskService       = systemctlUnmask
 	debPackageName      = packageNameFromDeb
+	stopUnitGroup       = systemctlStopUnitGroup
+	unitInactive        = isUnitInactive
 )
 
 // ResolvePackageDir maps the supported host baseline to the structured
@@ -61,32 +63,57 @@ func ResolvePackageDir(rootDir, osName, osVersion, arch string) (string, error) 
 	return dir, nil
 }
 
-// Stock daemon units that must not auto-claim host ports or stay enabled after
-// dpkg install. appliance-host-agentd owns hostapd/dnsmasq for management Wi-Fi
-// AP and avahi for mDNS; day-2 Apply unmasks/starts them when the operator
-// enables the feature. Debian stock postinst must not leave them running.
+// Stock host daemons are managed as two independent groups:
 //
-// avahi-daemon.socket must be quiesced before avahi-daemon.service: socket
-// activation cancels a concurrent service stop ("Job … canceled") and restarts
-// the daemon, which is exactly the race seen on Ubuntu hosts with stock Avahi.
-var stockDaemonUnitsToQuiesce = []string{
-	"avahi-daemon.socket",
-	"avahi-daemon.service",
-	"dnsmasq.service",
-	"hostapd.service",
-}
+//  1. Conflict group (dnsmasq, hostapd): always quiesced after package install
+//     and before appliance-dns. They steal :53 / radio from appliance-owned
+//     services. day-2 Wi-Fi AP apply unmasks/starts them when needed.
+//
+//  2. mDNS group (avahi-daemon.socket + avahi-daemon.service): interdependent
+//     (service Requires= socket on Ubuntu). Treated as one atomic unit group.
+//     When lan-discovery is selected, leave them running / ensure-running —
+//     never stop+mask then restart mid-install (that races with socket
+//     activation and cancels jobs). When lan-discovery is off, quiesce the
+//     whole group so stock postinst does not leave mDNS claiming the LAN.
+//
+// Host vendor drop-ins (e.g. nvidia-spark Avahi config) and existing
+// /etc/avahi/services entries are left untouched here; appliance mDNS
+// identity is layered later by host-agentd.
+var (
+	conflictDaemonUnits = []string{
+		"dnsmasq.service",
+		"hostapd.service",
+	}
+	mdnsDaemonUnits = []string{
+		mdnsSocketName,
+		mdnsServiceName,
+	}
+)
 
-// companionUnitsFor returns units that must be unmasked alongside a selected
-// feature service. Ubuntu's avahi-daemon.service Requires=avahi-daemon.socket,
-// so restart fails with "Unit avahi-daemon.socket is masked" unless the socket
-// is unmasked too. Quiesce still masks both; enable paths unmask companions.
+// companionUnitsFor returns units that must move with a selected feature
+// service (unmask/start or stop/mask together).
 func companionUnitsFor(serviceName string) []string {
 	switch strings.TrimSpace(serviceName) {
 	case mdnsServiceName:
-		return []string{"avahi-daemon.socket"}
+		return []string{mdnsSocketName}
 	default:
 		return nil
 	}
+}
+
+func unitGroupForService(serviceName string) []string {
+	serviceName = strings.TrimSpace(serviceName)
+	comps := companionUnitsFor(serviceName)
+	if len(comps) == 0 {
+		if serviceName == "" {
+			return nil
+		}
+		return []string{serviceName}
+	}
+	out := make([]string, 0, len(comps)+1)
+	out = append(out, comps...)
+	out = append(out, serviceName)
+	return out
 }
 
 // InstallRequiredPackages installs missing offline .deb files under the bundle
@@ -97,10 +124,10 @@ func companionUnitsFor(serviceName string) []string {
 // Packages are installed at product install / upgrade time so day-2 Enable can
 // start services without dpkg/apt.
 //
-// When ServiceName is empty, no feature service is enabled or started — only
-// packages land and stock postinst-started units (avahi, hostapd, dnsmasq)
-// are stopped/disabled/masked. A selected service is explicitly unmasked
-// before enable/restart so a pre-existing systemd mask cannot block install.
+// When ServiceName names the mDNS unit (lan-discovery), conflict daemons are
+// quiesced but Avahi is left alone / ensured running — prior host mDNS state
+// and vendor config stay intact. When ServiceName is empty, Avahi is quiesced
+// with the conflict group.
 func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	serviceName := strings.TrimSpace(spec.ServiceName)
 	packageDir, err := ResolvePackageDir(spec.RootDir, spec.OS, spec.OSVersion, spec.Arch)
@@ -152,11 +179,11 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 		var errs []error
 		if serviceName != "" {
 			if activeBefore {
-				if err := startService(serviceName); err != nil {
+				if err := EnsureFeatureUnitsRunning(serviceName); err != nil {
 					errs = append(errs, err)
 				}
 			} else {
-				if err := stopService(serviceName); err != nil {
+				if err := ensureUnitsQuiesced(unitGroupForService(serviceName)...); err != nil {
 					errs = append(errs, err)
 				}
 			}
@@ -189,31 +216,25 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	if err := installDebArchives(toInstall); err != nil {
 		return nil, err
 	}
-	// dpkg postinst for dnsmasq/hostapd may enable and start stock units
-	// that steal exclusivity of :53 / wireless control from appliance
-	// services. Quiesce them after every host-package install.
-	if err := QuiesceStockDaemonUnits(); err != nil {
+	// Always quiet Wi-Fi AP / stock dnsmasq — they conflict with appliance-dns
+	// and management Wi-Fi ownership regardless of lan-discovery.
+	if err := QuiesceConflictingHostDaemons(); err != nil {
 		_ = rollback()
 		return nil, err
 	}
-	if serviceName != "" {
-		// Unmask Required companion units (e.g. avahi-daemon.socket) before the
-		// selected service; systemd refuses restart while a Required unit is masked.
-		for _, unit := range companionUnitsFor(serviceName) {
-			if err := unmaskService(unit); err != nil {
-				_ = rollback()
-				return nil, err
-			}
-		}
-		if err := unmaskService(serviceName); err != nil {
+	switch serviceName {
+	case "":
+		if err := QuiesceMDNSUnits(); err != nil {
 			_ = rollback()
 			return nil, err
 		}
-		if err := enableService(serviceName); err != nil {
+	case mdnsServiceName:
+		if err := EnsureFeatureUnitsRunning(serviceName); err != nil {
 			_ = rollback()
 			return nil, err
 		}
-		if err := restartService(serviceName); err != nil {
+	default:
+		if err := EnsureFeatureUnitsRunning(serviceName); err != nil {
 			_ = rollback()
 			return nil, err
 		}
@@ -221,21 +242,97 @@ func InstallRequiredPackages(spec InstallSpec) (func() error, error) {
 	return rollback, nil
 }
 
-// QuiesceStockDaemonUnits stops, disables, and masks stock avahi/hostapd/dnsmasq
-// units so package install does not leave mDNS or Wi-Fi AP "on", and stock
-// dnsmasq cannot block appliance-dns. A selected service is unmasked by
-// InstallRequiredPackages after this reset. Missing units are ignored.
+// QuiesceConflictingHostDaemons stops/disables/masks stock dnsmasq and hostapd
+// so they cannot claim :53 or the radio. Safe to call while lan-discovery mDNS
+// must stay up — Avahi is not touched.
+func QuiesceConflictingHostDaemons() error {
+	return ensureUnitsQuiesced(conflictDaemonUnits...)
+}
+
+// QuiesceMDNSUnits stops/disables/masks the Avahi socket+service group when
+// lan-discovery is not selected. Prefer QuiesceConflictingHostDaemons when
+// mDNS must remain available.
+func QuiesceMDNSUnits() error {
+	return ensureUnitsQuiesced(mdnsDaemonUnits...)
+}
+
+// QuiesceStockDaemonUnits quiesces every stock host daemon (conflict + mDNS).
+// Prefer the specific helpers when mDNS may need to stay running.
 func QuiesceStockDaemonUnits() error {
-	var errs []error
-	for _, unit := range stockDaemonUnitsToQuiesce {
-		if err := stopService(unit); err != nil && !missingUnitError(err) {
-			errs = append(errs, err)
+	return errors.Join(QuiesceConflictingHostDaemons(), QuiesceMDNSUnits())
+}
+
+// EnsureFeatureUnitsRunning brings a selected feature service (and Required
+// companions) to active without a stop/mask dance. If the service is already
+// active, it is left alone so vendor config and existing mDNS publications
+// survive. Missing units are ignored only when the whole group is absent.
+func EnsureFeatureUnitsRunning(serviceName string) error {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" {
+		return fmt.Errorf("hostpackages: EnsureFeatureUnitsRunning requires a service name")
+	}
+	group := unitGroupForService(serviceName)
+	for _, unit := range group {
+		if err := unmaskService(unit); err != nil && !missingUnitError(err) {
+			return err
 		}
+	}
+	active, err := serviceActive(serviceName)
+	if err != nil {
+		return err
+	}
+	if active {
+		return nil
+	}
+	if err := enableService(serviceName); err != nil && !missingUnitError(err) {
+		return err
+	}
+	if err := startService(serviceName); err != nil && !missingUnitError(err) {
+		// Start can race; accept success if the unit became active anyway.
+		active, activeErr := serviceActive(serviceName)
+		if activeErr == nil && active {
+			return nil
+		}
+		return err
+	}
+	active, err = serviceActive(serviceName)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return fmt.Errorf("hostpackages: %s did not become active", serviceName)
+	}
+	return nil
+}
+
+// ensureUnitsQuiesced drives units to inactive+masked. Stop is issued once for
+// the whole group with --job-mode=replace so interdependent socket/service
+// pairs cannot cancel each other. Success is defined by final state, not by
+// individual systemctl exit codes ("Job … canceled" is OK if units end idle).
+func ensureUnitsQuiesced(units ...string) error {
+	if len(units) == 0 {
+		return nil
+	}
+	if err := stopUnitGroup(units...); err != nil {
+		return err
+	}
+	var errs []error
+	for _, unit := range units {
 		if err := disableService(unit); err != nil && !missingUnitError(err) {
 			errs = append(errs, err)
 		}
 		if err := maskService(unit); err != nil && !missingUnitError(err) {
 			errs = append(errs, err)
+		}
+	}
+	for _, unit := range units {
+		inactive, err := unitInactive(unit)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if !inactive {
+			errs = append(errs, fmt.Errorf("hostpackages: %s still active after quiesce", unit))
 		}
 	}
 	return errors.Join(errs...)
@@ -332,14 +429,50 @@ func isServiceEnabled(name string) (bool, error) {
 
 func isServiceActive(name string) (bool, error) {
 	out, err := runCommand("systemctl", "is-active", name)
+	state := strings.TrimSpace(out)
+	if state == "active" {
+		return true, nil
+	}
+	// Non-zero exit for inactive/failed/unknown is normal.
+	if state == "activating" || state == "reloading" {
+		return false, nil
+	}
 	if err == nil {
-		return strings.TrimSpace(out) == "active", nil
+		return false, nil
 	}
 	text := err.Error()
-	if strings.Contains(text, "inactive") || strings.Contains(text, "failed") || strings.Contains(text, "unknown") || strings.Contains(text, "not found") {
+	if strings.Contains(text, "inactive") || strings.Contains(text, "failed") || strings.Contains(text, "unknown") || strings.Contains(text, "not found") || missingUnitError(err) {
+		return false, nil
+	}
+	if state != "" && state != "active" {
 		return false, nil
 	}
 	return false, fmt.Errorf("hostpackages: systemctl is-active %s: %w", name, err)
+}
+
+// isUnitInactive reports whether a unit is an acceptable quiesced state
+// (inactive, failed, dead, missing, masked-and-idle). activating/active are not.
+func isUnitInactive(name string) (bool, error) {
+	out, err := runCommand("systemctl", "is-active", name)
+	state := strings.TrimSpace(out)
+	switch state {
+	case "active", "activating", "reloading":
+		return false, nil
+	case "inactive", "failed", "deactivating", "dead", "unknown":
+		return true, nil
+	}
+	if err != nil {
+		text := strings.ToLower(err.Error())
+		if missingUnitError(err) || strings.Contains(text, "inactive") || strings.Contains(text, "failed") || strings.Contains(text, "not found") {
+			return true, nil
+		}
+		if state == "" {
+			return true, nil
+		}
+		return false, fmt.Errorf("hostpackages: systemctl is-active %s: %w", name, err)
+	}
+	// Any other non-active reported state counts as quiesced.
+	return state != "active", nil
 }
 
 func systemctlEnable(name string) error {
@@ -367,31 +500,73 @@ func systemctlStart(name string) error {
 }
 
 func systemctlStop(name string) error {
-	// Socket activation (and parallel dpkg/postinst start jobs) can cancel a
-	// stop with "Job for <unit> canceled". Retry briefly; callers also stop
-	// sockets before services so most retries never fire.
-	const attempts = 5
+	return systemctlStopUnitGroup(name)
+}
+
+// systemctlStopUnitGroup stops one or more units in a single job so socket
+// activation cannot cancel a peer stop. Retries on canceled jobs; succeeds when
+// every unit is inactive regardless of the stop command's exit status.
+func systemctlStopUnitGroup(units ...string) error {
+	filtered := make([]string, 0, len(units))
+	for _, unit := range units {
+		unit = strings.TrimSpace(unit)
+		if unit != "" {
+			filtered = append(filtered, unit)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	const attempts = 6
 	var last error
 	for i := 0; i < attempts; i++ {
-		_, err := runCommand("systemctl", "stop", name)
-		if err == nil || missingUnitError(err) {
+		if allInactive, _ := allUnitsInactive(filtered); allInactive {
 			return nil
 		}
-		last = err
-		if !jobCanceledError(err) {
-			return fmt.Errorf("hostpackages: stop %s: %w", name, err)
+		args := append([]string{"stop", "--job-mode=replace"}, filtered...)
+		_, err := runCommand("systemctl", args...)
+		if err == nil || missingUnitError(err) {
+			if allInactive, _ := allUnitsInactive(filtered); allInactive {
+				return nil
+			}
+		} else {
+			last = err
+			// Canceled / replace races: still check outcome before failing.
+			if allInactive, _ := allUnitsInactive(filtered); allInactive {
+				return nil
+			}
+			if !jobCanceledError(err) && !jobReplaceError(err) {
+				// Last resort: kill remaining active members, then re-check.
+				_, _ = runCommand("systemctl", append([]string{"kill", "--kill-who=all", "-s", "SIGTERM"}, filtered...)...)
+				time.Sleep(200 * time.Millisecond)
+				if allInactive, _ := allUnitsInactive(filtered); allInactive {
+					return nil
+				}
+				return fmt.Errorf("hostpackages: stop %s: %w", strings.Join(filtered, " "), err)
+			}
 		}
 		time.Sleep(time.Duration(100*(i+1)) * time.Millisecond)
 	}
-	return fmt.Errorf("hostpackages: stop %s: %w", name, last)
+	if allInactive, _ := allUnitsInactive(filtered); allInactive {
+		return nil
+	}
+	if last == nil {
+		last = fmt.Errorf("units still active")
+	}
+	return fmt.Errorf("hostpackages: stop %s: %w", strings.Join(filtered, " "), last)
 }
 
-func systemctlRestart(name string) error {
-	_, err := runCommand("systemctl", "restart", name)
-	if err != nil {
-		return fmt.Errorf("hostpackages: restart %s: %w", name, err)
+func allUnitsInactive(units []string) (bool, error) {
+	for _, unit := range units {
+		inactive, err := unitInactive(unit)
+		if err != nil {
+			return false, err
+		}
+		if !inactive {
+			return false, nil
+		}
 	}
-	return nil
+	return true, nil
 }
 
 func systemctlUnmask(name string) error {
@@ -403,8 +578,15 @@ func systemctlUnmask(name string) error {
 }
 
 func systemctlMask(name string) error {
-	_, err := runCommand("systemctl", "mask", name)
+	_, err := runCommand("systemctl", "mask", "--now", name)
 	if err != nil && !missingUnitError(err) {
+		// --now may fail on already-stopped units with canceled jobs; fall back.
+		if jobCanceledError(err) {
+			_, err = runCommand("systemctl", "mask", name)
+			if err == nil || missingUnitError(err) {
+				return nil
+			}
+		}
 		return fmt.Errorf("hostpackages: mask %s: %w", name, err)
 	}
 	return nil
@@ -430,6 +612,14 @@ func jobCanceledError(err error) bool {
 	}
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "canceled") || strings.Contains(text, "cancelled")
+}
+
+func jobReplaceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "job for") && strings.Contains(text, "failed")
 }
 
 var runCommand = func(name string, args ...string) (string, error) {

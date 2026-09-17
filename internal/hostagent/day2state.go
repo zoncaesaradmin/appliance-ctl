@@ -184,11 +184,10 @@ func bestEffortStopMDNS(ctx context.Context) {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return
 	}
-	// stop + disable avahi so leftover day-2 enable is not running after install reset.
-	cmd := exec.CommandContext(ctx, "systemctl", "stop", mdnsSystemdUnit)
-	_ = cmd.Run()
-	cmd = exec.CommandContext(ctx, "systemctl", "disable", mdnsSystemdUnit)
-	_ = cmd.Run()
+	// Stop socket+service as one replace job so activation cannot cancel a peer.
+	_ = exec.CommandContext(ctx, "systemctl", "stop", "--job-mode=replace", "avahi-daemon.socket", mdnsSystemdUnit).Run()
+	_ = exec.CommandContext(ctx, "systemctl", "disable", "avahi-daemon.socket").Run()
+	_ = exec.CommandContext(ctx, "systemctl", "disable", mdnsSystemdUnit).Run()
 }
 
 func bestEffortStopWifiProcesses() {

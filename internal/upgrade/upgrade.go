@@ -849,7 +849,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				})
 			}
 		}
-		if err := hostpackages.QuiesceStockDaemonUnits(); err != nil {
+		if err := hostpackages.QuiesceConflictingHostDaemons(); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: free port 53 from stock DNS packages: %w", err), rollback)
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr

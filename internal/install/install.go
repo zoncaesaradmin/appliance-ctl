@@ -1077,7 +1077,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 					parallelResults <- out
 					return
 				}
-				if err := hostpackages.QuiesceStockDaemonUnits(); err != nil {
+				if err := hostpackages.QuiesceConflictingHostDaemons(); err != nil {
 					out.err = err
 					parallelResults <- out
 					return
