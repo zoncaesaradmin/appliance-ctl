@@ -229,6 +229,19 @@ func TestPrepareInferenceValuesFile_AcceleratedRequiresGPU(t *testing.T) {
 	}
 }
 
+func TestHostNVIDIAAvailable_UsesOverride(t *testing.T) {
+	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return true })
+	defer restore()
+	if !productconfig.HostNVIDIAAvailable() {
+		t.Fatal("expected override true")
+	}
+	restore2 := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
+	defer restore2()
+	if productconfig.HostNVIDIAAvailable() {
+		t.Fatal("expected override false")
+	}
+}
+
 func TestPrepareInferenceValuesFile_AcceleratedEnablesGPU(t *testing.T) {
 	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return true })
 	defer restore()

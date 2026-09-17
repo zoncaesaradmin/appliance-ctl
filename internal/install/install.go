@@ -23,6 +23,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/nvidia"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/rolloutsets"
@@ -634,6 +635,24 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
+
+	// Accelerated inference (and GPU-enabled standard) needs the host NVIDIA
+	// toolkit wired into K3s containerd before engine pods request RuntimeClass
+	// nvidia. Host GPU presence was already gated in PrepareInferenceValuesFile.
+	if resolved.InferenceEnabled && productconfig.HostNVIDIAAvailable() {
+		if err := nvidia.EnsureK3sRuntime(ctx, o.HelmRun, opts.KubeconfigPath, nvidia.DefaultContainerdConfig, opts.K3sUnitName, o.K3s.Restart); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: configure NVIDIA runtime for K3s: %w", err), runRollbacks())
+		}
+		if err := importer.WaitReady(ctx, containerdReadyTimeout, containerdReadyPollInterval); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: containerd not ready after NVIDIA runtime configure: %w", err), runRollbacks())
+		}
+		checks = append(checks, evidence.Check{
+			ID: "nvidia-k3s-runtime", Category: "inference", Status: evidence.StatusPass,
+			Message:   "configured NVIDIA container runtime for K3s and applied RuntimeClass nvidia",
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
+
 	// Publish https://10.42.0.1/ as a Traefik externalIP so WiFi AP clients
 	// reach the UI; ServiceLB alone only binds the ethernet node VIP.
 	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath)

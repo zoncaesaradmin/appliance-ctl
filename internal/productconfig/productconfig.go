@@ -2,14 +2,15 @@ package productconfig
 
 import (
 	"fmt"
-	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"gopkg.in/yaml.v3"
 )
 
@@ -653,15 +654,32 @@ func PrepareRegistryValuesFile(baseDir, artifactServerImageReference, fqdn strin
 }
 
 func hostNVIDIARuntimeAvailable() bool {
+	// Usable host GPU = NVIDIA character device present (driver loaded) plus
+	// the container toolkit on PATH so install can configure K3s afterward.
+	// Do NOT require K3s containerd config.toml to already mention "nvidia":
+	// that stanza is an install outcome, not a host prerequisite. Requiring it
+	// false-negatives every fresh acc-llm install (device present, toolkit
+	// present, brand-new K3s with no nvidia runtime yet).
 	if _, err := os.Stat("/dev/nvidiactl"); err != nil {
 		return false
 	}
-	config, err := os.ReadFile("/var/lib/rancher/k3s/agent/etc/containerd/config.toml")
-	return err == nil && strings.Contains(strings.ToLower(string(config)), "nvidia")
+	if _, err := exec.LookPath("nvidia-container-runtime"); err == nil {
+		return true
+	}
+	if _, err := exec.LookPath("nvidia-ctk"); err == nil {
+		return true
+	}
+	return false
 }
 
 // hostNVIDIACheck is overridable in unit tests.
 var hostNVIDIACheck = hostNVIDIARuntimeAvailable
+
+// HostNVIDIAAvailable reports whether the install host has a usable NVIDIA
+// GPU and container toolkit for inference acceleration.
+func HostNVIDIAAvailable() bool {
+	return hostNVIDIACheck()
+}
 
 // OverrideHostNVIDIACheckForTest replaces the NVIDIA probe for unit tests.
 // Call the returned function to restore the previous probe.

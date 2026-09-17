@@ -22,6 +22,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/nvidia"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -659,6 +660,29 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		})
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
+	}
+	if resolved.InferenceEnabled && productconfig.HostNVIDIAAvailable() {
+		if err := nvidia.EnsureK3sRuntime(ctx, o.HelmRun, opts.KubeconfigPath, nvidia.DefaultContainerdConfig, opts.K3sUnitName, o.K3s.Restart); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: configure NVIDIA runtime for K3s: %w", err), func() []evidence.Check {
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		if err := importer.WaitReady(ctx, 60*time.Second, time.Second); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: containerd not ready after NVIDIA runtime configure: %w", err), func() []evidence.Check {
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		checks = append(checks, evidence.Check{
+			ID: "nvidia-k3s-runtime", Category: "inference", Status: evidence.StatusPass,
+			Message:   "configured NVIDIA container runtime for K3s and applied RuntimeClass nvidia",
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
 	}
 	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath)
 	checks = append(checks, traefikLBCheck)
