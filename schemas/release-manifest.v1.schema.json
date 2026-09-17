@@ -55,7 +55,7 @@
       "properties": {
         "os": { "const": "ubuntu" },
         "osVersion": { "enum": ["22.04", "24.04"] },
-        "arch": { "const": "amd64" }
+        "arch": { "enum": ["amd64", "arm64"] }
       }
     },
     "builtAt": { "type": "string", "format": "date-time" },
