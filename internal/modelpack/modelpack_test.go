@@ -40,7 +40,7 @@ func TestLoadAndImport(t *testing.T) {
 			SizeBytes: int64(len(content)),
 		}},
 	}
-	manifest.Compatibility.InferenceVersion = "0.6.5"
+	manifest.Compatibility.InferenceVersion = "0.9.0"
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestLoadRequiresSignatureWhenKeyProvided(t *testing.T) {
 		SizeBytes:     1,
 		Blobs:         []modelpack.Blob{{Path: "blob.bin", Digest: digest, SizeBytes: 1}},
 	}
-	manifest.Compatibility.InferenceVersion = "0.6.5"
+	manifest.Compatibility.InferenceVersion = "0.9.0"
 	data, _ := json.Marshal(manifest)
 	_ = os.WriteFile(filepath.Join(root, modelpack.ManifestFileName), data, 0o640)
 

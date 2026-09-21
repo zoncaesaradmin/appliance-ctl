@@ -8,7 +8,7 @@ func TestDeliveryPacksAreDisjoint(t *testing.T) {
 		pack  string
 	}{
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/inference-runtime@sha256:pin"}, PackStdLLM},
-		{EntryConfig{Component: "chart", TargetPath: "chart/appliance-inference-0.6.5.tgz"}, PackStdLLM},
+		{EntryConfig{Component: "chart", TargetPath: "chart/appliance-inference-0.9.0.tgz"}, PackStdLLM},
 		{EntryConfig{Component: "appliance", TargetPath: "bin/appliance-host-agentd"}, PackFoundation},
 		{EntryConfig{Component: "host-packages", TargetPath: "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb"}, PackFoundation},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/artifact-server@sha256:pin"}, PackDevPlatform},

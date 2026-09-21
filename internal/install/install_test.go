@@ -112,7 +112,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		{"charts/appliance-chart-2.4.0.tgz", "chart", "fake chart bytes", ""},
 		{"charts/appliance-registry-2.1.7.tgz", "chart", "fake registry chart bytes", ""},
 		{"charts/appliance-dns-1.14.4.tgz", "chart", "fake dns chart bytes", ""},
-		{"charts/appliance-inference-0.6.5.tgz", "chart", "fake inference chart bytes", ""},
+		{"charts/appliance-inference-0.9.0.tgz", "chart", "fake inference chart bytes", ""},
 		{"artifacts/appliance-metadata-bundle-2.4.0.0.tar.zst", "artifacts", "", ""},
 		{"configuration/values.yaml", "configuration", "replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n", ""},
 		{"k3s/images/coredns.tar", "k3s-images", "fake coredns image tar", "docker.io/rancher/mirrored-coredns-coredns:1.11.3"},
@@ -184,7 +184,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		"hostBaseline":  map[string]any{"os": "ubuntu", "osVersion": "24.04", "arch": "amd64"},
 		"builtAt":       "2026-07-04T00:00:00Z",
 		"runtimes":      map[string]any{"inference": map[string]any{"package": "std-llm", "inferenceEngine": "ollama", "architecture": "amd64"}},
-		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "artifactServerVersion": "2.1.7", "dnsVersion": "1.14.4", "inferenceVersion": "0.6.5"},
+		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "artifactServerVersion": "2.1.7", "dnsVersion": "1.14.4", "inferenceVersion": "0.9.0"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
 	}

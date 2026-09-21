@@ -113,7 +113,7 @@
       "imageReference": "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
     },
     "inferenceChart": {
-      "path": "appliance-inference-0.6.5.tgz",
+      "path": "appliance-inference-0.9.0.tgz",
       "digest": "sha256:0c57fc1903e444cf6a726490b43b27ee9f87facc037f86872201847c565b45fb",
       "sizeBytes": 16384
     }
@@ -127,6 +127,6 @@
       "2.3.0",
       "2.3.1"
     ],
-    "inferenceVersion": "0.6.5"
+    "inferenceVersion": "0.9.0"
   }
 }
