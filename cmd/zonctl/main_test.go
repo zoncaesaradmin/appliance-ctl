@@ -434,7 +434,7 @@ func TestInstallTLSSANs_UsesApplianceIdentity(t *testing.T) {
 		nodeName:      "zonsyssrv1",
 		tlsSANs:       []string{"192.168.1.101"},
 	})
-	want := []string{"registry1.appliance.internal", "zonsyssrv1", "chat.registry1.appliance.internal", "registry1.local", "manage.ap", "10.42.0.1", "192.168.1.101"}
+	want := []string{"registry1.appliance.internal", "zonsyssrv1", "registry1.local", "manage.ap", "10.42.0.1", "192.168.1.101"}
 	if len(got) != len(want) {
 		t.Fatalf("installTLSSANs = %#v, want %#v", got, want)
 	}
@@ -451,7 +451,7 @@ func TestInstallTLSSANs_AlwaysAddsMDNSAndWifiSANs(t *testing.T) {
 		dnsZone:       "appliance.internal",
 		nodeName:      "zonsyssrv1",
 	})
-	want := []string{"registry1.appliance.internal", "zonsyssrv1", "chat.registry1.appliance.internal", "registry1.local", "manage.ap", "10.42.0.1"}
+	want := []string{"registry1.appliance.internal", "zonsyssrv1", "registry1.local", "manage.ap", "10.42.0.1"}
 	if len(got) != len(want) {
 		t.Fatalf("installTLSSANs = %#v, want %#v", got, want)
 	}

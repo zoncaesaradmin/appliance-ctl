@@ -224,10 +224,8 @@ func run(args []string) int {
 
 func installTLSSANs(opts cliOptions) []string {
 	fqdn := ""
-	chatFQDN := ""
 	if identity, err := productconfig.ResolveApplianceIdentity(opts.applianceName, opts.dnsZone); err == nil {
 		fqdn = identity.FQDN
-		chatFQDN = identity.ChatFQDN
 	}
 	extra := append([]string(nil), opts.tlsSANs...)
 	// Always include management AP SANs and appliance-name.local so mDNS /
@@ -240,7 +238,7 @@ func installTLSSANs(opts cliOptions) []string {
 	if san := applianceMDNSTLSSAN(opts.applianceName); san != "" {
 		extra = append([]string{san}, extra...)
 	}
-	return effectiveTLSSANs(opts.nodeName, fqdn, append([]string{chatFQDN}, extra...)...)
+	return effectiveTLSSANs(opts.nodeName, fqdn, extra...)
 }
 
 func effectiveTLSSANs(nodeName, fqdn string, extra ...string) []string {
