@@ -1275,9 +1275,9 @@ func hostDNSPrepareConfig(opts Options) hostdns.PrepareConfig {
 			hostname = strings.TrimSpace(h)
 		}
 	}
-	aliases := make([]string, 0, 1+len(opts.TLSSANs))
+	aliases := make([]string, 0, 2+len(opts.TLSSANs))
 	if identity, err := productconfig.ResolveApplianceIdentity(opts.ApplianceName, opts.DNSZone); err == nil {
-		aliases = append(aliases, identity.FQDN)
+		aliases = append(aliases, identity.FQDN, identity.ChatFQDN)
 	}
 	aliases = append(aliases, opts.TLSSANs...)
 	return hostdns.PrepareConfig{

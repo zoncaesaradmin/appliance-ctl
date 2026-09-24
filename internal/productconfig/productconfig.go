@@ -215,11 +215,14 @@ func cloneProfileCatalog(catalog ProfileCatalog) ProfileCatalog {
 }
 
 // ApplianceIdentity is the product LAN name for one appliance instance.
-// FQDN is always {Name}.{Zone}; there is no separate public_host override.
+// FQDN is always {Name}.{Zone}; ChatFQDN is its dedicated, cookie-isolated
+// browser-chat hostname. Neither is an operator-configurable public-host
+// override: both derive from the installed appliance identity.
 type ApplianceIdentity struct {
-	Name string
-	Zone string
-	FQDN string
+	Name     string
+	Zone     string
+	FQDN     string
+	ChatFQDN string
 }
 
 // NormalizeApplianceName validates a single DNS label used as the appliance
@@ -266,9 +269,10 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 		return ApplianceIdentity{}, err
 	}
 	return ApplianceIdentity{
-		Name: normalizedName,
-		Zone: normalizedZone,
-		FQDN: normalizedName + "." + normalizedZone,
+		Name:     normalizedName,
+		Zone:     normalizedZone,
+		FQDN:     normalizedName + "." + normalizedZone,
+		ChatFQDN: "chat." + normalizedName + "." + normalizedZone,
 	}, nil
 }
 
@@ -361,6 +365,11 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	delete(config, "hostMDNSEnabled")
 	delete(config, "hostWifiAPEnabled")
 	config["canonicalOrigin"] = "https://" + identity.FQDN
+	// Browser chat uses a dedicated origin so its authenticated bridge cookie
+	// is never sent to the main appliance origin (cookies are host-, not
+	// port-scoped). The control-plane chart consumes this only when inference
+	// chat is packaged for the selected profile.
+	config["chatOrigin"] = "https://" + identity.ChatFQDN
 	if ip := strings.TrimSpace(nodeIPv4); ip != "" {
 		config["nodeIPv4"] = ip
 	} else {

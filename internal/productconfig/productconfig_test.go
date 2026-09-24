@@ -39,6 +39,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 	for _, want := range []string{
 		"applianceProfile: storage",
 		"canonicalOrigin: https://registry1.appliance.internal",
+		"chatOrigin: https://chat.registry1.appliance.internal",
 		"applianceName: registry1",
 		"dnsZoneName: appliance.internal",
 		"nodeIPv4: 192.0.2.10",
@@ -81,6 +82,7 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 		"applianceName: dns1",
 		"dnsZoneName: appliance.internal",
 		"canonicalOrigin: https://dns1.appliance.internal",
+		"chatOrigin: https://chat.dns1.appliance.internal",
 		"dnsReadyURL: " + productconfig.DefaultDNSReadyURL,
 		"dnsZoneName: " + productconfig.DefaultLANDNSZone,
 		"dnsAllowFakeZoneSync: false",
@@ -272,7 +274,7 @@ func TestResolveApplianceIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveApplianceIdentity: %v", err)
 	}
-	if identity.Name != "registry1" || identity.Zone != productconfig.DefaultLANDNSZone || identity.FQDN != "registry1.appliance.internal" {
+	if identity.Name != "registry1" || identity.Zone != productconfig.DefaultLANDNSZone || identity.FQDN != "registry1.appliance.internal" || identity.ChatFQDN != "chat.registry1.appliance.internal" {
 		t.Fatalf("identity = %+v", identity)
 	}
 	if _, err := productconfig.ResolveApplianceIdentity("bad.name", "appliance.internal"); err == nil {
