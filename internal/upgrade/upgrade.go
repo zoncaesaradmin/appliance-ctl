@@ -248,7 +248,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// installed-state identity was known (omitted --appliance-name/--dns-zone).
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFile(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference)
+	selectedInferenceRuntime := resolved.Runtimes["inference"]
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntime(
+		resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog,
+		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
+		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
+		resolved.OpenWebUIImageReference != "" && resolved.OpenWebUIGatewayImageReference != "",
+		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference,
+	)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}

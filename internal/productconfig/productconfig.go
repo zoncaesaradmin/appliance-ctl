@@ -273,14 +273,14 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 }
 
 func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, registry...)
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, registry...)
 }
 
-func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, registry...)
+func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, registry ...string) (string, func(), error) {
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, registry...)
 }
 
-func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, registry ...string) (string, func(), error) {
+func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", profileCatalog)
 	if err != nil {
 		return "", func() {}, err
@@ -404,6 +404,13 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		delete(config, "inferenceEngine")
 		delete(config, "inferenceArchitecture")
 	}
+	config["webUIEnabled"] = inferenceEnabled && webUIEnabled
+	ingress, _ := values["ingress"].(map[string]any)
+	if ingress == nil {
+		ingress = map[string]any{}
+	}
+	ingress["webUIEnabled"] = inferenceEnabled && webUIEnabled
+	values["ingress"] = ingress
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
 	} else {

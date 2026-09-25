@@ -107,6 +107,40 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	}
 }
 
+func TestPrepareValuesFileForRuntime_EnablesWebUIOnlyForInferencePackPair(t *testing.T) {
+	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("config: {}\ningress: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	runtime := runtimeconfig.Selection{Package: "std-llm", InferenceEngine: "ollama", Architecture: "amd64"}
+	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntime(valuesPath, productconfig.ProfileLANLLM, testProfileCatalog(), "", "", "", "llm1", "appliance.internal", "", runtime, true, "", blobStorageImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(rendered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "webUIEnabled: true") {
+		t.Fatalf("complete inference image pair must enable the control-plane and route flags:\n%s", text)
+	}
+
+	disabled, disabledCleanup, err := productconfig.PrepareValuesFileForRuntime(valuesPath, productconfig.ProfileLANLLM, testProfileCatalog(), "", "", "", "llm1", "appliance.internal", "", runtime, false, "", blobStorageImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer disabledCleanup()
+	disabledData, err := os.ReadFile(disabled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(disabledData), "webUIEnabled: true") {
+		t.Fatalf("missing WebUI image pair must not expose the route:\n%s", disabledData)
+	}
+}
+
 func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
 	path, cleanup, err := productconfig.PrepareDNSValuesFile(t.TempDir(), corednsImage, "appliance.internal", "192.0.2.10", "1.1.1.1")
 	if err != nil {
