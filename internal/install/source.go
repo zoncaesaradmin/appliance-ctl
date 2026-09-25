@@ -78,6 +78,10 @@ type Resolved struct {
 	// registry.local/inference-manager image reference used for the
 	// inference capability.
 	InferenceManagerImageReference string
+	// OpenWebUIImageReference and OpenWebUIGatewayImageReference are the
+	// optional inference-pack images for the trusted appliance Web UI bridge.
+	OpenWebUIImageReference        string
+	OpenWebUIGatewayImageReference string
 	MessageBrokerImageReference    string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
@@ -281,7 +285,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -315,6 +319,8 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	inferenceImageReference := ""
 	inferenceManagerImageReference := ""
+	openWebUIImageReference := ""
+	openWebUIGatewayImageReference := ""
 	if inferenceEnabled {
 		inferenceImageReference, err = requiredInferenceImageReference(view)
 		if err != nil {
@@ -323,6 +329,17 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		inferenceManagerImageReference, err = requiredInferenceManagerImageReference(view)
 		if err != nil {
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires inference capability but its selected inference manager pack was not provided: %w", effectiveProfile, err)
+		}
+		openWebUIImageReference, err = optionalOpenWebUIImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+		openWebUIGatewayImageReference, err = optionalOpenWebUIGatewayImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: %w", err)
+		}
+		if (openWebUIImageReference == "") != (openWebUIGatewayImageReference == "") {
+			return Resolved{}, checks, fmt.Errorf("install: inference delivery must include Open WebUI and its session-bridge gateway together")
 		}
 	}
 	messageBrokerImageReference := optionalMessageBrokerImageReference(view)
@@ -365,6 +382,8 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		DNSImageReference:                  dnsImageReference,
 		InferenceImageReference:            inferenceImageReference,
 		InferenceManagerImageReference:     inferenceManagerImageReference,
+		OpenWebUIImageReference:            openWebUIImageReference,
+		OpenWebUIGatewayImageReference:     openWebUIGatewayImageReference,
 		MessageBrokerImageReference:        messageBrokerImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
@@ -428,6 +447,14 @@ func isInferenceRuntimeImageReference(ref string) bool {
 
 func isInferenceManagerImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/inference-manager@sha256:")
+}
+
+func isOpenWebUIImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/open-webui@sha256:")
+}
+
+func isOpenWebUIGatewayImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/open-webui-gateway@sha256:")
 }
 
 func isMessageBrokerImageReference(ref string) bool {
@@ -557,6 +584,47 @@ func requiredInferenceManagerImageReference(b entrySource) (string, error) {
 	}
 	if found == "" {
 		return "", fmt.Errorf("bundle has no canonical registry.local/inference-manager@sha256 image entry")
+	}
+	return found, nil
+}
+
+func requiredOpenWebUIImageReference(b entrySource) (string, error) {
+	return requiredUniqueImageReference(b, isOpenWebUIImageReference, "Open WebUI")
+}
+
+func requiredOpenWebUIGatewayImageReference(b entrySource) (string, error) {
+	return requiredUniqueImageReference(b, isOpenWebUIGatewayImageReference, "Open WebUI gateway")
+}
+
+func optionalOpenWebUIImageReference(b entrySource) (string, error) {
+	return optionalUniqueImageReference(b, isOpenWebUIImageReference, "Open WebUI")
+}
+
+func optionalOpenWebUIGatewayImageReference(b entrySource) (string, error) {
+	return optionalUniqueImageReference(b, isOpenWebUIGatewayImageReference, "Open WebUI gateway")
+}
+
+func optionalUniqueImageReference(b entrySource, matches func(string) bool, description string) (string, error) {
+	value, err := requiredUniqueImageReference(b, matches, description)
+	if err != nil && strings.Contains(err.Error(), "has no canonical") {
+		return "", nil
+	}
+	return value, err
+}
+
+func requiredUniqueImageReference(b entrySource, matches func(string) bool, description string) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !matches(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple %s image entries", description)
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no canonical registry.local/%s@sha256 image entry", strings.ReplaceAll(strings.ToLower(description), " ", "-"))
 	}
 	return found, nil
 }
@@ -804,7 +872,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 				continue
 			}
 			if (strings.HasPrefix(image.Name, "registry.local/inference-runtime@") ||
-				strings.HasPrefix(image.Name, "registry.local/inference-manager@")) && !r.InferenceEnabled {
+				strings.HasPrefix(image.Name, "registry.local/inference-manager@") ||
+				strings.HasPrefix(image.Name, "registry.local/open-webui@") ||
+				strings.HasPrefix(image.Name, "registry.local/open-webui-gateway@")) && !r.InferenceEnabled {
 				continue
 			}
 		}

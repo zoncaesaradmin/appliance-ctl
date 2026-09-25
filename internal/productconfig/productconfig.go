@@ -767,7 +767,7 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, dnsZone, nsIPv4 string
 	return tmp.Name(), cleanup, nil
 }
 
-func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference string, runtime runtimeconfig.Selection) (string, func(), error) {
+func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference string, runtime runtimeconfig.Selection) (string, func(), error) {
 	if err := runtimeconfig.ValidateInference(runtime); err != nil {
 		return "", func() {}, err
 	}
@@ -776,6 +776,15 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferen
 	}
 	if !validInferenceManagerImageDigest(inferenceManagerImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid inference-manager image reference %q", inferenceManagerImageReference)
+	}
+	if (strings.TrimSpace(openWebUIImageReference) == "") != (strings.TrimSpace(openWebUIGatewayImageReference) == "") {
+		return "", func() {}, fmt.Errorf("product config: Open WebUI and its gateway image references must be supplied together")
+	}
+	if openWebUIImageReference != "" && !validOpenWebUIImageDigest(openWebUIImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid Open WebUI image reference %q", openWebUIImageReference)
+	}
+	if openWebUIGatewayImageReference != "" && !validOpenWebUIGatewayImageDigest(openWebUIGatewayImageReference) {
+		return "", func() {}, fmt.Errorf("product config: invalid Open WebUI gateway image reference %q", openWebUIGatewayImageReference)
 	}
 	gpuAvailable := hostNVIDIACheck()
 	if runtimeconfig.RequiresGPU(runtime) && !gpuAvailable {
@@ -797,6 +806,19 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferen
 			"repository": "registry.local/inference-manager",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(inferenceManagerImageReference), "registry.local/inference-manager@"),
 			"pullPolicy": "IfNotPresent",
+		},
+		"openWebUI": map[string]any{
+			"enabled": strings.TrimSpace(openWebUIImageReference) != "",
+			"image": map[string]any{
+				"repository": "registry.local/open-webui",
+				"digest":     strings.TrimPrefix(strings.TrimSpace(openWebUIImageReference), "registry.local/open-webui@"),
+				"pullPolicy": "IfNotPresent",
+			},
+			"gatewayImage": map[string]any{
+				"repository": "registry.local/open-webui-gateway",
+				"digest":     strings.TrimPrefix(strings.TrimSpace(openWebUIGatewayImageReference), "registry.local/open-webui-gateway@"),
+				"pullPolicy": "IfNotPresent",
+			},
 		},
 		"gpu": map[string]any{
 			"enabled":            gpuEnabled,
@@ -873,6 +895,24 @@ func validInferenceRuntimeImageDigest(image string) bool {
 func validInferenceManagerImageDigest(image string) bool {
 	image = strings.TrimSpace(image)
 	if !strings.HasPrefix(image, "registry.local/inference-manager@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	_, digest, _ := strings.Cut(image, "@sha256:")
+	return digest != placeholderImageDigestHex
+}
+
+func validOpenWebUIImageDigest(image string) bool {
+	return validRegistryLocalImageDigest(image, "open-webui")
+}
+
+func validOpenWebUIGatewayImageDigest(image string) bool {
+	return validRegistryLocalImageDigest(image, "open-webui-gateway")
+}
+
+func validRegistryLocalImageDigest(image, name string) bool {
+	image = strings.TrimSpace(image)
+	prefix := "registry.local/" + name + "@sha256:"
+	if !strings.HasPrefix(image, prefix) || !sha256ImageDigestRE.MatchString(image) {
 		return false
 	}
 	_, digest, _ := strings.Cut(image, "@sha256:")

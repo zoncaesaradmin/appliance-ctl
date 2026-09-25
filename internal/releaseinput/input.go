@@ -64,6 +64,8 @@ type Artifacts struct {
 	BlobStorageImage        FileArtifact
 	InferenceRuntimeImage   FileArtifact
 	InferenceManagerImage   FileArtifact
+	OpenWebUIImage          FileArtifact
+	OpenWebUIGatewayImage   FileArtifact
 	InferenceChart          FileArtifact
 	MetadataBundle          FileArtifact
 	MessageBrokerImage      FileArtifact
@@ -99,6 +101,8 @@ type doc struct {
 		BlobStorageImage        fileArtifact   `json:"blobStorageImage"`
 		InferenceRuntimeImage   fileArtifact   `json:"inferenceRuntimeImage"`
 		InferenceManagerImage   fileArtifact   `json:"inferenceManagerImage"`
+		OpenWebUIImage          fileArtifact   `json:"openWebUIImage"`
+		OpenWebUIGatewayImage   fileArtifact   `json:"openWebUIGatewayImage"`
 		InferenceChart          fileArtifact   `json:"inferenceChart"`
 		MetadataBundle          fileArtifact   `json:"metadataBundle"`
 		MessageBrokerImage      fileArtifact   `json:"messageBrokerImage"`
@@ -169,6 +173,8 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			BlobStorageImage:        toFileArtifact(rootDir, parsed.Artifacts.BlobStorageImage),
 			InferenceRuntimeImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceRuntimeImage),
 			InferenceManagerImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceManagerImage),
+			OpenWebUIImage:          toFileArtifact(rootDir, parsed.Artifacts.OpenWebUIImage),
+			OpenWebUIGatewayImage:   toFileArtifact(rootDir, parsed.Artifacts.OpenWebUIGatewayImage),
 			InferenceChart:          toFileArtifact(rootDir, parsed.Artifacts.InferenceChart),
 			MetadataBundle:          toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
 			MessageBrokerImage:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerImage),

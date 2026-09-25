@@ -285,7 +285,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
 	if resolved.InferenceEnabled {
-		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, resolved.Runtimes["inference"])
+		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, resolved.OpenWebUIImageReference, resolved.OpenWebUIGatewayImageReference, resolved.Runtimes["inference"])
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}

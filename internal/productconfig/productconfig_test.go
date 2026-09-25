@@ -18,6 +18,8 @@ const (
 	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	inferenceRuntimeImage     = "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	inferenceManagerImage     = "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	openWebUIImage            = "registry.local/open-webui@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	openWebUIGatewayImage     = "registry.local/open-webui-gateway@sha256:2222222222222222222222222222222222222222222222222222222222222222"
 	blobStorageImage          = "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
 )
 
@@ -184,7 +186,7 @@ func TestPrepareRegistryValuesFile_UsesApplianceFQDN(t *testing.T) {
 func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
 	defer restore()
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "std-llm", InferenceEngine: "ollama", Architecture: "amd64"})
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, openWebUIImage, openWebUIGatewayImage, runtimeconfig.Selection{Package: "std-llm", InferenceEngine: "ollama", Architecture: "amd64"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,6 +200,11 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 		!strings.Contains(text, "digest: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") ||
 		!strings.Contains(text, "repository: registry.local/inference-manager") ||
 		!strings.Contains(text, "digest: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") ||
+		!strings.Contains(text, "enabled: true") ||
+		!strings.Contains(text, "repository: registry.local/open-webui") ||
+		!strings.Contains(text, "digest: sha256:1111111111111111111111111111111111111111111111111111111111111111") ||
+		!strings.Contains(text, "repository: registry.local/open-webui-gateway") ||
+		!strings.Contains(text, "digest: sha256:2222222222222222222222222222222222222222222222222222222222222222") ||
 		!strings.Contains(text, "name: inference") ||
 		!strings.Contains(text, "create: false") || !strings.Contains(text, "engine: ollama") ||
 		!strings.Contains(text, "gpu:\n    driverCapabilities: all\n    enabled: false") {
@@ -220,7 +227,7 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 func TestPrepareInferenceValuesFile_AcceleratedRequiresGPU(t *testing.T) {
 	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
 	defer restore()
-	_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
+	_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, openWebUIImage, openWebUIGatewayImage, runtimeconfig.Selection{
 		Package: "acc-llm", InferenceEngine: "vllm", Architecture: "arm64",
 	})
 	cleanup()
@@ -245,7 +252,7 @@ func TestHostNVIDIAAvailable_UsesOverride(t *testing.T) {
 func TestPrepareInferenceValuesFile_AcceleratedEnablesGPU(t *testing.T) {
 	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return true })
 	defer restore()
-	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{
+	path, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, openWebUIImage, openWebUIGatewayImage, runtimeconfig.Selection{
 		Package: "acc-llm", InferenceEngine: "vllm", Architecture: "amd64",
 	})
 	if err != nil {
@@ -490,7 +497,7 @@ func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) 
 
 func TestInferenceValuesRejectUnsupportedRuntime(t *testing.T) {
 	for _, runtime := range []runtimeconfig.Selection{{}, {Package: "std-llm", InferenceEngine: "vllm", Architecture: "amd64"}, {Package: "acc-llm", InferenceEngine: "ollama", Architecture: "arm64"}} {
-		_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtime)
+		_, cleanup, err := productconfig.PrepareInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, openWebUIImage, openWebUIGatewayImage, runtime)
 		cleanup()
 		if err == nil {
 			t.Fatalf("unsupported runtime accepted: %+v", runtime)
