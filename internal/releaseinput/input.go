@@ -242,6 +242,22 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			ExpectedSizeBytes: input.Artifacts.InferenceManagerImage.SizeBytes,
 		})
 	}
+	if input.Artifacts.OpenWebUIImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "open-webui-image",
+			Path:              input.Artifacts.OpenWebUIImage.Path,
+			ExpectedDigest:    input.Artifacts.OpenWebUIImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.OpenWebUIImage.SizeBytes,
+		})
+	}
+	if input.Artifacts.OpenWebUIGatewayImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{
+			Name:              "open-webui-gateway-image",
+			Path:              input.Artifacts.OpenWebUIGatewayImage.Path,
+			ExpectedDigest:    input.Artifacts.OpenWebUIGatewayImage.Digest,
+			ExpectedSizeBytes: input.Artifacts.OpenWebUIGatewayImage.SizeBytes,
+		})
+	}
 	if input.Artifacts.InferenceChart.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{
 			Name:              "inference-chart",

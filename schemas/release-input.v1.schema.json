@@ -84,6 +84,14 @@
           "$ref": "#/$defs/artifact",
           "description": "Optional; required when packaging an inference pack (thin manager image)."
         },
+        "openWebUIImage": {
+          "$ref": "#/$defs/artifact",
+          "description": "Optional; required with openWebUIGatewayImage when packaging std-llm or acc-llm."
+        },
+        "openWebUIGatewayImage": {
+          "$ref": "#/$defs/artifact",
+          "description": "Optional; required with openWebUIImage when packaging std-llm or acc-llm."
+        },
         "inferenceChart": { "$ref": "#/$defs/artifact" },
         "metadataBundle": {
           "$ref": "#/$defs/artifact",
