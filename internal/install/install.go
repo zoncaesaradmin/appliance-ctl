@@ -259,7 +259,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if resolved.InferenceEnabled {
 		selectedInferenceRuntime = resolved.Runtimes["inference"]
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntime(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, resolved.OpenWebUIImageReference != "" && resolved.OpenWebUIGatewayImageReference != "", resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference)
+	webUIEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityOpenWebUI, resolved.ProfileCatalog) &&
+		resolved.OpenWebUIImageReference != "" && resolved.OpenWebUIGatewayImageReference != ""
+	openWebUIImageReference := ""
+	openWebUIGatewayImageReference := ""
+	if webUIEnabled {
+		openWebUIImageReference = resolved.OpenWebUIImageReference
+		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
+	}
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntime(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -285,7 +293,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
 	if resolved.InferenceEnabled {
-		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, resolved.OpenWebUIImageReference, resolved.OpenWebUIGatewayImageReference, resolved.Runtimes["inference"])
+		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference, resolved.Runtimes["inference"])
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}

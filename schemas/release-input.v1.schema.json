@@ -86,11 +86,11 @@
         },
         "openWebUIImage": {
           "$ref": "#/$defs/artifact",
-          "description": "Optional; required with openWebUIGatewayImage when packaging std-llm or acc-llm."
+          "description": "Optional; required with openWebUIGatewayImage when packaging the open-webui pack."
         },
         "openWebUIGatewayImage": {
           "$ref": "#/$defs/artifact",
-          "description": "Optional; required with openWebUIImage when packaging std-llm or acc-llm."
+          "description": "Optional; required with openWebUIImage when packaging the open-webui pack."
         },
         "inferenceChart": { "$ref": "#/$defs/artifact" },
         "metadataBundle": {

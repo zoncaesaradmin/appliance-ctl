@@ -249,11 +249,19 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	tlsSANs := withApplianceFQDN(identity.FQDN, opts.TLSSANs...)
 	nodeIPv4 := preferredUpgradeLocalIPv4(tlsSANs...)
 	selectedInferenceRuntime := resolved.Runtimes["inference"]
+	webUIEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityOpenWebUI, resolved.ProfileCatalog) &&
+		resolved.OpenWebUIImageReference != "" && resolved.OpenWebUIGatewayImageReference != ""
+	openWebUIImageReference := ""
+	openWebUIGatewayImageReference := ""
+	if webUIEnabled {
+		openWebUIImageReference = resolved.OpenWebUIImageReference
+		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
+	}
 	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntime(
 		resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog,
 		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
-		resolved.OpenWebUIImageReference != "" && resolved.OpenWebUIGatewayImageReference != "",
+		webUIEnabled,
 		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference,
 	)
 	if err != nil {
@@ -281,7 +289,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
 	if targetInference {
-		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, resolved.OpenWebUIImageReference, resolved.OpenWebUIGatewayImageReference, resolved.Runtimes["inference"])
+		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference, resolved.Runtimes["inference"])
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}

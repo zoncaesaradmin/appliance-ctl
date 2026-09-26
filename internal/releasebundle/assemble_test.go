@@ -46,6 +46,8 @@ func buildReleaseInputDir(t *testing.T) string {
 		"blob-storage.oci.tar.zst":                          "blob-storage-image",
 		"inference-runtime.oci.tar.zst":                     "inference-image",
 		"inference-manager.oci.tar.zst":                     "inference-manager-image",
+		"open-webui.oci.tar.zst":                            "open-webui-image",
+		"open-webui-gateway.oci.tar.zst":                    "open-webui-gateway-image",
 		"appliance-inference-0.9.0.tgz":                     "inference-chart",
 		"appliance-metadata-bundle-2.4.0.0.tar.zst":         "metadata-bundle-bytes",
 		"configuration.schema.json":                         `{"type":"object"}`,
@@ -102,6 +104,8 @@ func buildReleaseInputDir(t *testing.T) string {
 			"blobStorageImage":      map[string]any{"path": "blob-storage.oci.tar.zst", "digest": digestOf("blob-storage.oci.tar.zst"), "sizeBytes": len("blob-storage-image"), "imageReference": "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 			"inferenceRuntimeImage": map[string]any{"path": "inference-runtime.oci.tar.zst", "digest": digestOf("inference-runtime.oci.tar.zst"), "sizeBytes": len("inference-image"), "imageReference": "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
 			"inferenceManagerImage": map[string]any{"path": "inference-manager.oci.tar.zst", "digest": digestOf("inference-manager.oci.tar.zst"), "sizeBytes": len("inference-manager-image"), "imageReference": "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+			"openWebUIImage":        map[string]any{"path": "open-webui.oci.tar.zst", "digest": digestOf("open-webui.oci.tar.zst"), "sizeBytes": len("open-webui-image"), "imageReference": "registry.local/open-webui@sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+			"openWebUIGatewayImage": map[string]any{"path": "open-webui-gateway.oci.tar.zst", "digest": digestOf("open-webui-gateway.oci.tar.zst"), "sizeBytes": len("open-webui-gateway-image"), "imageReference": "registry.local/open-webui-gateway@sha256:2222222222222222222222222222222222222222222222222222222222222222"},
 			"inferenceChart":        map[string]any{"path": "appliance-inference-0.9.0.tgz", "digest": digestOf("appliance-inference-0.9.0.tgz"), "sizeBytes": len("inference-chart")},
 			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": metadataInfo.Size()},
 			"configurationSchema":   map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
@@ -491,7 +495,68 @@ func TestAssemblePackStdLLMOnly(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "chart", "appliance-inference-0.9.0.tgz")); err != nil {
 		t.Fatalf("std-llm pack must include inference chart: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "open-webui.oci.tar.zst")); !os.IsNotExist(err) {
+		t.Fatalf("std-llm pack must not include open-webui image, stat err=%v", err)
+	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "zonctl")); !os.IsNotExist(err) {
 		t.Fatalf("std-llm pack must not include foundation appliance binary, stat err=%v", err)
+	}
+}
+
+func TestAssemblePackOpenWebUIOnly(t *testing.T) {
+	releaseInputDir := buildReleaseInputDir(t)
+	staging := t.TempDir()
+	writeTestFile(t, staging, "zonctl", "zonctl-binary", 0o750)
+	writeTestFile(t, staging, "k3s", "k3s-binary", 0o750)
+	writeTestFile(t, staging, "control-plane.tar", "app image", 0o640)
+	writeTestFile(t, staging, "chart.tgz", "chart", 0o640)
+	writeTestFile(t, staging, "values.yaml", "replicaCount: 1\n", 0o640)
+
+	_, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyPath := filepath.Join(staging, "release-signing.key")
+	if err := os.WriteFile(privateKeyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := releasebundle.Config{
+		SchemaVersion:         1,
+		BundleVersion:         "9.1.0",
+		ReleaseInputDir:       releaseInputDir,
+		BundleDir:             filepath.Join(t.TempDir(), "bundle-open-webui"),
+		SigningKeyID:          "release-signing-key",
+		SigningPrivateKeyPath: privateKeyPath,
+		HostBaseline:          releasebundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"},
+		Pack:                  releasebundle.PackOpenWebUI,
+		Entries: []releasebundle.EntryConfig{
+			{SourcePath: filepath.Join(staging, "zonctl"), TargetPath: "zonctl", Component: "appliance", Executable: true},
+			{SourcePath: filepath.Join(staging, "k3s"), TargetPath: "k3s/binary/k3s", Component: "k3s-binary", Executable: true},
+			{SourcePath: filepath.Join(staging, "control-plane.tar"), TargetPath: "oci-images/control-plane.tar", Component: "oci-images", ImageReference: "internal/control-plane:2.4.0"},
+			{SourcePath: filepath.Join(staging, "chart.tgz"), TargetPath: "charts/appliance-chart-2.4.0.tgz", Component: "chart"},
+			{SourcePath: filepath.Join(staging, "values.yaml"), TargetPath: "configuration/values.yaml", Component: "configuration"},
+		},
+	}
+
+	result, err := releasebundle.Assemble(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("expected open-webui pack assembly to succeed, got: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "open-webui.oci.tar.zst")); err != nil {
+		t.Fatalf("open-webui pack must include open-webui image: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "open-webui-gateway.oci.tar.zst")); err != nil {
+		t.Fatalf("open-webui pack must include gateway image: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-runtime.oci.tar.zst")); !os.IsNotExist(err) {
+		t.Fatalf("open-webui pack must not include inference-runtime, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(result.BundleDir, "zonctl")); !os.IsNotExist(err) {
+		t.Fatalf("open-webui pack must not include foundation appliance binary, stat err=%v", err)
 	}
 }

@@ -97,6 +97,7 @@ const (
 	CapabilityArtifact      Capability = "artifact"
 	CapabilityDNS           Capability = "dns"
 	CapabilityInference     Capability = "inference"
+	CapabilityOpenWebUI     Capability = "open-webui"
 	CapabilityVideo         Capability = "video"
 	CapabilityApplications  Capability = "applications"
 	CapabilityPlaintextHTTP Capability = "plaintext-http"
@@ -404,12 +405,12 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		delete(config, "inferenceEngine")
 		delete(config, "inferenceArchitecture")
 	}
-	config["webUIEnabled"] = inferenceEnabled && webUIEnabled
+	config["webUIEnabled"] = inferenceEnabled && webUIEnabled && HasCapabilityInCatalog(effectiveProfile, CapabilityOpenWebUI, profileCatalog)
 	ingress, _ := values["ingress"].(map[string]any)
 	if ingress == nil {
 		ingress = map[string]any{}
 	}
-	ingress["webUIEnabled"] = inferenceEnabled && webUIEnabled
+	ingress["webUIEnabled"] = inferenceEnabled && webUIEnabled && HasCapabilityInCatalog(effectiveProfile, CapabilityOpenWebUI, profileCatalog)
 	values["ingress"] = ingress
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference

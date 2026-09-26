@@ -42,10 +42,15 @@ const (
 	PackDeviceUser  = "deviceuser"
 	PackStdLLM      = "std-llm"
 	PackAccLLM      = "acc-llm"
+	PackOpenWebUI   = "open-webui"
 )
 
 func IsInferencePack(pack string) bool {
 	return pack == PackStdLLM || pack == PackAccLLM
+}
+
+func IsOpenWebUIPack(pack string) bool {
+	return pack == PackOpenWebUI
 }
 
 type Config struct {
@@ -113,9 +118,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM:
+	case "", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, or %q", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, or %q", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -159,9 +164,10 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	includeDevPlatformAutoAdds := cfg.Pack == "" || cfg.Pack == PackDevPlatform
 	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
 	includeInferenceAutoAdd := cfg.Pack == "" || IsInferencePack(cfg.Pack)
+	includeOpenWebUIAutoAdd := cfg.Pack == "" || IsOpenWebUIPack(cfg.Pack)
 	includeEvidenceDirs := cfg.Pack == "" || cfg.Pack == PackFoundation
-	if IsInferencePack(cfg.Pack) {
-		// Inference packs are auto-add only; drop any leftover cfg entries.
+	if IsInferencePack(cfg.Pack) || IsOpenWebUIPack(cfg.Pack) {
+		// Inference and open-webui packs are auto-add only; drop leftover cfg entries.
 		entryByTarget = map[string]EntryConfig{}
 	}
 
@@ -355,22 +361,6 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 			if (input.Artifacts.OpenWebUIImage.Path == "") != (input.Artifacts.OpenWebUIGatewayImage.Path == "") {
 				return Result{}, fmt.Errorf("releasebundle: Open WebUI and Open WebUI gateway images must be supplied together")
 			}
-			if input.Artifacts.OpenWebUIImage.Path != "" {
-				openWebUITarget := "oci-images/" + filepath.Base(input.Artifacts.OpenWebUIImage.Path)
-				if _, exists := entryByTarget[openWebUITarget]; !exists {
-					if !isCanonicalOpenWebUIReference(input.Artifacts.OpenWebUIImage.ImageReference) {
-						return Result{}, fmt.Errorf("releasebundle: Open WebUI imageReference must be registry.local/open-webui@sha256:<64 lowercase hex>, got %q", input.Artifacts.OpenWebUIImage.ImageReference)
-					}
-					entryByTarget[openWebUITarget] = EntryConfig{SourcePath: input.Artifacts.OpenWebUIImage.Path, TargetPath: openWebUITarget, Component: "oci-images", ImageReference: input.Artifacts.OpenWebUIImage.ImageReference}
-				}
-				openWebUIGatewayTarget := "oci-images/" + filepath.Base(input.Artifacts.OpenWebUIGatewayImage.Path)
-				if _, exists := entryByTarget[openWebUIGatewayTarget]; !exists {
-					if !isCanonicalOpenWebUIGatewayReference(input.Artifacts.OpenWebUIGatewayImage.ImageReference) {
-						return Result{}, fmt.Errorf("releasebundle: Open WebUI gateway imageReference must be registry.local/open-webui-gateway@sha256:<64 lowercase hex>, got %q", input.Artifacts.OpenWebUIGatewayImage.ImageReference)
-					}
-					entryByTarget[openWebUIGatewayTarget] = EntryConfig{SourcePath: input.Artifacts.OpenWebUIGatewayImage.Path, TargetPath: openWebUIGatewayTarget, Component: "oci-images", ImageReference: input.Artifacts.OpenWebUIGatewayImage.ImageReference}
-				}
-			}
 			inferenceChartBase := filepath.Base(input.Artifacts.InferenceChart.Path)
 			if !strings.HasPrefix(strings.ToLower(inferenceChartBase), "appliance-inference-") {
 				inferenceChartBase = "appliance-inference-" + inferenceChartBase
@@ -382,6 +372,32 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 					TargetPath: inferenceChartTarget,
 					Component:  "chart",
 				}
+			}
+		}
+	}
+
+	if includeOpenWebUIAutoAdd {
+		if (input.Artifacts.OpenWebUIImage.Path == "") != (input.Artifacts.OpenWebUIGatewayImage.Path == "") {
+			return Result{}, fmt.Errorf("releasebundle: Open WebUI and Open WebUI gateway images must be supplied together")
+		}
+		if input.Artifacts.OpenWebUIImage.Path == "" {
+			if IsOpenWebUIPack(cfg.Pack) {
+				return Result{}, fmt.Errorf("releasebundle: open-webui pack requires release-input openWebUIImage and openWebUIGatewayImage")
+			}
+		} else {
+			openWebUITarget := "oci-images/" + filepath.Base(input.Artifacts.OpenWebUIImage.Path)
+			if _, exists := entryByTarget[openWebUITarget]; !exists {
+				if !isCanonicalOpenWebUIReference(input.Artifacts.OpenWebUIImage.ImageReference) {
+					return Result{}, fmt.Errorf("releasebundle: Open WebUI imageReference must be registry.local/open-webui@sha256:<64 lowercase hex>, got %q", input.Artifacts.OpenWebUIImage.ImageReference)
+				}
+				entryByTarget[openWebUITarget] = EntryConfig{SourcePath: input.Artifacts.OpenWebUIImage.Path, TargetPath: openWebUITarget, Component: "oci-images", ImageReference: input.Artifacts.OpenWebUIImage.ImageReference}
+			}
+			openWebUIGatewayTarget := "oci-images/" + filepath.Base(input.Artifacts.OpenWebUIGatewayImage.Path)
+			if _, exists := entryByTarget[openWebUIGatewayTarget]; !exists {
+				if !isCanonicalOpenWebUIGatewayReference(input.Artifacts.OpenWebUIGatewayImage.ImageReference) {
+					return Result{}, fmt.Errorf("releasebundle: Open WebUI gateway imageReference must be registry.local/open-webui-gateway@sha256:<64 lowercase hex>, got %q", input.Artifacts.OpenWebUIGatewayImage.ImageReference)
+				}
+				entryByTarget[openWebUIGatewayTarget] = EntryConfig{SourcePath: input.Artifacts.OpenWebUIGatewayImage.Path, TargetPath: openWebUIGatewayTarget, Component: "oci-images", ImageReference: input.Artifacts.OpenWebUIGatewayImage.ImageReference}
 			}
 		}
 	}
@@ -878,7 +894,7 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		if counts["oci-images"] < 2 {
 			return fmt.Errorf("releasebundle: %s pack must include inference-runtime and inference-manager images", pack)
 		}
-		var hasInferenceChart, hasInferenceImage, hasInferenceManager, hasOpenWebUI, hasOpenWebUIGateway bool
+		var hasInferenceChart, hasInferenceImage, hasInferenceManager bool
 		for _, entry := range entries {
 			base := strings.ToLower(filepath.Base(entry.Path))
 			if entry.Component == "chart" && strings.HasPrefix(base, "appliance-inference-") {
@@ -890,11 +906,8 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			if entry.Component == "oci-images" && isCanonicalInferenceManagerReference(entry.ImageReference) {
 				hasInferenceManager = true
 			}
-			if entry.Component == "oci-images" && isCanonicalOpenWebUIReference(entry.ImageReference) {
-				hasOpenWebUI = true
-			}
-			if entry.Component == "oci-images" && isCanonicalOpenWebUIGatewayReference(entry.ImageReference) {
-				hasOpenWebUIGateway = true
+			if entry.Component == "oci-images" && (isCanonicalOpenWebUIReference(entry.ImageReference) || isCanonicalOpenWebUIGatewayReference(entry.ImageReference)) {
+				return fmt.Errorf("releasebundle: %s pack must not include Open WebUI images (use the open-webui pack)", pack)
 			}
 		}
 		if !hasInferenceChart {
@@ -906,8 +919,19 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		if !hasInferenceManager {
 			return fmt.Errorf("releasebundle: %s pack is missing inference-manager image", pack)
 		}
-		if hasOpenWebUI != hasOpenWebUIGateway {
-			return fmt.Errorf("releasebundle: %s pack is missing Open WebUI or its session-bridge gateway image", pack)
+		return nil
+	case PackOpenWebUI:
+		var hasOpenWebUI, hasOpenWebUIGateway bool
+		for _, entry := range entries {
+			if entry.Component == "oci-images" && isCanonicalOpenWebUIReference(entry.ImageReference) {
+				hasOpenWebUI = true
+			}
+			if entry.Component == "oci-images" && isCanonicalOpenWebUIGatewayReference(entry.ImageReference) {
+				hasOpenWebUIGateway = true
+			}
+		}
+		if !hasOpenWebUI || !hasOpenWebUIGateway {
+			return fmt.Errorf("releasebundle: open-webui pack requires Open WebUI and session-bridge gateway images")
 		}
 		return nil
 	}
@@ -944,13 +968,15 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	case "":
 		return true
 	case PackFoundation:
-		return !entryIsStorageNetwork(entry) && !entryIsBuildWorkflows(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry)
+		return !entryIsStorageNetwork(entry) && !entryIsBuildWorkflows(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry) && !entryIsOpenWebUI(entry)
 	case PackDevPlatform:
 		return entryIsStorageNetwork(entry) || entryIsBuildWorkflows(entry)
 	case PackDeviceUser:
 		return entryIsDeviceUser(entry)
 	case PackStdLLM, PackAccLLM:
 		return entryIsInference(entry)
+	case PackOpenWebUI:
+		return entryIsOpenWebUI(entry)
 	default:
 		return false
 	}
@@ -1017,9 +1043,7 @@ func entryIsInference(entry EntryConfig) bool {
 	if strings.Contains(ref, "inference-runtime") || strings.Contains(target, "inference-runtime") ||
 		strings.Contains(sourceBase, "inference-runtime") ||
 		strings.Contains(ref, "inference-manager") || strings.Contains(target, "inference-manager") ||
-		strings.Contains(sourceBase, "inference-manager") ||
-		strings.Contains(ref, "open-webui") || strings.Contains(target, "open-webui") ||
-		strings.Contains(sourceBase, "open-webui") {
+		strings.Contains(sourceBase, "inference-manager") {
 		return true
 	}
 	if entry.Component == "chart" && (strings.HasPrefix(base, "appliance-inference-") ||
@@ -1027,6 +1051,14 @@ func entryIsInference(entry EntryConfig) bool {
 		return true
 	}
 	return false
+}
+
+func entryIsOpenWebUI(entry EntryConfig) bool {
+	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
+	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
+	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
+	return strings.Contains(ref, "open-webui") || strings.Contains(target, "open-webui") ||
+		strings.Contains(sourceBase, "open-webui")
 }
 
 func encodePublicKeyPEM(pub ed25519.PublicKey) ([]byte, error) {
