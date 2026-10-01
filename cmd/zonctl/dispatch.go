@@ -20,6 +20,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/manifest"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
 
@@ -132,13 +133,33 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 	case "restore":
 		result = runRestore(context.Background(), opts, logger, result)
 	case "upgrade":
+		if err := requireControlPlaneLifecycle(opts); err != nil {
+			result = finish(result, "failed", 1, err.Error(), nil)
+			break
+		}
 		result = runUpgrade(context.Background(), opts, txn, logger, result)
 	case "uninstall":
 		result = runUninstall(context.Background(), opts, logger, result)
 	case "factory-reset":
+		if err := requireControlPlaneLifecycle(opts); err != nil {
+			result = finish(result, "failed", 1, err.Error(), nil)
+			break
+		}
 		result = runFactoryReset(context.Background(), opts, logger, result)
 	case "models-import":
 		result = runModelsImport(context.Background(), opts, logger, result)
+	case "cluster-enrollment-create":
+		result = runClusterEnrollmentCreate(opts, logger, result)
+	case "cluster-join":
+		result = runClusterJoin(context.Background(), opts, logger, result)
+	case "cluster-worker-upgrade":
+		result = runClusterWorkerUpgrade(context.Background(), opts, logger, result)
+	case "cluster-node-register":
+		result = runClusterNodeRegister(context.Background(), opts, logger, result)
+	case "cluster-inference-deploy":
+		result = runClusterInferenceDeploy(context.Background(), opts, logger, result)
+	case "cluster-node-remove":
+		result = runClusterNodeRemove(context.Background(), opts, logger, result)
 	default:
 		// Command bodies land with the adapters that implement them
 		// (R1-02/R1-03+); the skeleton always ends the transaction in a
@@ -155,6 +176,21 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 	}
 
 	return result
+}
+
+// requireControlPlaneLifecycle prevents node-local worker receipts from
+// creating divergent backups, restores, upgrades, or factory resets. Worker
+// maintenance must be orchestrated from the authoritative control-plane
+// record; single-node and legacy receipts retain their existing behavior.
+func requireControlPlaneLifecycle(opts cliOptions) error {
+	installed, err := state.Load(filepath.Join(opts.stateDir, "installed-state.json"))
+	if err != nil || installed == nil || installed.Cluster == nil {
+		return err
+	}
+	if control := strings.TrimSpace(installed.Cluster.ControlPlaneNode); control != "" && control != opts.nodeName {
+		return fmt.Errorf("cluster lifecycle operation must run on control-plane node %q; worker %q has a local receipt only", control, opts.nodeName)
+	}
+	return nil
 }
 
 func runPreflight(opts cliOptions, logger *slog.Logger, result commandResult) commandResult {

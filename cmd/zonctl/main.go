@@ -76,6 +76,13 @@ type cliOptions struct {
 	imagePullRegistryUsernameEnv  string
 	imagePullRegistryTokenEnv     string
 	imagePullRegistryTLSVerifyEnv string
+	enrollmentOut                 string
+	controlEndpoint               string
+	workerName                    string
+	workerRole                    string
+	enrollmentTTL                 string
+	enrollmentFile                string
+	clusterSignerFingerprint      string
 }
 
 type commandSpec struct {
@@ -101,6 +108,12 @@ var commands = []commandSpec{
 	{"uninstall", true},
 	{"factory-reset", true},
 	{"models-import", true},
+	{"cluster-enrollment-create", true},
+	{"cluster-join", true},
+	{"cluster-worker-upgrade", true},
+	{"cluster-node-register", true},
+	{"cluster-inference-deploy", true},
+	{"cluster-node-remove", true},
 }
 
 func findCommand(name string) (commandSpec, bool) {
@@ -169,7 +182,7 @@ func run(args []string) int {
 	fs.Var(&tlsSANs, "tls-san", "additional TLS subjectAltName to include on the appliance certificate; repeatable (for example a raw IP)")
 	preserveFailedState := fs.Bool("preserve-failed-state", false, "debug mode: do not roll back a failed install or upgrade; preserve the partial target state for investigation")
 	backupID := fs.String("backup-id", "", "backup identifier to restore from (required for restore; optionally the verified recovery point for factory-reset)")
-	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall/factory-reset)")
+	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall, factory-reset, and cluster-node-remove)")
 	acknowledgeDataLoss := fs.Bool("acknowledge-data-loss", false, "explicitly acknowledge permanent data loss (required for factory-reset)")
 	forceDataLoss := fs.Bool("force-data-loss", false, "override the requirement for a verified recent backup before factory-reset (still requires --acknowledge-data-loss)")
 	wipeWorkspaces := fs.Bool("wipe-workspaces", false, "factory-reset only: also remove builder workspaces under /data/zon/workspaces")
@@ -178,6 +191,13 @@ func run(args []string) int {
 	imagePullRegistryUsernameEnv := fs.String("image-pull-registry-username-env", "", "env var name holding the image-pull registry username (required when --image-pull-registry is set; e.g. DEV_REGISTRY_USER)")
 	imagePullRegistryTokenEnv := fs.String("image-pull-registry-token-env", "", "env var name holding the image-pull registry password/token (required when --image-pull-registry is set; e.g. DEV_REGISTRY_TOKEN)")
 	imagePullRegistryTLSVerifyEnv := fs.String("image-pull-registry-tls-verify-env", "", "env var name holding true|false for registry TLS verify (optional; default true; e.g. DEV_REGISTRY_TLS_VERIFY)")
+	enrollmentOut := fs.String("enrollment-out", "", "owner-only path where cluster-enrollment-create writes the worker enrollment artifact")
+	controlEndpoint := fs.String("control-endpoint", "", "https K3s API endpoint reachable by the joining worker (required for cluster-enrollment-create)")
+	workerName := fs.String("worker-name", "", "expected K3s node name for cluster-enrollment-create")
+	workerRole := fs.String("worker-role", "worker", "worker role: worker or inference (cluster enrollment and registration commands)")
+	enrollmentTTL := fs.String("enrollment-ttl", "15m", "enrollment validity, from 1 minute through 24 hours (cluster-enrollment-create only)")
+	enrollmentFile := fs.String("enrollment-file", "", "protected enrollment artifact to consume (required for cluster-join)")
+	clusterSignerFingerprint := fs.String("cluster-signer-fingerprint", "", "pinned sha256 enrollment signer fingerprint obtained from the control plane (required for cluster-join)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -215,6 +235,13 @@ func run(args []string) int {
 		imagePullRegistryUsernameEnv:  *imagePullRegistryUsernameEnv,
 		imagePullRegistryTokenEnv:     *imagePullRegistryTokenEnv,
 		imagePullRegistryTLSVerifyEnv: *imagePullRegistryTLSVerifyEnv,
+		enrollmentOut:                 *enrollmentOut,
+		controlEndpoint:               *controlEndpoint,
+		workerName:                    *workerName,
+		workerRole:                    *workerRole,
+		enrollmentTTL:                 *enrollmentTTL,
+		enrollmentFile:                *enrollmentFile,
+		clusterSignerFingerprint:      *clusterSignerFingerprint,
 	}
 
 	logger := newLogger(redact.New(), opts.output)

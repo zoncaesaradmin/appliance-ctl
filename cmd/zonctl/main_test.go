@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +48,76 @@ func TestRun_UnknownCommand(t *testing.T) {
 	_, code := captureStdout(t, func() int { return run([]string{"frobnicate"}) })
 	if code != 2 {
 		t.Errorf("expected exit code 2, got %d", code)
+	}
+}
+
+func TestRequireControlPlaneLifecycleRejectsWorkerReceipt(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now().UTC()
+	clusterRecord := state.NewSingleServerCluster("cluster-1", "control-1", "10.44.0.0/16", "10.43.0.0/16")
+	clusterRecord.Topology = state.TopologyServerWorkers
+	clusterRecord.Nodes = append(clusterRecord.Nodes, state.ClusterNode{ID: "worker-1", Name: "worker-1", Role: state.NodeRoleWorker, Roles: []string{state.NodeRoleWorker}})
+	installed := &state.InstalledState{SchemaVersion: 1, ApplianceInstanceID: "worker-receipt", InstalledVersion: "2.4.0", InstalledReleaseID: "release-1", Cluster: &clusterRecord, Components: state.Components{K3sVersion: "v1", ChartVersion: "2.4.0"}, K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"}, LastOperation: state.Operation{Type: "cluster-join", Status: "completed", TransactionID: "txn-1", StartedAt: now, CompletedAt: &now}, CreatedAt: now, UpdatedAt: now}
+	if err := state.Save(filepath.Join(stateDir, "installed-state.json"), installed); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireControlPlaneLifecycle(cliOptions{stateDir: stateDir, nodeName: "worker-1"}); err == nil {
+		t.Fatal("worker receipt was allowed to run a control-plane lifecycle operation")
+	}
+	if err := requireControlPlaneLifecycle(cliOptions{stateDir: stateDir, nodeName: "control-1"}); err != nil {
+		t.Fatalf("control plane rejected: %v", err)
+	}
+}
+
+func TestClusterEnrollmentCreateWritesProtectedArtifactAndClusterTrust(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now().UTC()
+	clusterRecord := state.NewSingleServerCluster("cluster-1", "control-1", "10.44.0.0/16", "10.43.0.0/16")
+	installed := &state.InstalledState{
+		SchemaVersion: 1, ApplianceInstanceID: "cluster-1", InstalledVersion: "2.4.0", InstalledReleaseID: "release-1",
+		ApplianceProfile: "std-llm", ApplianceName: "zon", Cluster: &clusterRecord,
+		Components:    state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: "2.4.0"},
+		K3sOwnership:  state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"},
+		LastOperation: state.Operation{Type: "install", Status: "completed", TransactionID: "txn-1", StartedAt: now, CompletedAt: &now},
+		CreatedAt:     now, UpdatedAt: now,
+	}
+	if err := state.Save(filepath.Join(stateDir, "installed-state.json"), installed); err != nil {
+		t.Fatal(err)
+	}
+	caPath := filepath.Join(stateDir, "server-ca.crt")
+	if err := os.WriteFile(caPath, []byte("test server ca"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldCAPath, oldBootstrapCreate := clusterServerCAPath, clusterBootstrapTokenCreate
+	clusterServerCAPath = caPath
+	var createArgs []string
+	clusterBootstrapTokenCreate = func(_ context.Context, ttl, description string) (string, error) {
+		createArgs = []string{ttl, description}
+		return "K10bootstrap-token", nil
+	}
+	t.Cleanup(func() { clusterServerCAPath, clusterBootstrapTokenCreate = oldCAPath, oldBootstrapCreate })
+
+	outPath := filepath.Join(stateDir, "worker.enrollment")
+	result := runClusterEnrollmentCreate(cliOptions{stateDir: stateDir, nodeName: "control-1", workerName: "gpu-1", workerRole: "inference", controlEndpoint: "https://10.0.0.10:6443", enrollmentOut: outPath, enrollmentTTL: "15m"}, slog.Default(), commandResult{Command: "cluster-enrollment-create"})
+	if result.Status != "succeeded" {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(createArgs) != 2 || createArgs[0] != "15m" || !strings.Contains(createArgs[1], "gpu-1") {
+		t.Fatalf("bootstrap token create arguments = %v", createArgs)
+	}
+	if strings.Contains(string(result.Data), "K10bootstrap-token") {
+		t.Fatalf("join token leaked into result: %s", result.Data)
+	}
+	info, err := os.Stat(outPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("enrollment artifact mode, info=%v err=%v", info, err)
+	}
+	updated, err := state.Load(filepath.Join(stateDir, "installed-state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Cluster.Topology != state.TopologyServerWorkers || updated.Cluster.EnrollmentSignerFingerprint == "" {
+		t.Fatalf("cluster trust state = %+v", updated.Cluster)
 	}
 }
 

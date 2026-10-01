@@ -13,6 +13,9 @@ import (
 
 // WriteConfig atomically writes cfg's rendered content to path.
 func WriteConfig(path string, cfg Config) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("k3s: create config directory: %w", err)
 	}

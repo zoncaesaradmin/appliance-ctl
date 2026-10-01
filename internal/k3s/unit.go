@@ -10,6 +10,7 @@ import "fmt"
 type UnitConfig struct {
 	BinaryPath string
 	ConfigPath string
+	Mode       NodeMode
 }
 
 const unitTemplate = `[Unit]
@@ -19,7 +20,7 @@ Wants=network-online.target
 
 [Service]
 Type=notify
-ExecStart=%s server --config %s
+ExecStart=%s %s --config %s
 # KillMode=process matches upstream K3s: stopping the unit must not
 # tear down running pods during a binary upgrade. Uninstall/rollback
 # paths MUST call CleanupNodeNetwork afterward to reap orphaned
@@ -41,5 +42,9 @@ WantedBy=multi-user.target
 
 // Render produces the k3s.service unit file content.
 func (u UnitConfig) Render() string {
-	return fmt.Sprintf(unitTemplate, u.BinaryPath, u.ConfigPath)
+	mode := u.Mode
+	if mode == "" {
+		mode = NodeModeServer
+	}
+	return fmt.Sprintf(unitTemplate, u.BinaryPath, mode, u.ConfigPath)
 }

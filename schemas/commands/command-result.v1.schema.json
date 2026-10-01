@@ -101,6 +101,9 @@
       "$ref": "#/$defs/dataFor/factory-reset"
     },
     {
+      "$ref": "#/$defs/clusterLifecycleData"
+    },
+    {
       "$ref": "#/$defs/destructiveRequiresConfirmation"
     }
   ],
@@ -119,7 +122,13 @@
         "repair",
         "support-bundle",
         "uninstall",
-        "factory-reset"
+        "factory-reset",
+        "cluster-enrollment-create",
+        "cluster-join",
+        "cluster-worker-upgrade",
+        "cluster-node-register",
+        "cluster-inference-deploy",
+        "cluster-node-remove"
       ]
     },
     "confirmation": {
@@ -176,6 +185,33 @@
             "required": [
               "acknowledgedDataLoss"
             ]
+          }
+        }
+      }
+    },
+    "clusterLifecycleData": {
+      "if": {
+        "properties": {
+          "command": {
+            "enum": [
+              "cluster-enrollment-create",
+              "cluster-join",
+              "cluster-worker-upgrade",
+              "cluster-node-register",
+              "cluster-inference-deploy",
+              "cluster-node-remove"
+            ]
+          }
+        },
+        "required": ["command"]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": {
+              "type": ["string", "number", "boolean"]
+            }
           }
         }
       }
@@ -398,6 +434,10 @@
                 },
                 "metadataDigest": {
                   "type": "string"
+                },
+                "cluster": {
+                  "type": ["object", "null"],
+                  "description": "Public local cluster receipt summary; join credentials are never included."
                 },
                 "k3sHealthy": {
                   "type": "boolean"

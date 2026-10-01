@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
@@ -428,6 +429,9 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		f.secretExists = false
 		return "", nil
 	}
+	if name == "kubectl" && contains(args, "get") && contains(args, "node") && contains(args, "jsonpath={.metadata.uid}") {
+		return "test-node-uid", nil
+	}
 	if name == "kubectl" && contains(args, "nodes") {
 		return f.kubectlNodes, nil
 	}
@@ -611,6 +615,18 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	if installed.ApplianceProfile != "core" {
 		t.Fatalf("appliance profile = %q, want core", installed.ApplianceProfile)
 	}
+	if installed.Cluster == nil || installed.Cluster.Topology != state.TopologySingleServer || installed.Cluster.ControlPlaneNode != opts.NodeName || installed.Cluster.IngressNode != opts.NodeName {
+		t.Fatalf("new install must persist its single-server cluster identity: %+v", installed.Cluster)
+	}
+	if installed.Cluster.EnrollmentSignerFingerprint == "" {
+		t.Fatal("new install must persist an enrollment signer fingerprint")
+	}
+	if installed.Cluster.Nodes[0].NodeUID != "test-node-uid" {
+		t.Fatalf("initial control-plane node must have a Kubernetes UID: %+v", installed.Cluster.Nodes[0])
+	}
+	if info, err := os.Stat(filepath.Join(filepath.Dir(opts.InstalledStatePath), "cluster-enrollment-ed25519.key")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("expected private enrollment signer with mode 0600, info=%v err=%v", info, err)
+	}
 	if len(checks) == 0 {
 		t.Error("expected a non-empty evidence check list")
 	}
@@ -642,6 +658,9 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	if reloaded.ApplianceProfile != "core" {
 		t.Fatalf("reloaded appliance profile = %q, want core", reloaded.ApplianceProfile)
 	}
+	if reloaded.Cluster == nil || reloaded.Cluster.ID != reloaded.ApplianceInstanceID || len(reloaded.Cluster.Nodes) != 1 {
+		t.Fatalf("reloaded cluster state = %+v", reloaded.Cluster)
+	}
 
 	var importCalls int
 	var secretCreateCalls int
@@ -658,6 +677,94 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
+	}
+}
+
+func TestJoinWorkerRejectsUntrustedEnrollmentBeforeHostMutation(t *testing.T) {
+	stateDir := t.TempDir()
+	options := baseOptions(t, "", verify.PublicKey{})
+	options.InstalledStatePath = filepath.Join(stateDir, "installed-state.json")
+	options.K3sConfigPath = filepath.Join(stateDir, "k3s", "config.yaml")
+	options.NodeName = "gpu-worker-1"
+	private := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	nonce, err := cluster.NewNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	enrollment := cluster.Enrollment{ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", ControlPlaneNode: "control-1", NodeRole: "inference", ReleaseID: "release-1", ReleaseVersion: "2.4.0", ControlEndpoint: "https://10.0.0.10:6443", ClusterCAHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpectedNodeName: options.NodeName, K3sToken: "K10token", TokenFingerprint: cluster.TokenFingerprint("K10token"), IssuedAt: now, ExpiresAt: now.Add(time.Hour), Nonce: nonce}
+	if err := enrollment.Sign(private); err != nil {
+		t.Fatal(err)
+	}
+	enrollmentPath := filepath.Join(stateDir, "worker.enrollment")
+	if err := cluster.WriteEnrollment(enrollmentPath, enrollment); err != nil {
+		t.Fatal(err)
+	}
+	orch := &install.Orchestrator{}
+	_, err = orch.JoinWorker(context.Background(), nil, install.JoinWorkerOptions{Options: options, EnrollmentPath: enrollmentPath, SignerFingerprint: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", K3sAgentTokenPath: filepath.Join(stateDir, "agent-token")})
+	if err == nil {
+		t.Fatal("untrusted enrollment was accepted")
+	}
+	if _, statErr := os.Stat(options.K3sConfigPath); !os.IsNotExist(statErr) {
+		t.Fatalf("K3s config was written before trust validation: %v", statErr)
+	}
+}
+
+func TestUpgradeWorkerRestoresAgentFilesAfterPartialWriteFailure(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.NodeName = "worker-1"
+	stateDir := t.TempDir()
+	opts.InstalledStatePath = filepath.Join(stateDir, "installed-state.json")
+	opts.K3sBinaryDestPath = filepath.Join(stateDir, "bin", "k3s")
+	opts.K3sConfigPath = filepath.Join(stateDir, "k3s", "config.yaml")
+	opts.K3sUnitPath = filepath.Join(stateDir, "systemd", "k3s-agent.service")
+	opts.K3sUnitName = "k3s-agent.service"
+	tokenPath := filepath.Join(stateDir, "zon-agent-token")
+	for path, body := range map[string]string{
+		opts.K3sBinaryDestPath: "old binary",
+		opts.K3sConfigPath:     "old config",
+		opts.K3sUnitPath:       "old unit",
+		tokenPath:              "K10worker-token",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	receipt := &state.InstalledState{
+		SchemaVersion: 1, ApplianceInstanceID: "cluster-1", InstalledVersion: "2.3.0", InstalledReleaseID: "old-release",
+		ApplianceProfile: "core", Cluster: &state.Cluster{ID: "cluster-1", Topology: state.TopologyServerWorkers, ControlPlaneNode: "control-1", IngressNode: "control-1", ControlEndpoint: "https://10.0.0.10:6443", Nodes: []state.ClusterNode{{ID: "control-1", Name: "control-1", Role: state.NodeRoleControlPlane}, {ID: "worker-1", Name: "worker-1", Role: state.NodeRoleWorker}}},
+		Components: state.Components{K3sVersion: "v1.29.0+k3s1", ChartVersion: "2.3.0"}, K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.3.0"},
+		LastOperation: state.Operation{Type: "cluster-join", Status: "completed", TransactionID: "join", StartedAt: now, CompletedAt: &now}, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := state.Save(opts.InstalledStatePath, receipt); err != nil {
+		t.Fatal(err)
+	}
+	fk3s := &fakeK3s{failStep: "write-unit"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: (&fakeCLI{}).Run}
+	_, err := orch.UpgradeWorker(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, install.UpgradeWorkerOptions{Options: opts, K3sAgentTokenPath: tokenPath})
+	if err == nil {
+		t.Fatal("expected partial worker upgrade failure")
+	}
+	for path, want := range map[string]string{opts.K3sBinaryDestPath: "old binary", opts.K3sConfigPath: "old config", opts.K3sUnitPath: "old unit"} {
+		got, readErr := os.ReadFile(path)
+		if readErr != nil || string(got) != want {
+			t.Fatalf("rollback file %s = %q, %v; want %q", path, got, readErr, want)
+		}
+	}
+	restarted := false
+	for _, call := range fk3s.calls {
+		if call == "enable-and-start" {
+			restarted = true
+			break
+		}
+	}
+	if !restarted {
+		t.Fatalf("worker agent was not restarted after rollback: %v", fk3s.calls)
 	}
 }
 

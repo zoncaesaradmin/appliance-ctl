@@ -12,6 +12,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
@@ -289,7 +290,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
 	if targetInference {
-		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference, resolved.Runtimes["inference"])
+		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFileForNode(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference, resolved.Runtimes["inference"], opts.NodeName)
 		if err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
@@ -676,6 +677,28 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
 	}
+	if resolved.InferenceEnabled {
+		if err := cluster.LabelInferenceNode(ctx, o.HelmRun, opts.KubeconfigPath, opts.NodeName); err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+	// Upgrade is also the migration point for receipts written before node UID
+	// inventory existed. Refresh from the live API rather than carrying a node
+	// name forward as durable cluster identity.
+	controlPlaneNodeUID, err := cluster.NodeUID(ctx, o.HelmRun, opts.KubeconfigPath, opts.NodeName)
+	if err != nil {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", err), func() []evidence.Check {
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
+	}
 	if resolved.InferenceEnabled && productconfig.HostNVIDIAAvailable() {
 		if err := nvidia.EnsureK3sRuntime(ctx, o.HelmRun, opts.KubeconfigPath, nvidia.DefaultContainerdConfig, opts.K3sUnitName, o.K3s.Restart); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: configure NVIDIA runtime for K3s: %w", err), func() []evidence.Check {
@@ -1026,6 +1049,30 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	now := time.Now().UTC()
+	cluster := installed.Cluster
+	if cluster == nil || cluster.ID == "" {
+		// Receipts created before cluster identity was made explicit describe
+		// the same single-server topology. Upgrade is the safe migration point
+		// because it already owns the authoritative state rewrite.
+		migrated := state.NewSingleServerCluster(installed.ApplianceInstanceID, opts.NodeName, k3s.DefaultClusterCIDR, k3s.DefaultServiceCIDR)
+		cluster = &migrated
+	}
+	// Copy before changing the state prepared from the prior receipt. This
+	// keeps a failed transaction's in-memory source receipt immutable.
+	clusterCopy := *cluster
+	clusterCopy.Nodes = append([]state.ClusterNode(nil), cluster.Nodes...)
+	controlPlaneFound := false
+	for i := range clusterCopy.Nodes {
+		if clusterCopy.Nodes[i].Name == opts.NodeName && clusterCopy.Nodes[i].Role == state.NodeRoleControlPlane {
+			clusterCopy.Nodes[i].NodeUID = controlPlaneNodeUID
+			controlPlaneFound = true
+			break
+		}
+	}
+	if !controlPlaneFound {
+		return nil, checks, fmt.Errorf("upgrade: cluster inventory has no control-plane node %q", opts.NodeName)
+	}
+	cluster = &clusterCopy
 	updated := &state.InstalledState{
 		SchemaVersion:       1,
 		ApplianceInstanceID: installed.ApplianceInstanceID,
@@ -1034,6 +1081,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		ApplianceProfile:    effectiveProfile,
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
+		Cluster:             cluster,
 		Runtimes:            resolved.Runtimes,
 		Components: state.Components{
 			K3sVersion:            resolved.Compatibility.K3sVersion,

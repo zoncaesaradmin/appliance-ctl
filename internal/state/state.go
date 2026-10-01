@@ -39,6 +39,71 @@ type K3sOwnership struct {
 	OwnerApplianceVersion string `json:"ownerApplianceVersion"`
 }
 
+// Cluster records the appliance-wide facts which must agree on every node.
+// The installed-state file remains a local receipt in the initial topology,
+// but these fields make the cluster boundary explicit rather than treating a
+// host installation as the appliance identity. Join credentials deliberately
+// do not belong here: they are short-lived secrets held in protected K3s
+// configuration on the joining node.
+type Cluster struct {
+	ID               string `json:"id,omitempty"`
+	Topology         string `json:"topology,omitempty"`
+	ControlPlaneNode string `json:"controlPlaneNode,omitempty"`
+	IngressNode      string `json:"ingressNode,omitempty"`
+	// ControlEndpoint is the stable, operator-selected K3s API endpoint used
+	// by enrolled workers. It is intentionally separate from the appliance
+	// ingress endpoint: ingress stays on the control-plane node in v1.
+	ControlEndpoint string `json:"controlEndpoint,omitempty"`
+	// ClusterCAHash pins the K3s server CA presented by ControlEndpoint. It is
+	// public verification material, never a CA private key or join secret.
+	ClusterCAHash string `json:"clusterCAHash,omitempty"`
+	// EnrollmentSignerFingerprint pins the Ed25519 public key allowed to
+	// authorize workers. It is public metadata and never contains the
+	// private enrollment signer or a K3s join token.
+	EnrollmentSignerFingerprint string        `json:"enrollmentSignerFingerprint,omitempty"`
+	ClusterCIDR                 string        `json:"clusterCIDR,omitempty"`
+	ServiceCIDR                 string        `json:"serviceCIDR,omitempty"`
+	Nodes                       []ClusterNode `json:"nodes,omitempty"`
+}
+
+// ClusterNode is intentionally inventory, not a discovered peer. Nodes are
+// enrolled through a trusted installer flow; mDNS must never add members.
+type ClusterNode struct {
+	ID      string   `json:"id"`
+	NodeUID string   `json:"nodeUID,omitempty"`
+	Name    string   `json:"name"`
+	Role    string   `json:"role"`
+	Roles   []string `json:"roles,omitempty"`
+}
+
+const (
+	TopologySingleServer  = "single-server"
+	TopologyServerWorkers = "server-workers"
+	NodeRoleControlPlane  = "control-plane"
+	NodeRoleWorker        = "worker"
+	NodeRoleInference     = "inference"
+)
+
+// NewSingleServerCluster constructs the v1-compatible cluster record. The
+// appliance instance ID is also the cluster ID while one host is the complete
+// cluster; future workers receive their own local receipt but share this ID.
+func NewSingleServerCluster(id, nodeName, clusterCIDR, serviceCIDR string) Cluster {
+	return Cluster{
+		ID:               id,
+		Topology:         TopologySingleServer,
+		ControlPlaneNode: nodeName,
+		IngressNode:      nodeName,
+		ClusterCIDR:      clusterCIDR,
+		ServiceCIDR:      serviceCIDR,
+		Nodes: []ClusterNode{{
+			ID:    nodeName,
+			Name:  nodeName,
+			Role:  NodeRoleControlPlane,
+			Roles: []string{NodeRoleControlPlane},
+		}},
+	}
+}
+
 // Operation is one lifecycle transaction recorded in InstalledState's
 // history, mirroring lifecycle.Transaction's terminal shape.
 type Operation struct {
@@ -62,6 +127,7 @@ type InstalledState struct {
 	ApplianceProfile    string                             `json:"applianceProfile,omitempty"`
 	ApplianceName       string                             `json:"applianceName,omitempty"`
 	DNSZone             string                             `json:"dnsZone,omitempty"`
+	Cluster             *Cluster                           `json:"cluster,omitempty"`
 	Components          Components                         `json:"components"`
 	K3sOwnership        K3sOwnership                       `json:"k3sOwnership"`
 	LastOperation       Operation                          `json:"lastOperation"`

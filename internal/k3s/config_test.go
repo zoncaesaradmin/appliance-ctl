@@ -74,6 +74,24 @@ func TestConfig_Render_AllowsCIDROverrides(t *testing.T) {
 		}
 	}
 }
+
+func TestConfig_AgentRequiresTrustedJoinInputs(t *testing.T) {
+	cfg := k3s.Config{Mode: k3s.NodeModeAgent, NodeName: "worker-1", DataDir: "/d"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("agent configuration without server URL and token file must fail")
+	}
+	cfg.ServerURL = "https://10.0.0.10:6443"
+	cfg.TokenFile = "/etc/zon/k3s-agent-token"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid agent configuration rejected: %v", err)
+	}
+	rendered := cfg.Render()
+	for _, want := range []string{`server: "https://10.0.0.10:6443"`, `token-file: "/etc/zon/k3s-agent-token"`} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("missing %q from agent config:\n%s", want, rendered)
+		}
+	}
+}
 func TestUnitConfig_Render(t *testing.T) {
 	u := k3s.UnitConfig{BinaryPath: "/opt/appliance/bin/k3s", ConfigPath: "/etc/rancher/k3s/config.yaml"}
 	rendered := u.Render()
@@ -89,5 +107,12 @@ func TestUnitConfig_Render(t *testing.T) {
 	}
 	if strings.Contains(rendered, "ExecStartPre") {
 		t.Error("expected no ExecStartPre (no network download step) in a release-owned unit")
+	}
+}
+
+func TestUnitConfig_RenderAgent(t *testing.T) {
+	u := k3s.UnitConfig{BinaryPath: "/opt/appliance/bin/k3s", ConfigPath: "/etc/rancher/k3s/config.yaml", Mode: k3s.NodeModeAgent}
+	if rendered := u.Render(); !strings.Contains(rendered, "ExecStart=/opt/appliance/bin/k3s agent --config /etc/rancher/k3s/config.yaml") {
+		t.Fatalf("agent unit command missing:\n%s", rendered)
 	}
 }

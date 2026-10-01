@@ -28,11 +28,12 @@ type Signals struct {
 	// and K3s active). Checked distinguishes "not checked" from "checked
 	// and unhealthy" so a not-yet-installed or K3s-down host doesn't get
 	// a misleading chart/ingress failure on top of the real cause.
-	ChartHealth     ChartHealth
-	RegistryHealth  ChartHealth
-	RegistryStorage ChartHealth
-	DNSHealth       ChartHealth
-	IngressHealth   IngressHealth
+	ChartHealth      ChartHealth
+	RegistryHealth   ChartHealth
+	RegistryStorage  ChartHealth
+	DNSHealth        ChartHealth
+	IngressHealth    IngressHealth
+	ClusterInventory ClusterInventoryHealth
 }
 
 // ChartHealth reports whether the appliance's Helm release is deployed.
@@ -49,6 +50,15 @@ type ChartHealth struct {
 type IngressHealth struct {
 	Checked bool
 	Present bool
+	Message string
+}
+
+// ClusterInventoryHealth is populated only on the authoritative
+// control-plane receipt. It proves that the explicit appliance inventory
+// still agrees with live Kubernetes node UID and readiness state.
+type ClusterInventoryHealth struct {
+	Checked bool
+	Healthy bool
 	Message string
 }
 
@@ -150,6 +160,16 @@ func Evaluate(sig Signals) []evidence.Check {
 		checks = append(checks, evidence.Check{
 			ID: "ingress-route-present", Category: "chart", Status: status,
 			Message: sig.IngressHealth.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
+		})
+	}
+	if sig.ClusterInventory.Checked {
+		status := evidence.StatusPass
+		if !sig.ClusterInventory.Healthy {
+			status = evidence.StatusFail
+		}
+		checks = append(checks, evidence.Check{
+			ID: "cluster-inventory-health", Category: "k3s", Status: status,
+			Message: sig.ClusterInventory.Message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
 		})
 	}
 

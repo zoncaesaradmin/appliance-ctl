@@ -34,6 +34,13 @@ func sampleState() *state.InstalledState {
 	}
 }
 
+func sampleCluster() *state.Cluster {
+	cluster := state.NewSingleServerCluster(
+		"9f4d6b1e-2a3c-4e5f-8b1a-7c6d5e4f3a2b", "appliance-node", "10.44.0.0/16", "10.43.0.0/16",
+	)
+	return &cluster
+}
+
 func TestLoad_MissingFileReturnsNilNil(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "installed-state.json")
 
@@ -49,6 +56,7 @@ func TestLoad_MissingFileReturnsNilNil(t *testing.T) {
 func TestSaveThenLoad_RoundTrips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "installed-state.json")
 	want := sampleState()
+	want.Cluster = sampleCluster()
 
 	if err := state.Save(path, want); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -66,6 +74,9 @@ func TestSaveThenLoad_RoundTrips(t *testing.T) {
 	}
 	if !got.K3sOwnership.Owned {
 		t.Error("expected K3sOwnership.Owned to survive the round trip")
+	}
+	if got.Cluster == nil || got.Cluster.ID != want.ApplianceInstanceID || got.Cluster.IngressNode != "appliance-node" || len(got.Cluster.Nodes) != 1 {
+		t.Fatalf("cluster state did not round-trip: %+v", got.Cluster)
 	}
 }
 

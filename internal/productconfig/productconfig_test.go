@@ -126,6 +126,9 @@ func TestPrepareValuesFileForRuntime_EnablesWebUIOnlyForInferencePackPair(t *tes
 	if !strings.Contains(text, "webUIEnabled: true") {
 		t.Fatalf("complete inference image pair must enable the control-plane and route flags:\n%s", text)
 	}
+	if !strings.Contains(text, "webUIHealthURL: "+productconfig.DefaultOpenWebUIHealthURL) {
+		t.Fatalf("complete inference image pair must configure the session-bridge health gate:\n%s", text)
+	}
 
 	disabled, disabledCleanup, err := productconfig.PrepareValuesFileForRuntime(valuesPath, productconfig.ProfileLANLLM, testProfileCatalog(), "", "", "", "llm1", "appliance.internal", "", runtime, false, "", blobStorageImage)
 	if err != nil {
@@ -138,6 +141,9 @@ func TestPrepareValuesFileForRuntime_EnablesWebUIOnlyForInferencePackPair(t *tes
 	}
 	if strings.Contains(string(disabledData), "webUIEnabled: true") {
 		t.Fatalf("missing WebUI image pair must not expose the route:\n%s", disabledData)
+	}
+	if strings.Contains(string(disabledData), "webUIHealthURL:") {
+		t.Fatalf("missing WebUI image pair must not configure a workspace health endpoint:\n%s", disabledData)
 	}
 }
 
@@ -241,6 +247,7 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 		!strings.Contains(text, "digest: sha256:2222222222222222222222222222222222222222222222222222222222222222") ||
 		!strings.Contains(text, "name: inference") ||
 		!strings.Contains(text, "create: false") || !strings.Contains(text, "engine: ollama") ||
+		!strings.Contains(text, "registryName: "+productconfig.DefaultInferenceRoutingRegistry) ||
 		!strings.Contains(text, "gpu:\n    driverCapabilities: all\n    enabled: false") {
 		t.Fatalf("unexpected inference values:\n%s", text)
 	}
@@ -255,6 +262,63 @@ func TestPrepareInferenceValuesFile_DigestPinOnly(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("inference values unexpectedly contain %q:\n%s", forbidden, text)
 		}
+	}
+}
+
+func TestPrepareNodeInferenceValuesFileBindsNamesAndPlacement(t *testing.T) {
+	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
+	defer restore()
+	path, cleanup, err := productconfig.PrepareNodeInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "std-llm", InferenceEngine: "ollama", Architecture: "amd64"}, "gpu-worker-1", "uid-gpu-worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"fullnameOverride: inference-node-gpu-worker-1", "nodeName: gpu-worker-1", "nodeUID: uid-gpu-worker-1", "requireInferenceNode: true", "serviceName: inference-engine-gpu-worker-1", "claimName: models-gpu-worker-1", "registryName: " + productconfig.DefaultInferenceRoutingRegistry, "enabled: false"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("node inference values missing %q:\n%s", want, raw)
+		}
+	}
+}
+
+func TestPrepareNodeInferenceValuesFileUsesValidatedRemoteGPU(t *testing.T) {
+	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
+	defer restore()
+	_, cleanup, err := productconfig.PrepareNodeInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "acc-llm", InferenceEngine: "vllm", Architecture: "amd64"}, "gpu-worker-1", "uid-gpu-worker-1")
+	defer cleanup()
+	if err != nil {
+		t.Fatalf("remote accelerated worker incorrectly used control-plane GPU probe: %v", err)
+	}
+}
+
+func TestInferenceNodeResourceSuffixBoundsDerivedNames(t *testing.T) {
+	node := "node-with-a-name-that-is-long-enough-to-require-a-resource-hash"
+	restore := productconfig.OverrideHostNVIDIACheckForTest(func() bool { return false })
+	defer restore()
+	path, cleanup, err := productconfig.PrepareNodeInferenceValuesFile(t.TempDir(), inferenceRuntimeImage, inferenceManagerImage, runtimeconfig.Selection{Package: "std-llm", InferenceEngine: "ollama", Architecture: "amd64"}, node, "uid-long-node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "serviceName: inference-engine-") && len(strings.TrimSpace(strings.TrimPrefix(trimmed, "serviceName: "))) > 63 {
+			t.Fatalf("engine service name is too long: %q", trimmed)
+		}
+	}
+}
+
+func TestInferenceNodeReleaseNameMatchesNodeValues(t *testing.T) {
+	name, err := productconfig.InferenceNodeReleaseName("gpu-worker-1")
+	if err != nil || name != "inference-node-gpu-worker-1" {
+		t.Fatalf("release name = %q, err=%v", name, err)
 	}
 }
 

@@ -48,6 +48,39 @@
       "minLength": 3,
       "description": "LAN DNS zone for this appliance identity (default appliance.internal)."
     },
+    "cluster": {
+      "type": "object",
+      "description": "Cluster-scoped appliance identity and explicit enrolled-node inventory. Optional so existing single-node receipts remain readable.",
+      "additionalProperties": false,
+      "required": ["id", "topology", "controlPlaneNode", "ingressNode", "nodes"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "topology": {"enum": ["single-server", "server-workers"]},
+        "controlPlaneNode": {"type": "string", "minLength": 1},
+        "ingressNode": {"type": "string", "minLength": 1},
+        "controlEndpoint": {"type": "string", "pattern": "^https://.+"},
+        "clusterCAHash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "enrollmentSignerFingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "clusterCIDR": {"type": "string", "minLength": 1},
+        "serviceCIDR": {"type": "string", "minLength": 1},
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name", "role"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "nodeUID": {"type": "string", "minLength": 1},
+              "name": {"type": "string", "minLength": 1},
+              "role": {"enum": ["control-plane", "worker", "inference"]},
+              "roles": {"type": "array", "items": {"enum": ["control-plane", "worker", "inference"]}, "uniqueItems": true}
+            }
+          }
+        }
+      }
+    },
     "components": {
       "type": "object",
       "additionalProperties": false,
@@ -177,6 +210,12 @@
             "restore",
             "uninstall",
             "factory-reset"
+            ,"cluster-enrollment-create"
+            ,"cluster-join"
+            ,"cluster-node-register"
+            ,"cluster-inference-deploy"
+            ,"cluster-node-remove"
+            ,"cluster-worker-upgrade"
           ]
         },
         "status": {

@@ -143,6 +143,29 @@ func TestBackupRestore_RPO_RTO_Drill(t *testing.T) {
 	}
 }
 
+func TestWorkerBackupRestoreIncludesNodeLocalModels(t *testing.T) {
+	root := t.TempDir()
+	dataDir, modelsDir, backupRoot := filepath.Join(root, "agent-data"), filepath.Join(root, "models"), filepath.Join(root, "backups")
+	writeFile(t, filepath.Join(dataDir, "agent.db"), "agent state")
+	writeFile(t, filepath.Join(modelsDir, "qwen", "weights.bin"), "model weights")
+	fake := &fakeK3s{}
+	manifest, checks, err := backup.CreateWorker(context.Background(), fake.ops(), "k3s-agent.service", dataDir, modelsDir, backupRoot, "2.4.0")
+	if err != nil {
+		t.Fatalf("CreateWorker: %v", err)
+	}
+	if len(manifest.ModelFiles) != 1 || statusOf(t, checks, "backup-copy-models") != evidence.StatusPass {
+		t.Fatalf("worker model snapshot = %+v, checks=%+v", manifest.ModelFiles, checks)
+	}
+	writeFile(t, filepath.Join(modelsDir, "qwen", "weights.bin"), "corrupted")
+	if _, err := backup.RestoreWorker(context.Background(), fake.ops(), "k3s-agent.service", filepath.Join(backupRoot, manifest.BackupID), dataDir, modelsDir); err != nil {
+		t.Fatalf("RestoreWorker: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(modelsDir, "qwen", "weights.bin"))
+	if err != nil || string(got) != "model weights" {
+		t.Fatalf("restored model = %q, %v", got, err)
+	}
+}
+
 // Integrity evidence: a backup whose file no longer matches its
 // manifest digest must never be restored, and restore must not touch
 // the live host before verification completes.

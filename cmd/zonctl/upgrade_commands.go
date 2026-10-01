@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
@@ -48,6 +50,12 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 			}
 		}
 		return finish(result, "failed", 1, withFailureDiagnostics("upgrade: "+err.Error(), resolveChecks, reportPath), nil)
+	}
+	if installed != nil && installed.Cluster != nil && installed.Cluster.Topology == state.TopologyServerWorkers {
+		readiness := cluster.ValidateWorkerUpgradeReadiness(ctx, cli.Exec, defaultKubeconfigPath, installed.Cluster.Nodes, resolved.Compatibility.K3sVersion)
+		if !readiness.Healthy {
+			return finish(result, "failed", 1, "upgrade: cluster worker readiness gate: "+readiness.Message, nil)
+		}
 	}
 
 	// Preserve installed identity when flags are omitted so TLS SANs include

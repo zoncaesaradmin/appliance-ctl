@@ -22,6 +22,17 @@ import (
 // K3s, even when the copy fails, so a failed backup does not leave the
 // appliance down.
 func Create(ctx context.Context, ops k3s.Ops, unitName, dataDir, backupRoot, applianceVersion, metadataBundlesDir, metadataVersion, metadataDigest string) (*Manifest, []evidence.Check, error) {
+	return create(ctx, ops, unitName, dataDir, backupRoot, applianceVersion, metadataBundlesDir, metadataVersion, metadataDigest, "")
+}
+
+// CreateWorker includes an enrolled worker's local model cache in the same
+// integrity manifest as its K3s agent data. The backup remains local to that
+// node; moving it is an explicit operator-controlled offline transfer.
+func CreateWorker(ctx context.Context, ops k3s.Ops, unitName, dataDir, modelsDir, backupRoot, applianceVersion string) (*Manifest, []evidence.Check, error) {
+	return create(ctx, ops, unitName, dataDir, backupRoot, applianceVersion, "", "", "", modelsDir)
+}
+
+func create(ctx context.Context, ops k3s.Ops, unitName, dataDir, backupRoot, applianceVersion, metadataBundlesDir, metadataVersion, metadataDigest, modelsDir string) (*Manifest, []evidence.Check, error) {
 	var checks []evidence.Check
 	createdAt := time.Now().UTC()
 
@@ -80,6 +91,22 @@ func Create(ctx context.Context, ops k3s.Ops, unitName, dataDir, backupRoot, app
 			return nil, checks, fmt.Errorf("backup: stat metadata bundles: %w", err)
 		}
 	}
+	var modelFiles []FileEntry
+	modelsDir = strings.TrimSpace(modelsDir)
+	if modelsDir != "" {
+		modelStart := time.Now()
+		modelFiles, copyErr = copyDir(modelsDir, filepath.Join(backupDir, "models"))
+		modelCheck := evidence.Check{ID: "backup-copy-models", Category: "backup-restore", Timestamp: modelStart.UTC(), DurationMs: time.Since(modelStart).Milliseconds(), Idempotent: true, SecretsRedacted: true}
+		if copyErr != nil {
+			modelCheck.Status, modelCheck.Message = evidence.StatusFail, copyErr.Error()
+			checks = append(checks, modelCheck)
+			_ = ops.EnableAndStart(unitName)
+			return nil, checks, fmt.Errorf("backup: model data: %w", copyErr)
+		}
+		modelCheck.Status = evidence.StatusPass
+		modelCheck.Message = fmt.Sprintf("copied %d model file(s) from %s", len(modelFiles), modelsDir)
+		checks = append(checks, modelCheck)
+	}
 
 	manifest := &Manifest{
 		BackupID:         backupID,
@@ -89,6 +116,7 @@ func Create(ctx context.Context, ops k3s.Ops, unitName, dataDir, backupRoot, app
 		MetadataDigest:   strings.TrimSpace(metadataDigest),
 		Files:            files,
 		PolicyFiles:      policyFiles,
+		ModelFiles:       modelFiles,
 	}
 	if err := SaveManifest(backupDir, manifest); err != nil {
 		_ = ops.EnableAndStart(unitName)
@@ -126,6 +154,7 @@ func Verify(backupDir string) ([]evidence.Check, error) {
 
 	dataDir := filepath.Join(backupDir, "data")
 	policyDir := filepath.Join(backupDir, "metadata-bundles")
+	modelDir := filepath.Join(backupDir, "models")
 	var checks []evidence.Check
 	var failures []error
 
@@ -149,6 +178,7 @@ func Verify(backupDir string) ([]evidence.Check, error) {
 	}
 	verifyEntries(dataDir, manifest.Files)
 	verifyEntries(policyDir, manifest.PolicyFiles)
+	verifyEntries(modelDir, manifest.ModelFiles)
 
 	if len(failures) > 0 {
 		return checks, fmt.Errorf("backup: %d file(s) failed integrity verification: %w", len(failures), errors.Join(failures...))
@@ -162,6 +192,20 @@ func Verify(backupDir string) ([]evidence.Check, error) {
 // restarts K3s. This is a clean-node restore: dataDir is fully replaced,
 // not merged.
 func Restore(ctx context.Context, ops k3s.Ops, unitName, backupDir, dataDir, metadataBundlesDir string) ([]evidence.Check, error) {
+	return restore(ctx, ops, unitName, backupDir, dataDir, metadataBundlesDir, "")
+}
+
+// RestoreWorker restores a verified worker agent snapshot and its local model
+// cache. It never routes models or copies them to a different node.
+func RestoreWorker(ctx context.Context, ops k3s.Ops, unitName, backupDir, dataDir, modelsDir string) ([]evidence.Check, error) {
+	return restore(ctx, ops, unitName, backupDir, dataDir, "", modelsDir)
+}
+
+func restore(ctx context.Context, ops k3s.Ops, unitName, backupDir, dataDir, metadataBundlesDir, modelsDir string) ([]evidence.Check, error) {
+	manifest, err := LoadManifest(backupDir)
+	if err != nil {
+		return nil, err
+	}
 	checks, err := Verify(backupDir)
 	if err != nil {
 		return checks, fmt.Errorf("backup: refusing to restore from a backup that failed integrity verification: %w", err)
@@ -233,6 +277,27 @@ func Restore(ctx context.Context, ops k3s.Ops, unitName, backupDir, dataDir, met
 			_ = ops.EnableAndStart(unitName)
 			return checks, fmt.Errorf("backup: stat metadata bundles snapshot: %w", err)
 		}
+	}
+	if modelsDir = strings.TrimSpace(modelsDir); modelsDir != "" && len(manifest.ModelFiles) > 0 {
+		modelStart := time.Now()
+		modelCheck := evidence.Check{ID: "restore-copy-models", Category: "backup-restore", Timestamp: modelStart.UTC(), Idempotent: true, SecretsRedacted: true}
+		if err := os.RemoveAll(modelsDir); err != nil {
+			modelCheck.Status, modelCheck.Message = evidence.StatusFail, err.Error()
+			modelCheck.DurationMs = time.Since(modelStart).Milliseconds()
+			checks = append(checks, modelCheck)
+			_ = ops.EnableAndStart(unitName)
+			return checks, fmt.Errorf("backup: clear model data: %w", err)
+		}
+		if _, err := copyDir(filepath.Join(backupDir, "models"), modelsDir); err != nil {
+			modelCheck.Status, modelCheck.Message = evidence.StatusFail, err.Error()
+			modelCheck.DurationMs = time.Since(modelStart).Milliseconds()
+			checks = append(checks, modelCheck)
+			_ = ops.EnableAndStart(unitName)
+			return checks, fmt.Errorf("backup: restore model data: %w", err)
+		}
+		modelCheck.Status, modelCheck.Message = evidence.StatusPass, "model data restored from backup"
+		modelCheck.DurationMs = time.Since(modelStart).Milliseconds()
+		checks = append(checks, modelCheck)
 	}
 
 	startStart := time.Now()

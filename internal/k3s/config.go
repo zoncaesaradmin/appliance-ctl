@@ -5,6 +5,7 @@
 package k3s
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -17,18 +18,63 @@ const DefaultClusterCIDR = "10.44.0.0/16"
 // DefaultServiceCIDR matches upstream K3s defaults for ClusterIP services.
 const DefaultServiceCIDR = "10.43.0.0/16"
 
+// NodeMode determines whether this host owns the K3s control plane or joins
+// one that has already been explicitly bootstrapped. Fresh appliance installs
+// remain servers; agent mode is a foundation for the later trusted join flow.
+type NodeMode string
+
+const (
+	NodeModeServer NodeMode = "server"
+	NodeModeAgent  NodeMode = "agent"
+)
+
 // Config is the appliance-owned K3s configuration. It is always written
 // as a file (never passed via environment variables), per "K3s
 // configuration is written as files rather than relying on transient
 // installer environment variables."
 type Config struct {
+	Mode     NodeMode
 	NodeName string
 	DataDir  string
 	TLSSANs  []string
+	// ServerURL and TokenFile are agent-only. TokenFile avoids putting a join
+	// credential in a unit argument or state receipt.
+	ServerURL string
+	TokenFile string
 	// ClusterCIDR overrides the pod CIDR; empty uses DefaultClusterCIDR.
 	ClusterCIDR string
 	// ServiceCIDR overrides the service CIDR; empty uses DefaultServiceCIDR.
 	ServiceCIDR string
+}
+
+func (c Config) EffectiveMode() NodeMode {
+	if c.Mode == "" {
+		return NodeModeServer
+	}
+	return c.Mode
+}
+
+func (c Config) Validate() error {
+	if strings.TrimSpace(c.NodeName) == "" {
+		return errors.New("k3s config: node name is required")
+	}
+	if strings.TrimSpace(c.DataDir) == "" {
+		return errors.New("k3s config: data dir is required")
+	}
+	switch c.EffectiveMode() {
+	case NodeModeServer:
+		return nil
+	case NodeModeAgent:
+		if strings.TrimSpace(c.ServerURL) == "" {
+			return errors.New("k3s config: agent server URL is required")
+		}
+		if strings.TrimSpace(c.TokenFile) == "" {
+			return errors.New("k3s config: agent token file is required")
+		}
+		return nil
+	default:
+		return fmt.Errorf("k3s config: unsupported node mode %q", c.Mode)
+	}
 }
 
 // Render produces the config.yaml content for /etc/rancher/k3s/config.yaml.
@@ -53,6 +99,10 @@ func (c Config) Render() string {
 	fmt.Fprintf(&b, "node-name: %q\n", c.NodeName)
 	fmt.Fprintf(&b, "data-dir: %q\n", c.DataDir)
 	b.WriteString("write-kubeconfig-mode: \"0640\"\n")
+	if c.EffectiveMode() == NodeModeAgent {
+		fmt.Fprintf(&b, "server: %q\n", c.ServerURL)
+		fmt.Fprintf(&b, "token-file: %q\n", c.TokenFile)
+	}
 
 	if len(c.TLSSANs) > 0 {
 		b.WriteString("tls-san:\n")

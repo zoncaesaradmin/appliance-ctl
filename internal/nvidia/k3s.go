@@ -25,6 +25,17 @@ const (
 //
 // restart must restart the K3s unit so containerd reloads the config.
 func EnsureK3sRuntime(ctx context.Context, run cli.Runner, kubeconfig, containerdConfigPath, k3sUnitName string, restart func(unitName string) error) error {
+	if err := ConfigureLocalK3sRuntime(ctx, run, containerdConfigPath, k3sUnitName, restart); err != nil {
+		return err
+	}
+	return EnsureRuntimeClass(ctx, run, kubeconfig)
+}
+
+// ConfigureLocalK3sRuntime wires the NVIDIA container runtime into this
+// host's K3s containerd. It is intentionally usable by an agent worker: that
+// worker has no cluster-admin kubeconfig and must never try to create shared
+// Kubernetes resources itself.
+func ConfigureLocalK3sRuntime(ctx context.Context, run cli.Runner, containerdConfigPath, k3sUnitName string, restart func(unitName string) error) error {
 	if strings.TrimSpace(containerdConfigPath) == "" {
 		containerdConfigPath = DefaultContainerdConfig
 	}
@@ -71,6 +82,20 @@ func EnsureK3sRuntime(ctx context.Context, run cli.Runner, kubeconfig, container
 		return fmt.Errorf("nvidia: restart k3s after nvidia runtime configure: %w", err)
 	}
 
+	return nil
+}
+
+// EnsureRuntimeClass makes the cluster-scoped RuntimeClass available before a
+// GPU node release is scheduled. It is called only by the control-plane
+// lifecycle command, after the target worker has configured its own local
+// containerd runtime.
+func EnsureRuntimeClass(ctx context.Context, run cli.Runner, kubeconfig string) error {
+	if run == nil {
+		return fmt.Errorf("nvidia: command runner is required")
+	}
+	if strings.TrimSpace(kubeconfig) == "" {
+		return fmt.Errorf("nvidia: kubeconfig is required to apply RuntimeClass")
+	}
 	manifest := fmt.Sprintf(`apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:

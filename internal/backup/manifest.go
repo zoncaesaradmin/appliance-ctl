@@ -35,6 +35,10 @@ type Manifest struct {
 	MetadataDigest   string      `json:"metadataDigest,omitempty"`
 	Files            []FileEntry `json:"files"`
 	PolicyFiles      []FileEntry `json:"policyFiles,omitempty"`
+	// ModelFiles is a node-local inference cache snapshot. It is separate from
+	// control-plane metadata bundles because models are tied to the GPU worker's
+	// local storage and must never be assumed to exist on another node.
+	ModelFiles []FileEntry `json:"modelFiles,omitempty"`
 }
 
 func newBackupID() string {

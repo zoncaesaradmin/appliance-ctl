@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
@@ -293,7 +294,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
 	if resolved.InferenceEnabled {
-		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFile(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference, resolved.Runtimes["inference"])
+		inferenceValuesPath, cleanupInferenceValues, err = productconfig.PrepareInferenceValuesFileForNode(filepath.Dir(resolved.ConfigurationPath), resolved.InferenceImageReference, resolved.InferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference, resolved.Runtimes["inference"], opts.NodeName)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
@@ -640,6 +641,17 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 
 	readinessChecks, err := helm.EnsureClusterBaseline(ctx, o.HelmRun, opts.KubeconfigPath, preparedValuesPath)
 	checks = append(checks, readinessChecks...)
+	if err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
+	}
+	if resolved.InferenceEnabled {
+		if err := cluster.LabelInferenceNode(ctx, o.HelmRun, opts.KubeconfigPath, opts.NodeName); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
+		}
+	}
+	// The initial appliance is still a cluster. Record its immutable Kubernetes
+	// node UID now that the API is live; node names remain placement-only.
+	controlPlaneNodeUID, err := cluster.NodeUID(ctx, o.HelmRun, opts.KubeconfigPath, opts.NodeName)
 	if err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", err), runRollbacks())
 	}
@@ -1232,14 +1244,34 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	rollbacks = append(rollbacks, zonctlRollback)
 
 	now := time.Now().UTC()
+	instanceID := newApplianceInstanceID()
+	clusterRecord := state.NewSingleServerCluster(instanceID, opts.NodeName, k3s.DefaultClusterCIDR, k3s.DefaultServiceCIDR)
+	clusterRecord.Nodes[0].NodeUID = controlPlaneNodeUID
+	// The control-plane signer is created on the target, never bundled. Its
+	// public fingerprint is cluster state so a future worker can pin the
+	// enrollment authority before accepting a join artifact.
+	signerPath := filepath.Join(filepath.Dir(opts.InstalledStatePath), "cluster-enrollment-ed25519.key")
+	_, signerStatErr := os.Stat(signerPath)
+	signerExisted := signerStatErr == nil
+	_, signerFingerprint, err := cluster.LoadOrCreateSigner(signerPath)
+	if err != nil {
+		var cleanupErr error
+		if !opts.PreserveFailedState {
+			cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)
+			cleanupErr = errors.Join(cleanupErr, runRollbacks())
+		}
+		return nil, checks, failInstall(fmt.Errorf("install: create cluster enrollment signer: %w", err), cleanupErr)
+	}
+	clusterRecord.EnrollmentSignerFingerprint = signerFingerprint
 	installed := &state.InstalledState{
 		SchemaVersion:       1,
-		ApplianceInstanceID: newApplianceInstanceID(),
+		ApplianceInstanceID: instanceID,
 		InstalledVersion:    targetVersion,
 		InstalledReleaseID:  resolved.ReleaseID,
 		ApplianceProfile:    effectiveProfile,
 		ApplianceName:       identity.Name,
 		DNSZone:             identity.Zone,
+		Cluster:             &clusterRecord,
 		Runtimes:            resolved.Runtimes,
 		Components: state.Components{
 			K3sVersion:            resolved.Compatibility.K3sVersion,
@@ -1262,6 +1294,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		UpdatedAt: now,
 	}
 	if err := state.Save(opts.InstalledStatePath, installed); err != nil {
+		if !signerExisted {
+			_ = os.Remove(signerPath)
+		}
 		var cleanupErr error
 		if !opts.PreserveFailedState {
 			cleanupErr = applier.Rollback(ctx, opts.ChartReleaseName, true)

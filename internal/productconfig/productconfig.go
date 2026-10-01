@@ -1,6 +1,7 @@
 package productconfig
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -149,6 +150,13 @@ const (
 	// gateway Service used when the inference capability is enabled. The
 	// control plane authenticates and reverse-proxies /ai/v1/* here.
 	DefaultInferenceGatewayBaseURL = "http://inference-gateway.inference.svc.cluster.local:8080"
+	// DefaultInferenceRoutingRegistry is cluster-scoped desired routing state.
+	// It is used even on a single-node cluster so the first worker expansion
+	// does not migrate a local singleton into a new control plane.
+	DefaultInferenceRoutingRegistry = "appliance-inference-routing"
+	// DefaultOpenWebUIHealthURL is the session bridge health endpoint. The
+	// control plane checks it before minting a one-time browser launch grant.
+	DefaultOpenWebUIHealthURL = "http://inference-gateway-open-webui-gateway.inference.svc.cluster.local:8081/healthz"
 	// DefaultLANDNSZone is the CoreDNS local-zone suffix for LAN A records.
 	// Must not be ".local" — systemd-resolved (and dig) treat .local as
 	// Multicast DNS and will never send those queries to unicast DNS.
@@ -405,12 +413,18 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		delete(config, "inferenceEngine")
 		delete(config, "inferenceArchitecture")
 	}
-	config["webUIEnabled"] = inferenceEnabled && webUIEnabled && HasCapabilityInCatalog(effectiveProfile, CapabilityOpenWebUI, profileCatalog)
+	openWebUIEnabled := inferenceEnabled && webUIEnabled && HasCapabilityInCatalog(effectiveProfile, CapabilityOpenWebUI, profileCatalog)
+	config["webUIEnabled"] = openWebUIEnabled
+	if openWebUIEnabled {
+		config["webUIHealthURL"] = DefaultOpenWebUIHealthURL
+	} else {
+		delete(config, "webUIHealthURL")
+	}
 	ingress, _ := values["ingress"].(map[string]any)
 	if ingress == nil {
 		ingress = map[string]any{}
 	}
-	ingress["webUIEnabled"] = inferenceEnabled && webUIEnabled && HasCapabilityInCatalog(effectiveProfile, CapabilityOpenWebUI, profileCatalog)
+	ingress["webUIEnabled"] = openWebUIEnabled
 	values["ingress"] = ingress
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
@@ -776,6 +790,23 @@ func PrepareDNSValuesFile(baseDir, corednsImageReference, dnsZone, nsIPv4 string
 }
 
 func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference string, runtime runtimeconfig.Selection) (string, func(), error) {
+	return PrepareInferenceValuesFileForNode(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference, runtime, "")
+}
+
+// PrepareInferenceValuesFileForNode binds the initial inference release to the
+// appliance node name. The Kubernetes scheduler later resolves that
+// controller-owned name back to the node UID; unlike a UID it is available
+// before the first K3s API server has started.
+func PrepareInferenceValuesFileForNode(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference string, runtime runtimeconfig.Selection, nodeName string) (string, func(), error) {
+	return prepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference, runtime, hostNVIDIACheck(), nodeName)
+}
+
+func prepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference, openWebUIImageReference, openWebUIGatewayImageReference string, runtime runtimeconfig.Selection, gpuAvailable bool, nodeName string) (string, func(), error) {
+	if strings.TrimSpace(nodeName) != "" {
+		if err := validateInferenceNodeName(nodeName); err != nil {
+			return "", func() {}, fmt.Errorf("product config: invalid inference node name %q", nodeName)
+		}
+	}
 	if err := runtimeconfig.ValidateInference(runtime); err != nil {
 		return "", func() {}, err
 	}
@@ -794,7 +825,6 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferen
 	if openWebUIGatewayImageReference != "" && !validOpenWebUIGatewayImageDigest(openWebUIGatewayImageReference) {
 		return "", func() {}, fmt.Errorf("product config: invalid Open WebUI gateway image reference %q", openWebUIGatewayImageReference)
 	}
-	gpuAvailable := hostNVIDIACheck()
 	if runtimeconfig.RequiresGPU(runtime) && !gpuAvailable {
 		return "", func() {}, fmt.Errorf("product config: accelerated inference package %q requires a usable GPU on the install host", runtime.Package)
 	}
@@ -814,6 +844,9 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferen
 			"repository": "registry.local/inference-manager",
 			"digest":     strings.TrimPrefix(strings.TrimSpace(inferenceManagerImageReference), "registry.local/inference-manager@"),
 			"pullPolicy": "IfNotPresent",
+		},
+		"routing": map[string]any{
+			"registryName": DefaultInferenceRoutingRegistry,
 		},
 		"openWebUI": map[string]any{
 			"enabled": strings.TrimSpace(openWebUIImageReference) != "",
@@ -835,6 +868,9 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferen
 			"driverCapabilities": "all",
 		},
 	}
+	if strings.TrimSpace(nodeName) != "" {
+		values["placement"] = map[string]any{"nodeName": strings.TrimSpace(nodeName)}
+	}
 	rendered, err := yaml.Marshal(values)
 	if err != nil {
 		return "", func() {}, fmt.Errorf("product config: render inference values: %w", err)
@@ -854,6 +890,81 @@ func PrepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferen
 		return "", func() {}, fmt.Errorf("product config: close inference values file: %w", err)
 	}
 	return tmp.Name(), cleanup, nil
+}
+
+// PrepareNodeInferenceValuesFile produces the controller-owned values for one
+// inference node. Names and placement come from verified cluster inventory;
+// callers must never pass these values through from an end user.
+func PrepareNodeInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference string, runtime runtimeconfig.Selection, nodeName, nodeUID string) (string, func(), error) {
+	if err := validateInferenceNodeName(nodeName); err != nil {
+		return "", func() {}, fmt.Errorf("product config: invalid inference node name %q", nodeName)
+	}
+	if strings.TrimSpace(nodeUID) == "" {
+		return "", func() {}, fmt.Errorf("product config: inference node UID is required")
+	}
+	// The joining node has already validated an accelerated runtime locally.
+	// Do not probe the control-plane host while rendering its remote release.
+	path, cleanup, err := prepareInferenceValuesFile(baseDir, inferenceRuntimeImageReference, inferenceManagerImageReference, "", "", runtime, runtimeconfig.RequiresGPU(runtime), nodeName)
+	if err != nil {
+		return "", cleanup, err
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	var values map[string]any
+	if err := yaml.Unmarshal(raw, &values); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	resourceNodeName := inferenceNodeResourceSuffix(nodeName)
+	values["placement"] = map[string]any{"nodeName": nodeName, "nodeUID": nodeUID, "requireInferenceNode": true}
+	values["fullnameOverride"] = "inference-node-" + resourceNodeName
+	values["engine"] = map[string]any{"serviceName": "inference-engine-" + resourceNodeName}
+	values["persistence"] = map[string]any{"claimName": "models-" + resourceNodeName}
+	values["routing"] = map[string]any{"registryName": DefaultInferenceRoutingRegistry}
+	values["openWebUI"] = map[string]any{"enabled": false}
+	updated, err := yaml.Marshal(values)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := os.WriteFile(path, updated, 0o600); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return path, cleanup, nil
+}
+
+// InferenceNodeReleaseName returns the controller-owned Helm release identity
+// for a registered node. It is shared by deployment and removal so they can
+// never disagree about which release owns node-local storage.
+func InferenceNodeReleaseName(nodeName string) (string, error) {
+	if err := validateInferenceNodeName(nodeName); err != nil {
+		return "", err
+	}
+	return "inference-node-" + inferenceNodeResourceSuffix(nodeName), nil
+}
+
+func validateInferenceNodeName(nodeName string) error {
+	if len(nodeName) > 63 || !dnsLabelRE.MatchString(nodeName) {
+		return fmt.Errorf("invalid inference node name %q", nodeName)
+	}
+	return nil
+}
+
+// inferenceNodeResourceSuffix bounds all derived Kubernetes names while
+// retaining a stable collision-resistant identity for a legal 63-character
+// node name. The shortest consumer prefix is not the constraint; engine
+// Service names are ("inference-engine-" + 46 chars == 63).
+func inferenceNodeResourceSuffix(nodeName string) string {
+	const max = 46
+	if len(nodeName) <= max {
+		return nodeName
+	}
+	digest := sha256.Sum256([]byte(nodeName))
+	return nodeName[:max-9] + "-" + fmt.Sprintf("%x", digest[:4])
 }
 
 func validBuilderImageDigest(image string) bool {

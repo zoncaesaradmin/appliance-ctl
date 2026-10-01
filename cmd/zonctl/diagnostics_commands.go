@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/diagnostics"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
@@ -34,7 +35,7 @@ func installedStatePath(stateDir string) string {
 // outright: every one of these is a legitimate, reportable finding for
 // status/verify, not a command error — except a k3s detection error,
 // which signals something more fundamentally wrong with the host.
-func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, kubeconfig, releaseName, namespace string) (diagnostics.Signals, error) {
+func dependencySignals(ctx context.Context, run cli.Runner, stateDir, nodeName, unitName, kubeconfig, releaseName, namespace string) (diagnostics.Signals, error) {
 	installed, stateErr := state.Load(installedStatePath(stateDir))
 	signal, err := k3s.DetectService(unitName)
 	if err != nil {
@@ -50,6 +51,16 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, 
 
 	if installed == nil || !signal.Active {
 		return sig, nil
+	}
+	// Workers have no local control-plane chart, ingress, registry, or DNS
+	// release. Their receipt records the control-plane node explicitly, so do
+	// not misreport those control-plane-only checks as worker failures.
+	if installed.Cluster != nil && installed.Cluster.ControlPlaneNode != "" && installed.Cluster.ControlPlaneNode != nodeName {
+		return sig, nil
+	}
+	if installed.Cluster != nil {
+		inventory := cluster.ValidateInventory(ctx, run, kubeconfig, installed.Cluster.Nodes)
+		sig.ClusterInventory = diagnostics.ClusterInventoryHealth{Checked: inventory.Checked, Healthy: inventory.Healthy, Message: inventory.Message}
 	}
 
 	if chartHealthy, chartMsg, chartErr := helm.CheckReleaseHealth(ctx, run, kubeconfig, releaseName, namespace); chartErr != nil {
@@ -91,7 +102,7 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, unitName, 
 }
 
 func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
-	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
+	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, opts.nodeName, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
 	if err != nil {
 		logger.Error("failed to gather status signals", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
@@ -116,6 +127,11 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		installedVersion = sig.InstalledState.InstalledVersion
 		metadataVersion = sig.InstalledState.Components.MetadataVersion
 		metadataDigest = sig.InstalledState.Components.MetadataDigest
+	}
+	var clusterState *state.Cluster
+	if sig.InstalledState != nil && sig.InstalledState.Cluster != nil {
+		copied := *sig.InstalledState.Cluster
+		clusterState = &copied
 	}
 	componentHealth := []map[string]any{{"name": "k3s", "healthy": sig.K3sHealth.Healthy}}
 	if !sig.K3sHealth.Healthy {
@@ -156,12 +172,20 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		}
 		componentHealth = append(componentHealth, entry)
 	}
+	if sig.ClusterInventory.Checked {
+		entry := map[string]any{"name": "cluster-inventory", "healthy": sig.ClusterInventory.Healthy}
+		if !sig.ClusterInventory.Healthy {
+			entry["detail"] = sig.ClusterInventory.Message
+		}
+		componentHealth = append(componentHealth, entry)
+	}
 	data, _ := json.Marshal(map[string]any{
 		"installedVersion": installedVersion,
 		"metadataVersion":  metadataVersion,
 		"metadataDigest":   metadataDigest,
 		"k3sHealthy":       sig.K3sHealth.Healthy,
 		"componentHealth":  componentHealth,
+		"cluster":          clusterState,
 	})
 
 	overall := evidence.OverallStatus(checks)
@@ -173,7 +197,7 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 }
 
 func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
-	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
+	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, opts.nodeName, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
 	if err != nil {
 		logger.Error("failed to gather verify signals", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)
@@ -260,7 +284,7 @@ func runRepair(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 }
 
 func runSupportBundle(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
-	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
+	sig, err := dependencySignals(ctx, cli.Exec, opts.stateDir, opts.nodeName, defaultK3sUnitName, defaultKubeconfigPath, defaultChartReleaseName, defaultChartNamespace)
 	if err != nil {
 		logger.Error("failed to gather support-bundle diagnostics", "error", err)
 		return finish(result, "failed", 1, err.Error(), nil)

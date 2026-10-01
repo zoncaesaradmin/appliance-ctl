@@ -107,6 +107,17 @@ func TestEvaluate_ChartUnhealthy(t *testing.T) {
 	}
 }
 
+func TestEvaluate_ClusterInventoryMismatchFailsVerification(t *testing.T) {
+	checks := diagnostics.Evaluate(diagnostics.Signals{
+		InstalledState:   &state.InstalledState{InstalledVersion: "2.4.0", Components: state.Components{MetadataVersion: "2.4.0.0", MetadataDigest: "sha256:deadbeef"}},
+		K3sHealth:        k3s.HealthStatus{Healthy: true},
+		ClusterInventory: diagnostics.ClusterInventoryHealth{Checked: true, Healthy: false, Message: "Kubernetes node gpu UID does not match the enrolled cluster inventory"},
+	})
+	if got := statusOf(t, checks, "cluster-inventory-health"); got != evidence.StatusFail {
+		t.Fatalf("cluster inventory status = %s", got)
+	}
+}
+
 // When chart/ingress were never checked (e.g. the appliance is not
 // installed, or K3s is down), Evaluate must not emit misleading
 // chart/ingress findings on top of the real cause.

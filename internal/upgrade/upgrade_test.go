@@ -509,6 +509,9 @@ func TestUpgrade_PreservesInstalledApplianceProfileWhenFlagOmitted(t *testing.T)
 	if updated.ApplianceProfile != "storage" {
 		t.Fatalf("appliance profile = %q, want storage", updated.ApplianceProfile)
 	}
+	if updated.Cluster == nil || updated.Cluster.Topology != state.TopologySingleServer || updated.Cluster.ID != updated.ApplianceInstanceID {
+		t.Fatalf("legacy single-node receipt was not migrated to cluster state: %+v", updated.Cluster)
+	}
 
 	if !strings.Contains(fcli.lastHelmValues, "applianceProfile: storage") {
 		t.Fatalf("prepared values file missing storage profile: %s", fcli.lastHelmValues)
@@ -1220,6 +1223,8 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 			}
 		}
 		return "", nil
+	case name == "kubectl" && contains(args, "get") && contains(args, "node") && contains(args, "jsonpath={.metadata.uid}"):
+		return "test-node-uid", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "nodes"):
 		return "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n", nil
 	case name == "kubectl" && contains(args, "get") && contains(args, "storageclass"):
