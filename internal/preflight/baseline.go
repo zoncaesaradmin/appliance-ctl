@@ -16,9 +16,9 @@ const (
 	// Resource minimums. These are the initial v1 baseline figures; they
 	// may be revised as product sizing guidance from appliance-code lands,
 	// but a value must be pinned here for preflight to be well-defined.
-	MinCPUCount          = 4
-	MinMemoryBytes       = 4 * 1024 * 1024 * 1024  // 4 GiB
-	MinDataDirFreeBytes  = 50 * 1024 * 1024 * 1024 // 50 GiB
+	MinCPUCount          = 1
+	MinMemoryBytes       = 2 * 1024 * 1024 * 1024  // 2 GiB
+	MinDataDirFreeBytes  = 20 * 1024 * 1024 * 1024 // 20 GiB
 	MinDataDirFreeInodes = 200_000
 )
 

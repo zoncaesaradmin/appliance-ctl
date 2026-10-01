@@ -122,7 +122,7 @@ func TestChecks_OperatorActionCases(t *testing.T) {
 		id     string
 		mutate func(*host.Facts)
 	}{
-		{"low-cpu", "cpu-count-min", func(f *host.Facts) { f.CPUCount = 2 }},
+		{"low-cpu", "cpu-count-min", func(f *host.Facts) { f.CPUCount = preflight.MinCPUCount - 1 }},
 		{"low-memory", "memory-min", func(f *host.Facts) { f.MemTotalBytes = 1024 * 1024 * 1024 }},
 		{"low-disk-space", "data-dir-free-space", func(f *host.Facts) { f.DataDirFreeBytes = 1024 }},
 		{"low-inodes", "data-dir-free-inodes", func(f *host.Facts) { f.DataDirFreeInodes = 10 }},
