@@ -955,6 +955,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, "blob-storage", "appliance-blob-storage-ready")
 	checks = append(checks, ready)
 	if waitErr != nil {
+		blobDiag := aceInfraRelease
+		blobDiag.Namespace = productconfig.InfrastructureNamespace
+		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, blobDiag)...)
 		return nil, checks, failInstall(fmt.Errorf("install: wait for blob storage: %w", waitErr), cleanupOnFailure())
 	}
 	blobReplica, blobReplicaErr := helm.EnsureBlobStorageCredentialsReplica(ctx, o.HelmRun, opts.KubeconfigPath,
@@ -992,6 +995,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, "controlplane", "appliance-controlplane-ready")
 	checks = append(checks, ready)
 	if waitErr != nil {
+		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, aceSystemRelease)...)
 		return nil, checks, failInstall(fmt.Errorf("install: wait for controlplane: %w", waitErr), cleanupOnFailure())
 	}
 	if resolved.MessageBrokerChartPath != "" {
@@ -1036,6 +1040,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, wait.deploy, wait.id)
 		checks = append(checks, ready)
 		if waitErr != nil {
+			appsDiag := aceAppsRelease
+			appsDiag.Namespace = productconfig.ControlPlaneAppsNamespace
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, appsDiag)...)
 			return nil, checks, failInstall(fmt.Errorf("install: wait for %s: %w", wait.deploy, waitErr), cleanupOnFailure())
 		}
 	}
@@ -1043,6 +1050,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "host-agent", "appliance-host-agent-ready")
 		checks = append(checks, ready)
 		if waitErr != nil {
+			appsDiag := aceAppsRelease
+			appsDiag.Namespace = productconfig.ControlPlaneAppsNamespace
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, appsDiag)...)
 			return nil, checks, failInstall(fmt.Errorf("install: wait for host-agent: %w", waitErr), cleanupOnFailure())
 		}
 	}

@@ -570,7 +570,9 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 }
 
 // InjectPlacementNodeName pins hostPath and hostNetwork workloads to the
-// advertised prime Kubernetes node name. No-op when nodeName is empty.
+// advertised prime Kubernetes node name via chart nodeSelector (not
+// spec.nodeName, which would skip the scheduler and leave WaitForFirstConsumer
+// PVCs unbound). No-op when nodeName is empty.
 func InjectPlacementNodeName(valuesPath, nodeName string) error {
 	nodeName = strings.TrimSpace(nodeName)
 	if nodeName == "" {

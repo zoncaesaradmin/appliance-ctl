@@ -222,6 +222,10 @@ func WaitStatefulSetAvailable(ctx context.Context, run cli.Runner, kubeconfig, n
 		}
 
 		if time.Now().After(deadline) {
+			snapshot := collectWaitFailureSnapshot(ctx, run, kubeconfig, namespace, "statefulset", statefulSet)
+			if snapshot != "" {
+				lastState = lastState + "\n" + snapshot
+			}
 			check.Status = evidence.StatusFail
 			check.Message = lastState
 			return check, fmt.Errorf("helm: wait for %s/%s: %s", namespace, statefulSet, lastState)
@@ -267,6 +271,10 @@ func waitDeploymentAvailable(ctx context.Context, run cli.Runner, kubeconfig, na
 		}
 
 		if time.Now().After(deadline) {
+			snapshot := collectWaitFailureSnapshot(ctx, run, kubeconfig, namespace, "deployment", deployment)
+			if snapshot != "" {
+				lastState = lastState + "\n" + snapshot
+			}
 			check.Status = evidence.StatusFail
 			check.Message = lastState
 			return check, fmt.Errorf("helm: wait for %s/%s: %s", namespace, deployment, lastState)
@@ -277,6 +285,44 @@ func waitDeploymentAvailable(ctx context.Context, run cli.Runner, kubeconfig, na
 			return check, err
 		}
 	}
+}
+
+func collectWaitFailureSnapshot(ctx context.Context, run cli.Runner, kubeconfig, namespace, kind, name string) string {
+	type snap struct {
+		label string
+		args  []string
+	}
+	snaps := []snap{
+		{
+			label: "pods/pvc",
+			args:  []string{"--kubeconfig", kubeconfig, "--namespace", namespace, "get", "pods,pvc", "-o", "wide"},
+		},
+		{
+			label: kind,
+			args:  []string{"--kubeconfig", kubeconfig, "--namespace", namespace, "describe", kind, name},
+		},
+		{
+			label: "events",
+			args:  []string{"--kubeconfig", kubeconfig, "--namespace", namespace, "get", "events", "--sort-by=.lastTimestamp"},
+		},
+	}
+	var parts []string
+	for _, s := range snaps {
+		out, err := run(ctx, "kubectl", s.args...)
+		msg := strings.TrimSpace(out)
+		if err != nil {
+			if msg == "" {
+				msg = err.Error()
+			} else {
+				msg = fmt.Sprintf("%s\n%s", msg, err)
+			}
+		}
+		if msg == "" {
+			msg = "no output"
+		}
+		parts = append(parts, fmt.Sprintf("--- %s ---\n%s", s.label, msg))
+	}
+	return truncateDiagnostic(strings.Join(parts, "\n"))
 }
 
 func waitClusterRetry(ctx context.Context) error {
