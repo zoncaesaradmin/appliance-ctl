@@ -32,6 +32,7 @@ func TestEnsureTraefikTransferTimeoutsAppliesManifest(t *testing.T) {
 					"websecure:",
 					"allowCrossNamespace: true",
 					"kubernetesCRD:",
+					"kubernetes.io/hostname: 192-168-1-151",
 				} {
 					if !strings.Contains(text, want) {
 						t.Fatalf("manifest missing %q:\n%s", want, text)
@@ -45,7 +46,7 @@ func TestEnsureTraefikTransferTimeoutsAppliesManifest(t *testing.T) {
 		return "helmchartconfig.helm.cattle.io/traefik configured", nil
 	}
 
-	check, err := EnsureTraefikTransferTimeouts(context.Background(), run, "/tmp/kubeconfig", false)
+	check, err := EnsureTraefikTransferTimeouts(context.Background(), run, "/tmp/kubeconfig", false, "192-168-1-151")
 	if err != nil {
 		t.Fatalf("EnsureTraefikTransferTimeouts: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestEnsureTraefikTransferTimeoutsAppliesManifest(t *testing.T) {
 }
 
 func TestEnsureTraefikTransferTimeoutsNilRunner(t *testing.T) {
-	check, err := EnsureTraefikTransferTimeouts(context.Background(), nil, "/tmp/kubeconfig", false)
+	check, err := EnsureTraefikTransferTimeouts(context.Background(), nil, "/tmp/kubeconfig", false, "")
 	if err == nil {
 		t.Fatal("expected error for nil runner")
 	}
@@ -102,7 +103,7 @@ func TestEnsureTraefikTransferTimeoutsEnablesPlaintextHTTP(t *testing.T) {
 		return "helmchartconfig.helm.cattle.io/traefik configured", nil
 	}
 
-	check, err := EnsureTraefikTransferTimeouts(context.Background(), run, "/tmp/kubeconfig", true)
+	check, err := EnsureTraefikTransferTimeouts(context.Background(), run, "/tmp/kubeconfig", true, "")
 	if err != nil {
 		t.Fatalf("EnsureTraefikTransferTimeouts: %v", err)
 	}

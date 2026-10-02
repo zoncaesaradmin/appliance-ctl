@@ -79,6 +79,7 @@ type ClusterNode struct {
 const (
 	TopologySingleServer  = "single-server"
 	TopologyServerWorkers = "server-workers"
+	TopologyMultiServer   = "multi-server"
 	NodeRoleControlPlane  = "control-plane"
 	NodeRoleWorker        = "worker"
 	NodeRoleInference     = "inference"

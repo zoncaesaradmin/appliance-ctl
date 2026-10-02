@@ -3,6 +3,7 @@ package install_test
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -707,6 +708,39 @@ func TestJoinWorkerRejectsUntrustedEnrollmentBeforeHostMutation(t *testing.T) {
 	}
 	if _, statErr := os.Stat(options.K3sConfigPath); !os.IsNotExist(statErr) {
 		t.Fatalf("K3s config was written before trust validation: %v", statErr)
+	}
+}
+
+func TestJoinWorkerRejectsPrimeEnrollment(t *testing.T) {
+	stateDir := t.TempDir()
+	options := baseOptions(t, "", verify.PublicKey{})
+	options.InstalledStatePath = filepath.Join(stateDir, "installed-state.json")
+	options.K3sConfigPath = filepath.Join(stateDir, "k3s", "config.yaml")
+	options.NodeName = "prime-2"
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce, err := cluster.NewNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	enrollment := cluster.Enrollment{ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", ControlPlaneNode: "prime-1", NodeRole: "prime", ReleaseID: "release-1", ReleaseVersion: "2.4.0", ControlEndpoint: "https://10.0.0.10:6443", ClusterCAHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpectedNodeName: options.NodeName, K3sToken: "K10server-token", TokenFingerprint: cluster.TokenFingerprint("K10server-token"), IssuedAt: now, ExpiresAt: now.Add(time.Hour), Nonce: nonce}
+	if err := enrollment.Sign(private); err != nil {
+		t.Fatal(err)
+	}
+	enrollmentPath := filepath.Join(stateDir, "prime.enrollment")
+	if err := cluster.WriteEnrollment(enrollmentPath, enrollment); err != nil {
+		t.Fatal(err)
+	}
+	orch := &install.Orchestrator{}
+	_, err = orch.JoinWorker(context.Background(), nil, install.JoinWorkerOptions{Options: options, EnrollmentPath: enrollmentPath, SignerFingerprint: cluster.Fingerprint(public), K3sAgentTokenPath: filepath.Join(stateDir, "agent-token")})
+	if err == nil || !strings.Contains(err.Error(), "prime enrollment must join as a server") {
+		t.Fatalf("expected prime enrollment to be rejected by JoinWorker, got %v", err)
+	}
+	if _, statErr := os.Stat(options.K3sConfigPath); !os.IsNotExist(statErr) {
+		t.Fatalf("K3s config was written for a prime enrollment on the agent path: %v", statErr)
 	}
 }
 

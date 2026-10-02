@@ -569,6 +569,64 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	return tmp.Name(), cleanup, nil
 }
 
+// InjectPlacementNodeName pins hostPath and hostNetwork workloads to the
+// advertised prime Kubernetes node name. No-op when nodeName is empty.
+func InjectPlacementNodeName(valuesPath, nodeName string) error {
+	nodeName = strings.TrimSpace(nodeName)
+	if nodeName == "" {
+		return nil
+	}
+	data, err := os.ReadFile(valuesPath)
+	if err != nil {
+		return fmt.Errorf("product config: read values for placement: %w", err)
+	}
+	var values map[string]any
+	if err := yaml.Unmarshal(data, &values); err != nil {
+		return fmt.Errorf("product config: parse values for placement: %w", err)
+	}
+	if values == nil {
+		values = map[string]any{}
+	}
+	values["placement"] = map[string]any{"nodeName": nodeName}
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return fmt.Errorf("product config: render placement values: %w", err)
+	}
+	if err := os.WriteFile(valuesPath, rendered, 0o600); err != nil {
+		return fmt.Errorf("product config: write placement values: %w", err)
+	}
+	return nil
+}
+
+// PreparePlacementValuesFile writes a tiny values overlay that pins a chart
+// (workflows) to the advertised prime.
+func PreparePlacementValuesFile(baseDir, nodeName string) (string, func(), error) {
+	nodeName = strings.TrimSpace(nodeName)
+	values := map[string]any{}
+	if nodeName != "" {
+		values["placement"] = map[string]any{"nodeName": nodeName}
+	}
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: render placement values: %w", err)
+	}
+	tmp, err := os.CreateTemp(baseDir, ".zonctl-placement-values-*.yaml")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: create placement values file: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(tmp.Name()) }
+	if _, err := tmp.Write(rendered); err != nil {
+		tmp.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: write placement values file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("product config: close placement values file: %w", err)
+	}
+	return tmp.Name(), cleanup, nil
+}
+
 // InjectImagePullSecrets rewrites a prepared values file so Helm deployments
 // reference the installer-managed dockerconfig secret. No-op when secretName
 // is empty.

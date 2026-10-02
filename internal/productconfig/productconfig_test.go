@@ -602,3 +602,33 @@ func TestInferenceValuesRejectUnsupportedRuntime(t *testing.T) {
 		}
 	}
 }
+
+func TestInjectPlacementNodeName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "values.yaml")
+	if err := os.WriteFile(path, []byte("config: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := productconfig.InjectPlacementNodeName(path, "192-168-1-151"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "nodeName: 192-168-1-151") {
+		t.Fatalf("placement missing from values:\n%s", data)
+	}
+	overlay, cleanup, err := productconfig.PreparePlacementValuesFile(dir, "prime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	overlayData, err := os.ReadFile(overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(overlayData), "nodeName: prime-1") {
+		t.Fatalf("placement overlay missing:\n%s", overlayData)
+	}
+}

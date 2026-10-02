@@ -269,6 +269,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
 	defer cleanupPreparedValues()
+	if err := productconfig.InjectPlacementNodeName(preparedValuesPath, opts.NodeName); err != nil {
+		return nil, checks, fmt.Errorf("upgrade: %w", err)
+	}
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if targetArtifact {
@@ -277,6 +280,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
 		defer cleanupRegistryValues()
+		if err := productconfig.InjectPlacementNodeName(registryValuesPath, opts.NodeName); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: %w", err)
+		}
 	}
 	dnsValuesPath := ""
 	cleanupDNSValues := func() {}
@@ -286,6 +292,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
 		defer cleanupDNSValues()
+		if err := productconfig.InjectPlacementNodeName(dnsValuesPath, opts.NodeName); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: %w", err)
+		}
 	}
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
@@ -295,6 +304,15 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
 		defer cleanupInferenceValues()
+	}
+	workflowsValuesPath := ""
+	cleanupWorkflowsValues := func() {}
+	if targetWorkflows {
+		workflowsValuesPath, cleanupWorkflowsValues, err = productconfig.PreparePlacementValuesFile(filepath.Dir(resolved.ConfigurationPath), opts.NodeName)
+		if err != nil {
+			return nil, checks, fmt.Errorf("upgrade: %w", err)
+		}
+		defer cleanupWorkflowsValues()
 	}
 
 	// Gated on the Build capability, not the "builder" profile name
@@ -732,7 +750,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
 	}
-	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityPlaintextHTTP, resolved.ProfileCatalog))
+	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityPlaintextHTTP, resolved.ProfileCatalog), opts.NodeName)
 	checks = append(checks, traefikTimeoutCheck)
 	if traefikTimeoutErr != nil {
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", traefikTimeoutErr), func() []evidence.Check {
@@ -977,7 +995,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 		if resolved.WorkflowsChartPath != "" {
 			workflowsCheck, workflowsErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-				Name: workflowsReleaseName, ChartPath: resolved.WorkflowsChartPath, Namespace: workflowsNamespace,
+				Name: workflowsReleaseName, ChartPath: resolved.WorkflowsChartPath, Namespace: workflowsNamespace, ValuesPath: workflowsValuesPath,
 			})
 			checks = append(checks, workflowsCheck)
 			if workflowsErr != nil {

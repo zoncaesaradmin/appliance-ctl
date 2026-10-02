@@ -37,10 +37,15 @@ type Config struct {
 	NodeName string
 	DataDir  string
 	TLSSANs  []string
-	// ServerURL and TokenFile are agent-only. TokenFile avoids putting a join
-	// credential in a unit argument or state receipt.
+	// ServerURL and TokenFile join an existing cluster. Agents always set
+	// both. Additional primes (k3s server etcd peers) set both without
+	// ClusterInit. TokenFile avoids putting a join credential in a unit
+	// argument or state receipt.
 	ServerURL string
 	TokenFile string
+	// ClusterInit enables embedded etcd on the first prime of a three-prime
+	// cluster. Must not be set on members or joining primes.
+	ClusterInit bool
 	// ClusterCIDR overrides the pod CIDR; empty uses DefaultClusterCIDR.
 	ClusterCIDR string
 	// ServiceCIDR overrides the service CIDR; empty uses DefaultServiceCIDR.
@@ -63,8 +68,17 @@ func (c Config) Validate() error {
 	}
 	switch c.EffectiveMode() {
 	case NodeModeServer:
+		if c.ClusterInit && strings.TrimSpace(c.ServerURL) != "" {
+			return errors.New("k3s config: cluster-init is only for the first prime")
+		}
+		if strings.TrimSpace(c.ServerURL) != "" && strings.TrimSpace(c.TokenFile) == "" {
+			return errors.New("k3s config: joining prime token file is required")
+		}
 		return nil
 	case NodeModeAgent:
+		if c.ClusterInit {
+			return errors.New("k3s config: members cannot set cluster-init")
+		}
 		if strings.TrimSpace(c.ServerURL) == "" {
 			return errors.New("k3s config: agent server URL is required")
 		}
@@ -99,7 +113,13 @@ func (c Config) Render() string {
 	fmt.Fprintf(&b, "node-name: %q\n", c.NodeName)
 	fmt.Fprintf(&b, "data-dir: %q\n", c.DataDir)
 	b.WriteString("write-kubeconfig-mode: \"0640\"\n")
-	if c.EffectiveMode() == NodeModeAgent {
+	if c.EffectiveMode() == NodeModeServer && strings.TrimSpace(c.ServerURL) == "" {
+		b.WriteString("node-label:\n  - \"svccontroller.k3s.cattle.io/enablelb=true\"\n")
+	}
+	if c.ClusterInit {
+		b.WriteString("cluster-init: true\n")
+	}
+	if c.EffectiveMode() == NodeModeAgent || strings.TrimSpace(c.ServerURL) != "" {
 		fmt.Fprintf(&b, "server: %q\n", c.ServerURL)
 		fmt.Fprintf(&b, "token-file: %q\n", c.TokenFile)
 	}

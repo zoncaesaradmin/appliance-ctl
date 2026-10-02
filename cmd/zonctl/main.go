@@ -83,6 +83,7 @@ type cliOptions struct {
 	enrollmentTTL                 string
 	enrollmentFile                string
 	clusterSignerFingerprint      string
+	clusterInit                   bool
 }
 
 type commandSpec struct {
@@ -194,10 +195,11 @@ func run(args []string) int {
 	enrollmentOut := fs.String("enrollment-out", "", "owner-only path where cluster-enrollment-create writes the worker enrollment artifact")
 	controlEndpoint := fs.String("control-endpoint", "", "https K3s API endpoint reachable by the joining worker (required for cluster-enrollment-create)")
 	workerName := fs.String("worker-name", "", "expected K3s node name for cluster-enrollment-create")
-	workerRole := fs.String("worker-role", "worker", "worker role: worker or inference (cluster enrollment and registration commands)")
+	workerRole := fs.String("worker-role", "worker", "cluster role: worker, inference, or prime (enrollment and registration)")
 	enrollmentTTL := fs.String("enrollment-ttl", "15m", "enrollment validity, from 1 minute through 24 hours (cluster-enrollment-create only)")
 	enrollmentFile := fs.String("enrollment-file", "", "protected enrollment artifact to consume (required for cluster-join)")
 	clusterSignerFingerprint := fs.String("cluster-signer-fingerprint", "", "pinned sha256 enrollment signer fingerprint obtained from the control plane (required for cluster-join)")
+	clusterInit := fs.Bool("cluster-init", false, "first prime of a three-prime cluster: enable embedded etcd")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -242,6 +244,7 @@ func run(args []string) int {
 		enrollmentTTL:                 *enrollmentTTL,
 		enrollmentFile:                *enrollmentFile,
 		clusterSignerFingerprint:      *clusterSignerFingerprint,
+		clusterInit:                   *clusterInit,
 	}
 
 	logger := newLogger(redact.New(), opts.output)

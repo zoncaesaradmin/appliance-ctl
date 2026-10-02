@@ -226,6 +226,9 @@ func (o *Orchestrator) JoinWorker(ctx context.Context, source Source, opts JoinW
 	if err := enrollment.Validate(time.Now().UTC(), opts.SignerFingerprint); err != nil {
 		return nil, err
 	}
+	if enrollment.NodeRole == "prime" {
+		return nil, errors.New("cluster join: prime enrollment must join as a server")
+	}
 	if strings.TrimSpace(opts.NodeName) != enrollment.ExpectedNodeName {
 		return nil, fmt.Errorf("cluster join: enrollment is for node %q, not %q", enrollment.ExpectedNodeName, opts.NodeName)
 	}
@@ -324,6 +327,155 @@ func (o *Orchestrator) JoinWorker(ctx context.Context, source Source, opts JoinW
 	}
 	now := time.Now().UTC()
 	receipt := &state.InstalledState{SchemaVersion: 1, ApplianceInstanceID: newApplianceInstanceID(), InstalledVersion: resolved.BundleVersion, InstalledReleaseID: resolved.ReleaseID, ApplianceProfile: enrollment.ApplianceProfile, ApplianceName: enrollment.ApplianceName, Cluster: &state.Cluster{ID: enrollment.ClusterID, Topology: state.TopologyServerWorkers, ControlPlaneNode: enrollment.ControlPlaneNode, IngressNode: enrollment.ControlPlaneNode, ControlEndpoint: enrollment.ControlEndpoint, ClusterCAHash: enrollment.ClusterCAHash, EnrollmentSignerFingerprint: opts.SignerFingerprint, ClusterCIDR: k3s.DefaultClusterCIDR, ServiceCIDR: k3s.DefaultServiceCIDR, Nodes: []state.ClusterNode{{ID: enrollment.ControlPlaneNode, Name: enrollment.ControlPlaneNode, Role: state.NodeRoleControlPlane, Roles: []string{state.NodeRoleControlPlane}}, {ID: opts.NodeName, Name: opts.NodeName, Role: role, Roles: []string{role}}}}, Components: state.Components{K3sVersion: resolved.Compatibility.K3sVersion, ChartVersion: resolved.Compatibility.ChartVersion}, K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: resolved.BundleVersion}, LastOperation: state.Operation{Type: "cluster-join", Status: "completed", TransactionID: opts.TransactionID, StartedAt: now, CompletedAt: &now}, CreatedAt: now, UpdatedAt: now}
+	if err := state.Save(opts.InstalledStatePath, receipt); err != nil {
+		rollback()
+		return nil, err
+	}
+	return receipt, nil
+}
+
+// JoinEnrolledNode dispatches member (K3s agent) vs extra-prime (K3s server)
+// join from the enrollment role.
+func (o *Orchestrator) JoinEnrolledNode(ctx context.Context, source Source, opts JoinWorkerOptions) (*state.InstalledState, error) {
+	enrollment, err := cluster.ReadEnrollment(opts.EnrollmentPath)
+	if err != nil {
+		return nil, err
+	}
+	if enrollment.NodeRole == "prime" {
+		opts.K3sAgentTokenPath = "/etc/rancher/k3s/zon-server-token"
+		return o.JoinServer(ctx, source, opts)
+	}
+	if strings.TrimSpace(opts.K3sAgentTokenPath) == "" {
+		opts.K3sAgentTokenPath = "/etc/rancher/k3s/zon-agent-token"
+	}
+	return o.JoinWorker(ctx, source, opts)
+}
+
+// JoinServer enrolls an additional prime (K3s server / etcd peer). It does
+// not install charts or advertise mDNS; the first prime remains IngressNode.
+func (o *Orchestrator) JoinServer(ctx context.Context, source Source, opts JoinWorkerOptions) (*state.InstalledState, error) {
+	enrollment, err := cluster.ReadEnrollment(opts.EnrollmentPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := enrollment.Validate(time.Now().UTC(), opts.SignerFingerprint); err != nil {
+		return nil, err
+	}
+	if enrollment.NodeRole != "prime" {
+		return nil, fmt.Errorf("cluster join: enrollment role %q is not prime", enrollment.NodeRole)
+	}
+	if strings.TrimSpace(opts.NodeName) != enrollment.ExpectedNodeName {
+		return nil, fmt.Errorf("cluster join: enrollment is for node %q, not %q", enrollment.ExpectedNodeName, opts.NodeName)
+	}
+	if existing, err := state.Load(opts.InstalledStatePath); err != nil || existing != nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("cluster join: this host already has an appliance receipt")
+	}
+	signal, err := o.K3s.DetectService(opts.K3sUnitName)
+	if err != nil {
+		return nil, err
+	}
+	if signal.Detected {
+		return nil, errors.New("cluster join: refusing host with existing K3s service")
+	}
+	resolved, _, err := source.Resolve(ctx, enrollment.ApplianceProfile)
+	if err != nil {
+		return nil, err
+	}
+	if resolved.ReleaseID != enrollment.ReleaseID || resolved.BundleVersion != enrollment.ReleaseVersion {
+		return nil, errors.New("cluster join: signed bundle release does not match enrollment")
+	}
+	facts, err := o.DetectHost(host.Options{DataDir: opts.K3sDataDir})
+	if err != nil {
+		return nil, err
+	}
+	if check := CheckBundleHostBaseline(facts, resolved.HostBaseline); string(check.Status) != "pass" {
+		return nil, errors.New("cluster join: target host does not match signed bundle baseline")
+	}
+	tokenPath := opts.K3sAgentTokenPath
+	if strings.TrimSpace(tokenPath) == "" {
+		tokenPath = "/etc/rancher/k3s/zon-server-token"
+	}
+	if err := lifecycle.WriteFileAtomic(tokenPath, []byte(enrollment.K3sToken+"\n"), 0o600); err != nil {
+		return nil, err
+	}
+	rollback := func() {
+		_ = os.Remove(tokenPath)
+		_ = o.K3s.Stop(opts.K3sUnitName)
+		_ = os.Remove(opts.K3sConfigPath)
+		_ = os.Remove(opts.K3sUnitPath)
+		_ = os.Remove(opts.K3sBinaryDestPath)
+		_ = o.K3s.RemoveKubectlSymlink(opts.K3sBinaryDestPath, opts.KubectlSymlinkPath)
+		_ = o.K3s.DaemonReload()
+		_ = o.K3s.CleanupNodeNetwork(opts.K3sCNINetworkDir, opts.K3sCNIInterfaces)
+	}
+	if err := o.K3s.WriteConfig(opts.K3sConfigPath, k3s.Config{
+		Mode:      k3s.NodeModeServer,
+		NodeName:  opts.NodeName,
+		DataDir:   opts.K3sDataDir,
+		ServerURL: enrollment.ControlEndpoint,
+		TokenFile: tokenPath,
+		TLSSANs:   opts.TLSSANs,
+	}); err != nil {
+		rollback()
+		return nil, err
+	}
+	if err := o.K3s.WriteUnit(opts.K3sUnitPath, k3s.UnitConfig{BinaryPath: opts.K3sBinaryDestPath, ConfigPath: opts.K3sConfigPath, Mode: k3s.NodeModeServer}); err != nil {
+		rollback()
+		return nil, err
+	}
+	if err := o.K3s.InstallBinary(resolved.K3sBinaryPath, opts.K3sBinaryDestPath); err != nil {
+		rollback()
+		return nil, err
+	}
+	if err := o.K3s.EnsureKubectlSymlink(opts.K3sBinaryDestPath, opts.KubectlSymlinkPath); err != nil {
+		rollback()
+		return nil, err
+	}
+	if err := o.K3s.EnableAndStart(opts.K3sUnitName); err != nil {
+		rollback()
+		return nil, err
+	}
+	importer := &images.Importer{Run: o.ImagesRun, Namespace: "k8s.io"}
+	if err := importer.WaitReady(ctx, containerdReadyTimeout, containerdReadyPollInterval); err != nil {
+		rollback()
+		return nil, err
+	}
+	if _, err := importer.PreloadAll(ctx, append(append([]images.Image{}, resolved.K3sImages...), resolved.FilterOCIImages(resolved.OCIImages)...)); err != nil {
+		rollback()
+		return nil, err
+	}
+	now := time.Now().UTC()
+	receipt := &state.InstalledState{
+		SchemaVersion:       1,
+		ApplianceInstanceID: newApplianceInstanceID(),
+		InstalledVersion:    resolved.BundleVersion,
+		InstalledReleaseID:  resolved.ReleaseID,
+		ApplianceProfile:    enrollment.ApplianceProfile,
+		ApplianceName:       enrollment.ApplianceName,
+		Cluster: &state.Cluster{
+			ID:                          enrollment.ClusterID,
+			Topology:                    state.TopologyMultiServer,
+			ControlPlaneNode:            enrollment.ControlPlaneNode,
+			IngressNode:                 enrollment.ControlPlaneNode,
+			ControlEndpoint:             enrollment.ControlEndpoint,
+			ClusterCAHash:               enrollment.ClusterCAHash,
+			EnrollmentSignerFingerprint: opts.SignerFingerprint,
+			ClusterCIDR:                 k3s.DefaultClusterCIDR,
+			ServiceCIDR:                 k3s.DefaultServiceCIDR,
+			Nodes: []state.ClusterNode{
+				{ID: enrollment.ControlPlaneNode, Name: enrollment.ControlPlaneNode, Role: state.NodeRoleControlPlane, Roles: []string{state.NodeRoleControlPlane}},
+				{ID: opts.NodeName, Name: opts.NodeName, Role: state.NodeRoleControlPlane, Roles: []string{state.NodeRoleControlPlane}},
+			},
+		},
+		Components:    state.Components{K3sVersion: resolved.Compatibility.K3sVersion, ChartVersion: resolved.Compatibility.ChartVersion},
+		K3sOwnership:  state.K3sOwnership{Owned: true, OwnerApplianceVersion: resolved.BundleVersion},
+		LastOperation: state.Operation{Type: "cluster-join", Status: "completed", TransactionID: opts.TransactionID, StartedAt: now, CompletedAt: &now},
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
 	if err := state.Save(opts.InstalledStatePath, receipt); err != nil {
 		rollback()
 		return nil, err

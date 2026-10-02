@@ -96,8 +96,8 @@ func (e Enrollment) Validate(now time.Time, expectedKey string) error {
 	if e.ExpiresAt.Sub(e.IssuedAt) > 24*time.Hour {
 		return errors.New("cluster enrollment: validity must not exceed 24 hours")
 	}
-	if e.NodeRole != "worker" && e.NodeRole != "inference" {
-		return errors.New("cluster enrollment: node role must be worker or inference")
+	if e.NodeRole != "worker" && e.NodeRole != "inference" && e.NodeRole != "prime" {
+		return errors.New("cluster enrollment: node role must be worker, inference, or prime")
 	}
 	if len(e.ClusterCAHash) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(e.ClusterCAHash, "sha256:") {
 		return errors.New("cluster enrollment: invalid cluster CA hash")

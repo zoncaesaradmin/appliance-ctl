@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
@@ -57,12 +58,16 @@ const traefikWebsecurePortTimeouts = `      websecure:
             idleTimeout: ` + traefikTransferTimeout + `
 `
 
-func traefikHelmChartConfigManifest(plaintextHTTP bool) string {
+func traefikHelmChartConfigManifest(plaintextHTTP bool, ingressNodeName string) string {
 	web := traefikWebPortTimeouts
 	if plaintextHTTP {
 		web = traefikWebPortPlaintextHTTP
 	}
-	return traefikHelmChartConfigPrefix + web + traefikWebsecurePortTimeouts
+	manifest := traefikHelmChartConfigPrefix + web + traefikWebsecurePortTimeouts
+	if name := strings.TrimSpace(ingressNodeName); name != "" {
+		manifest += "    nodeSelector:\n      kubernetes.io/hostname: " + name + "\n"
+	}
+	return manifest
 }
 
 // EnsureTraefikTransferTimeouts applies a HelmChartConfig so K3s Traefik does
@@ -71,7 +76,7 @@ func traefikHelmChartConfigManifest(plaintextHTTP bool) string {
 // IngressRoutes to Services outside the IngressRoute namespace (ui-server in
 // ace-apps while the route lives in ace-system). When plaintextHTTP is true,
 // Traefik must not redirect the web entrypoint away from application routes.
-func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconfig string, plaintextHTTP bool) (evidence.Check, error) {
+func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconfig string, plaintextHTTP bool, ingressNodeName string) (evidence.Check, error) {
 	check := evidence.Check{
 		ID:              "traefik-transfer-timeouts",
 		Category:        "k3s",
@@ -93,7 +98,7 @@ func EnsureTraefikTransferTimeouts(ctx context.Context, run cli.Runner, kubeconf
 	}
 	path := tmp.Name()
 	defer func() { _ = os.Remove(path) }()
-	if _, err := tmp.WriteString(traefikHelmChartConfigManifest(plaintextHTTP)); err != nil {
+	if _, err := tmp.WriteString(traefikHelmChartConfigManifest(plaintextHTTP, ingressNodeName)); err != nil {
 		_ = tmp.Close()
 		check.Status = evidence.StatusFail
 		check.Message = err.Error()

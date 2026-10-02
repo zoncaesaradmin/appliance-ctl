@@ -126,6 +126,13 @@ var (
 	clusterBootstrapTokenCreate = func(ctx context.Context, ttl, description string) (string, error) {
 		return cli.Exec(ctx, defaultK3sBinaryDestPath, "token", "create", "--data-dir", defaultK3sDataDir, "--ttl", ttl, "--description", description)
 	}
+	clusterServerTokenRead = func() (string, error) {
+		data, err := os.ReadFile(filepath.Join(defaultK3sDataDir, "server", "node-token"))
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
 )
 
 // runClusterEnrollmentCreate creates the only credential a future worker is
@@ -142,8 +149,8 @@ func runClusterEnrollmentCreate(opts cliOptions, logger *slog.Logger, result com
 	if strings.TrimSpace(opts.workerName) == "" {
 		return finish(result, "failed", 1, "cluster-enrollment-create: --worker-name is required", nil)
 	}
-	if opts.workerRole != "worker" && opts.workerRole != "inference" {
-		return finish(result, "failed", 1, "cluster-enrollment-create: --worker-role must be worker or inference", nil)
+	if opts.workerRole != "worker" && opts.workerRole != "inference" && opts.workerRole != "prime" {
+		return finish(result, "failed", 1, "cluster-enrollment-create: --worker-role must be worker, inference, or prime", nil)
 	}
 	if opts.dryRun {
 		return finish(result, "succeeded", 0, fmt.Sprintf("cluster-enrollment-create: would create a %s enrollment for worker %q", opts.workerRole, opts.workerName), nil)
@@ -169,13 +176,19 @@ func runClusterEnrollmentCreate(opts cliOptions, logger *slog.Logger, result com
 		return finish(result, "failed", 1, "cluster-enrollment-create: worker name must differ from the control-plane node", nil)
 	}
 
-	// The server token is a long-lived datastore encryption secret and must
-	// never leave the control-plane node. Bootstrap tokens are agent-only and
-	// automatically deleted by K3s at their TTL, giving this enrollment a real
-	// expiry boundary even if its transfer artifact is retained.
-	token, err := clusterBootstrapTokenCreate(context.Background(), opts.enrollmentTTL, "zonctl cluster enrollment for "+opts.workerName)
-	if err != nil {
-		return finish(result, "failed", 1, "cluster-enrollment-create: create expiring K3s bootstrap token: "+err.Error(), nil)
+	// Members use an expiring bootstrap token. Extra primes need the K3s
+	// server node-token (wrapped in the enrollment TTL, never printed).
+	var token string
+	if opts.workerRole == "prime" {
+		token, err = clusterServerTokenRead()
+		if err != nil {
+			return finish(result, "failed", 1, "cluster-enrollment-create: read K3s server token: "+err.Error(), nil)
+		}
+	} else {
+		token, err = clusterBootstrapTokenCreate(context.Background(), opts.enrollmentTTL, "zonctl cluster enrollment for "+opts.workerName)
+		if err != nil {
+			return finish(result, "failed", 1, "cluster-enrollment-create: create expiring K3s bootstrap token: "+err.Error(), nil)
+		}
 	}
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -266,7 +279,7 @@ func runClusterJoin(ctx context.Context, opts cliOptions, logger *slog.Logger, r
 	if err != nil {
 		return finish(result, "failed", 1, "cluster-join: "+err.Error(), nil)
 	}
-	joined, err := install.NewOrchestrator().JoinWorker(ctx, source, install.JoinWorkerOptions{Options: install.Options{InstalledStatePath: filepath.Join(opts.stateDir, "installed-state.json"), K3sConfigPath: defaultK3sConfigPath, K3sUnitPath: defaultK3sUnitPath, K3sBinaryDestPath: defaultK3sBinaryDestPath, K3sUnitName: defaultK3sUnitName, KubectlSymlinkPath: defaultKubectlSymlinkPath, K3sDataDir: defaultK3sDataDir, K3sCNINetworkDir: defaultK3sCNINetworkDir, K3sCNIInterfaces: append([]string(nil), defaultK3sCNIInterfaces...), NodeName: opts.nodeName, TransactionID: "cluster-join"}, EnrollmentPath: opts.enrollmentFile, SignerFingerprint: opts.clusterSignerFingerprint, K3sAgentTokenPath: "/etc/rancher/k3s/zon-agent-token"})
+	joined, err := install.NewOrchestrator().JoinEnrolledNode(ctx, source, install.JoinWorkerOptions{Options: install.Options{InstalledStatePath: filepath.Join(opts.stateDir, "installed-state.json"), K3sConfigPath: defaultK3sConfigPath, K3sUnitPath: defaultK3sUnitPath, K3sBinaryDestPath: defaultK3sBinaryDestPath, K3sUnitName: defaultK3sUnitName, KubectlSymlinkPath: defaultKubectlSymlinkPath, K3sDataDir: defaultK3sDataDir, K3sCNINetworkDir: defaultK3sCNINetworkDir, K3sCNIInterfaces: append([]string(nil), defaultK3sCNIInterfaces...), NodeName: opts.nodeName, TLSSANs: installTLSSANs(opts), TransactionID: "cluster-join"}, EnrollmentPath: opts.enrollmentFile, SignerFingerprint: opts.clusterSignerFingerprint, K3sAgentTokenPath: "/etc/rancher/k3s/zon-agent-token"})
 	if err != nil {
 		logger.Error("cluster join failed", "error", err)
 		return finish(result, "failed", 1, "cluster-join: "+err.Error(), nil)
@@ -297,8 +310,8 @@ func runClusterWorkerUpgrade(ctx context.Context, opts cliOptions, logger *slog.
 // node from an operator-supplied name; then appliance-owned labels make
 // scheduling policy explicit without accepting arbitrary selectors.
 func runClusterNodeRegister(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
-	if strings.TrimSpace(opts.workerName) == "" || (opts.workerRole != "worker" && opts.workerRole != "inference") {
-		return finish(result, "failed", 1, "cluster-node-register: --worker-name and --worker-role (worker|inference) are required", nil)
+	if strings.TrimSpace(opts.workerName) == "" || (opts.workerRole != "worker" && opts.workerRole != "inference" && opts.workerRole != "prime") {
+		return finish(result, "failed", 1, "cluster-node-register: --worker-name and --worker-role (worker|inference|prime) are required", nil)
 	}
 	if opts.dryRun {
 		return finish(result, "succeeded", 0, "cluster-node-register: would verify and label the joined node", nil)
@@ -322,6 +335,9 @@ func runClusterNodeRegister(ctx context.Context, opts cliOptions, logger *slog.L
 	if opts.workerRole == "inference" {
 		labels = append(labels, "zon.io/inference-node=true")
 	}
+	if opts.workerRole == "prime" {
+		labels = []string{"zon.io/appliance-node=true", "zon.io/role=control-plane"}
+	}
 	args := append([]string{"--kubeconfig", defaultKubeconfigPath, "label", "node", opts.workerName, "--overwrite"}, labels...)
 	if _, err := cli.Exec(ctx, "kubectl", args...); err != nil {
 		logger.Error("label joined node", "error", err)
@@ -330,6 +346,12 @@ func runClusterNodeRegister(ctx context.Context, opts cliOptions, logger *slog.L
 	role := state.NodeRoleWorker
 	if opts.workerRole == "inference" {
 		role = state.NodeRoleInference
+	}
+	if opts.workerRole == "prime" {
+		role = state.NodeRoleControlPlane
+		installed.Cluster.Topology = state.TopologyMultiServer
+	} else if installed.Cluster.Topology != state.TopologyMultiServer {
+		installed.Cluster.Topology = state.TopologyServerWorkers
 	}
 	found := false
 	for i := range installed.Cluster.Nodes {
@@ -341,7 +363,6 @@ func runClusterNodeRegister(ctx context.Context, opts cliOptions, logger *slog.L
 	if !found {
 		installed.Cluster.Nodes = append(installed.Cluster.Nodes, state.ClusterNode{ID: opts.workerName, NodeUID: strings.TrimSpace(uid), Name: opts.workerName, Role: role, Roles: []string{role}})
 	}
-	installed.Cluster.Topology = state.TopologyServerWorkers
 	installed.UpdatedAt = time.Now().UTC()
 	if err := state.Save(statePath, installed); err != nil {
 		return finish(result, "failed", 1, "cluster-node-register: save state: "+err.Error(), nil)

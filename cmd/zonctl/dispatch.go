@@ -346,6 +346,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		PriorInstallAttempted:   priorInstallAttempted,
 		ForceAdopt:              opts.forceAdopt,
 		PreserveFailedState:     opts.preserveFailedState,
+		ClusterInit:             opts.clusterInit,
 	}
 	imagePullRegistry, err := resolveImagePullRegistry(opts, nil)
 	if err != nil {

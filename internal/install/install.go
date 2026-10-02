@@ -115,6 +115,7 @@ type Options struct {
 	// written (default /etc/rancher/k3s/registries.yaml). Empty disables
 	// writing even when ImagePullRegistry is set.
 	K3sRegistriesPath string
+	ClusterInit       bool
 	// ImagePullRegistry, when Registry is non-empty, configures K3s
 	// containerd to pull from that private registry (auth + TLS). Offline
 	// bundle preload remains the primary image source; this only enables
@@ -273,6 +274,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	defer cleanupPreparedValues()
+	if err := productconfig.InjectPlacementNodeName(preparedValuesPath, opts.NodeName); err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
+	}
 	registryValuesPath := ""
 	cleanupRegistryValues := func() {}
 	if resolved.ArtifactEnabled {
@@ -281,6 +285,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
 		defer cleanupRegistryValues()
+		if err := productconfig.InjectPlacementNodeName(registryValuesPath, opts.NodeName); err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
 	}
 	dnsValuesPath := ""
 	cleanupDNSValues := func() {}
@@ -290,6 +297,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
 		defer cleanupDNSValues()
+		if err := productconfig.InjectPlacementNodeName(dnsValuesPath, opts.NodeName); err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
 	}
 	inferenceValuesPath := ""
 	cleanupInferenceValues := func() {}
@@ -299,6 +309,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
 		defer cleanupInferenceValues()
+	}
+	workflowsValuesPath := ""
+	cleanupWorkflowsValues := func() {}
+	if resolved.WorkflowsEnabled {
+		workflowsValuesPath, cleanupWorkflowsValues, err = productconfig.PreparePlacementValuesFile(filepath.Dir(resolved.ConfigurationPath), opts.NodeName)
+		if err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
+		defer cleanupWorkflowsValues()
 	}
 
 	// Gated on the Build capability, not the "builder" profile name
@@ -553,6 +572,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			TLSSANs:     opts.TLSSANs,
 			ClusterCIDR: k3s.DefaultClusterCIDR,
 			ServiceCIDR: k3s.DefaultServiceCIDR,
+			ClusterInit: opts.ClusterInit,
 		}); err != nil {
 			return nil, checks, fmt.Errorf("install: write k3s config: %w", err)
 		}
@@ -680,7 +700,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if traefikLBErr != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikLBErr), runRollbacks())
 	}
-	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityPlaintextHTTP, resolved.ProfileCatalog))
+	traefikTimeoutCheck, traefikTimeoutErr := helm.EnsureTraefikTransferTimeouts(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityPlaintextHTTP, resolved.ProfileCatalog), opts.NodeName)
 	checks = append(checks, traefikTimeoutCheck)
 	if traefikTimeoutErr != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikTimeoutErr), runRollbacks())
@@ -1183,9 +1203,10 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 				return
 			}
 			result = applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, helm.ChartRelease{
-				Name:      workflowsReleaseName,
-				ChartPath: resolved.WorkflowsChartPath,
-				Namespace: workflowsNamespace,
+				Name:       workflowsReleaseName,
+				ChartPath:  resolved.WorkflowsChartPath,
+				Namespace:  workflowsNamespace,
+				ValuesPath: workflowsValuesPath,
 			})
 			out.checks = append(out.checks, result.checks...)
 			if result.rollback != nil {

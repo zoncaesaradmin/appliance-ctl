@@ -121,6 +121,59 @@ func TestClusterEnrollmentCreateWritesProtectedArtifactAndClusterTrust(t *testin
 	}
 }
 
+func TestClusterEnrollmentCreatePrimeUsesServerToken(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now().UTC()
+	clusterRecord := state.NewSingleServerCluster("cluster-1", "control-1", "10.44.0.0/16", "10.43.0.0/16")
+	installed := &state.InstalledState{
+		SchemaVersion: 1, ApplianceInstanceID: "cluster-1", InstalledVersion: "2.4.0", InstalledReleaseID: "release-1",
+		ApplianceProfile: "core", ApplianceName: "zon", Cluster: &clusterRecord,
+		Components:    state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: "2.4.0"},
+		K3sOwnership:  state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"},
+		LastOperation: state.Operation{Type: "install", Status: "completed", TransactionID: "txn-1", StartedAt: now, CompletedAt: &now},
+		CreatedAt:     now, UpdatedAt: now,
+	}
+	if err := state.Save(filepath.Join(stateDir, "installed-state.json"), installed); err != nil {
+		t.Fatal(err)
+	}
+	caPath := filepath.Join(stateDir, "server-ca.crt")
+	if err := os.WriteFile(caPath, []byte("test server ca"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldCAPath, oldBootstrapCreate, oldServerToken := clusterServerCAPath, clusterBootstrapTokenCreate, clusterServerTokenRead
+	clusterServerCAPath = caPath
+	bootstrapCalled := false
+	clusterBootstrapTokenCreate = func(_ context.Context, ttl, description string) (string, error) {
+		bootstrapCalled = true
+		return "K10bootstrap-token", nil
+	}
+	clusterServerTokenRead = func() (string, error) {
+		return "K10server-node-token", nil
+	}
+	t.Cleanup(func() {
+		clusterServerCAPath, clusterBootstrapTokenCreate, clusterServerTokenRead = oldCAPath, oldBootstrapCreate, oldServerToken
+	})
+
+	outPath := filepath.Join(stateDir, "prime.enrollment")
+	result := runClusterEnrollmentCreate(cliOptions{stateDir: stateDir, nodeName: "control-1", workerName: "prime-2", workerRole: "prime", controlEndpoint: "https://10.0.0.10:6443", enrollmentOut: outPath, enrollmentTTL: "15m"}, slog.Default(), commandResult{Command: "cluster-enrollment-create"})
+	if result.Status != "succeeded" {
+		t.Fatalf("result = %+v", result)
+	}
+	if bootstrapCalled {
+		t.Fatal("prime enrollment must not create a K3s agent bootstrap token")
+	}
+	if strings.Contains(string(result.Data), "K10server-node-token") {
+		t.Fatalf("server token leaked into result: %s", result.Data)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"nodeRole": "prime"`) && !strings.Contains(string(body), `"nodeRole":"prime"`) {
+		t.Fatalf("enrollment missing prime role:\n%s", body)
+	}
+}
+
 func TestRun_InvalidOutputFlag(t *testing.T) {
 	_, code := captureStdout(t, func() int {
 		return run([]string{"status", "--output", "xml", "--state-dir", t.TempDir()})
