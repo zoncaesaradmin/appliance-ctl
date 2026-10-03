@@ -97,6 +97,11 @@ func TestConfig_AgentRequiresTrustedJoinInputs(t *testing.T) {
 	if strings.Contains(rendered, "enablelb") {
 		t.Fatalf("members must not enable ServiceLB:\n%s", rendered)
 	}
+	for _, forbidden := range []string{"write-kubeconfig-mode:", "cluster-cidr:", "service-cidr:", "tls-san:"} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("agent config must not contain server-only %q:\n%s", forbidden, rendered)
+		}
+	}
 }
 func TestUnitConfig_Render(t *testing.T) {
 	u := k3s.UnitConfig{BinaryPath: "/opt/appliance/bin/k3s", ConfigPath: "/etc/rancher/k3s/config.yaml"}
