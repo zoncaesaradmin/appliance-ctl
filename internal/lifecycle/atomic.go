@@ -13,6 +13,9 @@ import (
 // and, via internal/state, the installed-state record.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
 
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {

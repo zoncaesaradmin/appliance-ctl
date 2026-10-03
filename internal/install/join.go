@@ -272,7 +272,7 @@ func (o *Orchestrator) JoinWorker(ctx context.Context, source Source, opts JoinW
 	if err := prepareInferenceWorkerStorage(role, o.EnsureOwnedDir); err != nil {
 		return nil, err
 	}
-	if err := lifecycle.WriteFileAtomic(opts.K3sAgentTokenPath, []byte(enrollment.K3sToken+"\n"), 0o600); err != nil {
+	if err := writeJoinToken(opts.K3sAgentTokenPath, enrollment.K3sToken); err != nil {
 		return nil, err
 	}
 	rollback := func() {
@@ -398,7 +398,7 @@ func (o *Orchestrator) JoinServer(ctx context.Context, source Source, opts JoinW
 	if strings.TrimSpace(tokenPath) == "" {
 		tokenPath = "/etc/rancher/k3s/zon-server-token"
 	}
-	if err := lifecycle.WriteFileAtomic(tokenPath, []byte(enrollment.K3sToken+"\n"), 0o600); err != nil {
+	if err := writeJoinToken(tokenPath, enrollment.K3sToken); err != nil {
 		return nil, err
 	}
 	rollback := func() {
@@ -505,6 +505,16 @@ func prepareInferenceWorkerStorage(role string, ensure func(path string, uid, gi
 	}
 	if err := ensure(hostdirs.InferenceModelsDir, hostdirs.InferenceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 		return fmt.Errorf("cluster join: prepare inference models directory: %w", err)
+	}
+	return nil
+}
+
+func writeJoinToken(path, token string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("cluster join: create token directory: %w", err)
+	}
+	if err := lifecycle.WriteFileAtomic(path, []byte(token+"\n"), 0o600); err != nil {
+		return fmt.Errorf("cluster join: write token: %w", err)
 	}
 	return nil
 }
