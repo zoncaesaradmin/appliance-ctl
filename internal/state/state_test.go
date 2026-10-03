@@ -80,6 +80,18 @@ func TestSaveThenLoad_RoundTrips(t *testing.T) {
 	}
 }
 
+func TestSave_AcceptsMultiServerTopology(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "installed-state.json")
+	want := sampleState()
+	cluster := sampleCluster()
+	cluster.Topology = state.TopologyMultiServer
+	cluster.ControlEndpoint = "https://10.0.0.1:6443"
+	want.Cluster = cluster
+	if err := state.Save(path, want); err != nil {
+		t.Fatalf("multi-server topology must satisfy installed-state schema: %v", err)
+	}
+}
+
 // Fails closed: an on-disk file that doesn't satisfy installed-state.v1
 // (here, an unrelated cluster with owned=false, which the schema forbids)
 // must not be silently accepted.

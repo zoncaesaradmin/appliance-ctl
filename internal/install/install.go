@@ -1277,6 +1277,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	now := time.Now().UTC()
 	instanceID := newApplianceInstanceID()
 	clusterRecord := state.NewSingleServerCluster(instanceID, opts.NodeName, k3s.DefaultClusterCIDR, k3s.DefaultServiceCIDR)
+	if opts.ClusterInit {
+		clusterRecord.Topology = state.TopologyMultiServer
+	}
 	clusterRecord.Nodes[0].NodeUID = controlPlaneNodeUID
 	// The control-plane signer is created on the target, never bundled. Its
 	// public fingerprint is cluster state so a future worker can pin the

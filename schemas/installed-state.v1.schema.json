@@ -55,7 +55,7 @@
       "required": ["id", "topology", "controlPlaneNode", "ingressNode", "nodes"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
-        "topology": {"enum": ["single-server", "server-workers"]},
+        "topology": {"enum": ["single-server", "server-workers", "multi-server"]},
         "controlPlaneNode": {"type": "string", "minLength": 1},
         "ingressNode": {"type": "string", "minLength": 1},
         "controlEndpoint": {"type": "string", "pattern": "^https://.+"},
