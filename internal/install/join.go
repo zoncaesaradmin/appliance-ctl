@@ -272,6 +272,11 @@ func (o *Orchestrator) JoinWorker(ctx context.Context, source Source, opts JoinW
 	if err := prepareInferenceWorkerStorage(role, o.EnsureOwnedDir); err != nil {
 		return nil, err
 	}
+	// Uninstall preserves /var/lib/rancher/k3s. Rejoin after uninstall must
+	// not inherit leftover agent/server state (CIDR mismatch, etcd, old certs).
+	if err := wipeK3sDataDir(opts.K3sDataDir); err != nil {
+		return nil, fmt.Errorf("cluster join: reset leftover k3s data: %w", err)
+	}
 	if err := writeJoinToken(opts.K3sAgentTokenPath, enrollment.K3sToken); err != nil {
 		return nil, err
 	}
@@ -284,6 +289,7 @@ func (o *Orchestrator) JoinWorker(ctx context.Context, source Source, opts JoinW
 		_ = o.K3s.RemoveKubectlSymlink(opts.K3sBinaryDestPath, opts.KubectlSymlinkPath)
 		_ = o.K3s.DaemonReload()
 		_ = o.K3s.CleanupNodeNetwork(opts.K3sCNINetworkDir, opts.K3sCNIInterfaces)
+		_ = wipeK3sDataDir(opts.K3sDataDir)
 	}
 	if err := o.K3s.WriteConfig(opts.K3sConfigPath, k3s.Config{Mode: k3s.NodeModeAgent, NodeName: opts.NodeName, DataDir: opts.K3sDataDir, ServerURL: enrollment.ControlEndpoint, TokenFile: opts.K3sAgentTokenPath}); err != nil {
 		rollback()
@@ -398,6 +404,9 @@ func (o *Orchestrator) JoinServer(ctx context.Context, source Source, opts JoinW
 	if strings.TrimSpace(tokenPath) == "" {
 		tokenPath = "/etc/rancher/k3s/zon-server-token"
 	}
+	if err := wipeK3sDataDir(opts.K3sDataDir); err != nil {
+		return nil, fmt.Errorf("cluster join: reset leftover k3s data: %w", err)
+	}
 	if err := writeJoinToken(tokenPath, enrollment.K3sToken); err != nil {
 		return nil, err
 	}
@@ -410,14 +419,17 @@ func (o *Orchestrator) JoinServer(ctx context.Context, source Source, opts JoinW
 		_ = o.K3s.RemoveKubectlSymlink(opts.K3sBinaryDestPath, opts.KubectlSymlinkPath)
 		_ = o.K3s.DaemonReload()
 		_ = o.K3s.CleanupNodeNetwork(opts.K3sCNINetworkDir, opts.K3sCNIInterfaces)
+		_ = wipeK3sDataDir(opts.K3sDataDir)
 	}
 	if err := o.K3s.WriteConfig(opts.K3sConfigPath, k3s.Config{
-		Mode:      k3s.NodeModeServer,
-		NodeName:  opts.NodeName,
-		DataDir:   opts.K3sDataDir,
-		ServerURL: enrollment.ControlEndpoint,
-		TokenFile: tokenPath,
-		TLSSANs:   opts.TLSSANs,
+		Mode:        k3s.NodeModeServer,
+		NodeName:    opts.NodeName,
+		DataDir:     opts.K3sDataDir,
+		ServerURL:   enrollment.ControlEndpoint,
+		TokenFile:   tokenPath,
+		TLSSANs:     opts.TLSSANs,
+		ClusterCIDR: k3s.DefaultClusterCIDR,
+		ServiceCIDR: k3s.DefaultServiceCIDR,
 	}); err != nil {
 		rollback()
 		return nil, err

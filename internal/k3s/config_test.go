@@ -141,17 +141,24 @@ func TestConfig_Render_ClusterInitAndJoiningPrime(t *testing.T) {
 		t.Fatalf("first prime must enable ServiceLB:\n%s", rendered)
 	}
 	peer := k3s.Config{
-		Mode:      k3s.NodeModeServer,
-		NodeName:  "prime-2",
-		DataDir:   "/d",
-		ServerURL: "https://10.0.0.1:6443",
-		TokenFile: "/etc/rancher/k3s/zon-server-token",
+		Mode:        k3s.NodeModeServer,
+		NodeName:    "prime-2",
+		DataDir:     "/d",
+		ServerURL:   "https://10.0.0.1:6443",
+		TokenFile:   "/etc/rancher/k3s/zon-server-token",
+		ClusterCIDR: k3s.DefaultClusterCIDR,
+		ServiceCIDR: k3s.DefaultServiceCIDR,
 	}
 	if err := peer.Validate(); err != nil {
 		t.Fatalf("joining prime rejected: %v", err)
 	}
 	peerRendered := peer.Render()
-	for _, want := range []string{`server: "https://10.0.0.1:6443"`, `token-file: "/etc/rancher/k3s/zon-server-token"`} {
+	for _, want := range []string{
+		`server: "https://10.0.0.1:6443"`,
+		`token-file: "/etc/rancher/k3s/zon-server-token"`,
+		`cluster-cidr: "10.44.0.0/16"`,
+		`service-cidr: "10.43.0.0/16"`,
+	} {
 		if !strings.Contains(peerRendered, want) {
 			t.Fatalf("missing %q from joining prime config:\n%s", want, peerRendered)
 		}
