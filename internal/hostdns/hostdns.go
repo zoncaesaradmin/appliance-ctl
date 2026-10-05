@@ -374,6 +374,36 @@ func PreferredLocalIPv4(candidates ...string) string {
 	return ""
 }
 
+// HostIPv4s lists non-loopback, non-AP IPv4 addresses on this host.
+func HostIPv4s() []string {
+	ifaces, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, addr := range ifaces {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP == nil || ipNet.IP.IsLoopback() {
+			continue
+		}
+		v4 := ipNet.IP.To4()
+		if v4 == nil {
+			continue
+		}
+		s := v4.String()
+		if isWifiAPManagementIPv4(s) {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
 func isWifiAPManagementIPv4(ip string) bool {
 	ip = strings.TrimSpace(ip)
 	if ip == "10.42.0.1" {

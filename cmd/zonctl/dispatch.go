@@ -178,19 +178,77 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 	return result
 }
 
+// localIPv4s is the LAN addresses of this host. Tests replace it.
+var localIPv4s = hostdns.HostIPv4s
+
 // requireControlPlaneLifecycle prevents node-local worker receipts from
 // creating divergent backups, restores, upgrades, or factory resets. Worker
 // maintenance must be orchestrated from the authoritative control-plane
 // record; single-node and legacy receipts retain their existing behavior.
+//
+// Install records ControlPlaneNode as the dash-IP (192-168-1-155). Linux
+// hostname is often zonsyssrv5; treat this host as the advertised prime when
+// a local IPv4 matches that node name.
 func requireControlPlaneLifecycle(opts cliOptions) error {
 	installed, err := state.Load(filepath.Join(opts.stateDir, "installed-state.json"))
 	if err != nil || installed == nil || installed.Cluster == nil {
 		return err
 	}
-	if control := strings.TrimSpace(installed.Cluster.ControlPlaneNode); control != "" && control != opts.nodeName {
-		return fmt.Errorf("cluster lifecycle operation must run on control-plane node %q; worker %q has a local receipt only", control, opts.nodeName)
+	control := strings.TrimSpace(installed.Cluster.ControlPlaneNode)
+	if control == "" {
+		return nil
 	}
-	return nil
+	if nodeIsThisHost(control, opts.nodeName, localIPv4s()) {
+		return nil
+	}
+	return fmt.Errorf("cluster lifecycle operation must run on control-plane node %q; worker %q has a local receipt only", control, opts.nodeName)
+}
+
+func resolveApplianceNodeName(stateDir, hostname string) string {
+	hostname = strings.TrimSpace(hostname)
+	installed, err := state.Load(filepath.Join(stateDir, "installed-state.json"))
+	if err == nil && installed != nil && installed.Cluster != nil {
+		if name := localClusterNodeName(installed.Cluster, hostname); name != "" {
+			return name
+		}
+	}
+	return hostname
+}
+
+func localClusterNodeName(cluster *state.Cluster, hostname string) string {
+	if cluster == nil {
+		return ""
+	}
+	ips := localIPv4s()
+	if nodeIsThisHost(cluster.ControlPlaneNode, hostname, ips) {
+		return strings.TrimSpace(cluster.ControlPlaneNode)
+	}
+	for _, node := range cluster.Nodes {
+		if nodeIsThisHost(node.Name, hostname, ips) {
+			return strings.TrimSpace(node.Name)
+		}
+	}
+	return ""
+}
+
+func nodeIsThisHost(nodeName, hostname string, localIPs []string) bool {
+	nodeName = strings.TrimSpace(nodeName)
+	if nodeName == "" {
+		return false
+	}
+	if hostname != "" && nodeName == hostname {
+		return true
+	}
+	ip, ok := state.IPv4FromNodeName(nodeName)
+	if !ok {
+		return false
+	}
+	for _, local := range localIPs {
+		if local == ip {
+			return true
+		}
+	}
+	return false
 }
 
 func runPreflight(opts cliOptions, logger *slog.Logger, result commandResult) commandResult {

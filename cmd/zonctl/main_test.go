@@ -69,6 +69,30 @@ func TestRequireControlPlaneLifecycleRejectsWorkerReceipt(t *testing.T) {
 	}
 }
 
+func TestRequireControlPlaneLifecycleAcceptsDashIPWhenHostnameDiffers(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now().UTC()
+	clusterRecord := state.NewSingleServerCluster("cluster-1", "192-168-1-155", "10.44.0.0/16", "10.43.0.0/16")
+	installed := &state.InstalledState{SchemaVersion: 1, ApplianceInstanceID: "prime-receipt", InstalledVersion: "2.4.0", InstalledReleaseID: "release-1", Cluster: &clusterRecord, Components: state.Components{K3sVersion: "v1", ChartVersion: "2.4.0"}, K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"}, LastOperation: state.Operation{Type: "install", Status: "completed", TransactionID: "txn-1", StartedAt: now, CompletedAt: &now}, CreatedAt: now, UpdatedAt: now}
+	if err := state.Save(filepath.Join(stateDir, "installed-state.json"), installed); err != nil {
+		t.Fatal(err)
+	}
+	old := localIPv4s
+	localIPv4s = func() []string { return []string{"192.168.1.155"} }
+	t.Cleanup(func() { localIPv4s = old })
+
+	if err := requireControlPlaneLifecycle(cliOptions{stateDir: stateDir, nodeName: "zonsyssrv5"}); err != nil {
+		t.Fatalf("advertised prime rejected by hostname: %v", err)
+	}
+	if got := resolveApplianceNodeName(stateDir, "zonsyssrv5"); got != "192-168-1-155" {
+		t.Fatalf("resolveApplianceNodeName = %q, want 192-168-1-155", got)
+	}
+	localIPv4s = func() []string { return []string{"192.168.1.153"} }
+	if err := requireControlPlaneLifecycle(cliOptions{stateDir: stateDir, nodeName: "zonsyssrv3"}); err == nil {
+		t.Fatal("extra prime must not run advertised-prime factory-reset")
+	}
+}
+
 func TestClusterEnrollmentCreateWritesProtectedArtifactAndClusterTrust(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Now().UTC()

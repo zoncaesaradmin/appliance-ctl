@@ -93,6 +93,14 @@ func TestEnsureNodeHostsEntry_Exported(t *testing.T) {
 	}
 }
 
+func TestHostIPv4s_SkipsLoopbackAndWifiAP(t *testing.T) {
+	for _, ip := range HostIPv4s() {
+		if ip == "127.0.0.1" || strings.HasPrefix(ip, "10.42.0.") {
+			t.Fatalf("HostIPv4s included %q", ip)
+		}
+	}
+}
+
 func TestLiteralIPv4s_SkipsHostnamesAndWifiAP(t *testing.T) {
 	got := LiteralIPv4s("hostname.example", "192.168.1.155", "10.42.0.1", "192.168.1.155", "192.168.1.153")
 	if len(got) != 2 || got[0] != "192.168.1.155" || got[1] != "192.168.1.153" {

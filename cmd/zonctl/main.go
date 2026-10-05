@@ -176,7 +176,7 @@ func run(args []string) int {
 	fs.Var(&packDirs, "pack-dir", "additional signed pack bundle directory to merge (dev-platform, deviceuser, inference); repeatable")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile from the signed metadata catalog; install defaults to core and upgrade preserves the installed profile when omitted")
-	nodeName := fs.String("node-name", "", "K3s node name (defaults to the host's hostname)")
+	nodeName := fs.String("node-name", "", "K3s node name (defaults to this host's appliance node from the local receipt, else hostname)")
 	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN becomes <name>.<dns-zone> for TLS and canonical origin (required for install; upgrade preserves installed value when omitted)")
 	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")
 	var tlsSANs stringListFlag
@@ -208,9 +208,11 @@ func run(args []string) int {
 		return 2
 	}
 	if *nodeName == "" {
+		hostname := ""
 		if h, err := os.Hostname(); err == nil {
-			*nodeName = h
+			hostname = h
 		}
+		*nodeName = resolveApplianceNodeName(*stateDir, hostname)
 	}
 
 	opts := cliOptions{
