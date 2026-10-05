@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdns"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/images"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
@@ -333,6 +335,7 @@ func (o *Orchestrator) JoinWorker(ctx context.Context, source Source, opts JoinW
 	}
 	now := time.Now().UTC()
 	receipt := &state.InstalledState{SchemaVersion: 1, ApplianceInstanceID: newApplianceInstanceID(), InstalledVersion: resolved.BundleVersion, InstalledReleaseID: resolved.ReleaseID, ApplianceProfile: enrollment.ApplianceProfile, ApplianceName: enrollment.ApplianceName, Cluster: &state.Cluster{ID: enrollment.ClusterID, Topology: state.TopologyServerWorkers, ControlPlaneNode: enrollment.ControlPlaneNode, IngressNode: enrollment.ControlPlaneNode, ControlEndpoint: enrollment.ControlEndpoint, ClusterCAHash: enrollment.ClusterCAHash, EnrollmentSignerFingerprint: opts.SignerFingerprint, ClusterCIDR: k3s.DefaultClusterCIDR, ServiceCIDR: k3s.DefaultServiceCIDR, Nodes: []state.ClusterNode{{ID: enrollment.ControlPlaneNode, Name: enrollment.ControlPlaneNode, Role: state.NodeRoleControlPlane, Roles: []string{state.NodeRoleControlPlane}}, {ID: opts.NodeName, Name: opts.NodeName, Role: role, Roles: []string{role}}}}, Components: state.Components{K3sVersion: resolved.Compatibility.K3sVersion, ChartVersion: resolved.Compatibility.ChartVersion}, K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: resolved.BundleVersion}, LastOperation: state.Operation{Type: "cluster-join", Status: "completed", TransactionID: opts.TransactionID, StartedAt: now, CompletedAt: &now}, CreatedAt: now, UpdatedAt: now}
+	recordJoinAPIEndpoints(receipt.Cluster, enrollment.ControlEndpoint, opts.NodeName, opts.TLSSANs)
 	if err := state.Save(opts.InstalledStatePath, receipt); err != nil {
 		rollback()
 		return nil, err
@@ -488,11 +491,25 @@ func (o *Orchestrator) JoinServer(ctx context.Context, source Source, opts JoinW
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
+	recordJoinAPIEndpoints(receipt.Cluster, enrollment.ControlEndpoint, opts.NodeName, opts.TLSSANs)
 	if err := state.Save(opts.InstalledStatePath, receipt); err != nil {
 		rollback()
 		return nil, err
 	}
 	return receipt, nil
+}
+
+func recordJoinAPIEndpoints(clusterState *state.Cluster, controlEndpoint, nodeName string, tlsSANs []string) {
+	if clusterState == nil {
+		return
+	}
+	if parsed, err := url.Parse(controlEndpoint); err == nil {
+		clusterState.AddAPIEndpoints(parsed.Hostname())
+	}
+	clusterState.AddAPIEndpoints(hostdns.LiteralIPv4s(tlsSANs...)...)
+	if ip, ok := state.IPv4FromNodeName(nodeName); ok {
+		clusterState.AddAPIEndpoints(ip)
+	}
 }
 
 func validateInferenceJoinRuntime(role string, runtime runtimeconfig.Selection, gpuAvailable bool) error {

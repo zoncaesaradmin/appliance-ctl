@@ -693,9 +693,10 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	// Publish https://10.42.0.1/ as a Traefik externalIP so WiFi AP clients
-	// reach the UI; ServiceLB alone only binds the ethernet node VIP.
-	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath)
+	// Publish https://10.42.0.1/ and every prime LAN IPv4 as Traefik
+	// externalIPs so kube-proxy on each node forwards :443 to the Traefik
+	// pod. No extra VIP; ServiceLB stays on the advertised prime.
+	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath, hostdns.LiteralIPv4s(opts.TLSSANs...)...)
 	checks = append(checks, traefikLBCheck)
 	if traefikLBErr != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: %w", traefikLBErr), runRollbacks())
@@ -1279,6 +1280,10 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	clusterRecord := state.NewSingleServerCluster(instanceID, opts.NodeName, k3s.DefaultClusterCIDR, k3s.DefaultServiceCIDR)
 	if opts.ClusterInit {
 		clusterRecord.Topology = state.TopologyMultiServer
+	}
+	if ips := hostdns.LiteralIPv4s(opts.TLSSANs...); len(ips) > 0 {
+		clusterRecord.SetPreferredAPI(ips[0])
+		clusterRecord.AddAPIEndpoints(ips...)
 	}
 	clusterRecord.Nodes[0].NodeUID = controlPlaneNodeUID
 	// The control-plane signer is created on the target, never bundled. Its

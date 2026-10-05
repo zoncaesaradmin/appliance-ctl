@@ -320,6 +320,30 @@ func EnsureNodeHostsEntry(cfg PrepareConfig) (bool, error) {
 // IPv4 address that is not the management Wi-Fi AP range, otherwise the first
 // non-loopback non-AP interface IPv4. Management AP address 10.42.0.1 is always
 // a TLS SAN and must not be chosen as the appliance "node" / LAN IPv4.
+// LiteralIPv4s returns unique non-AP IPv4 literals from candidates, in order.
+// Hostnames, IPv6, and the management Wi-Fi range are skipped.
+func LiteralIPv4s(candidates ...string) []string {
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		ip := net.ParseIP(candidate)
+		if ip == nil || ip.To4() == nil || isWifiAPManagementIPv4(candidate) {
+			continue
+		}
+		s := ip.To4().String()
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
 func PreferredLocalIPv4(candidates ...string) string {
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,8 +202,8 @@ func runClusterEnrollmentCreate(opts cliOptions, logger *slog.Logger, result com
 	caDigest := sha256.Sum256(ca)
 	caHash := "sha256:" + hex.EncodeToString(caDigest[:])
 
-	if current := strings.TrimSpace(installed.Cluster.ControlEndpoint); current != "" && current != strings.TrimSpace(opts.controlEndpoint) {
-		return finish(result, "failed", 1, "cluster-enrollment-create: control endpoint differs from the recorded cluster endpoint", nil)
+	if !installed.Cluster.AcceptsAPIEndpoint(opts.controlEndpoint) {
+		return finish(result, "failed", 1, "cluster-enrollment-create: control endpoint is not a known prime API URL (https://<prime-ip>:6443)", nil)
 	}
 	if current := strings.TrimSpace(installed.Cluster.ClusterCAHash); current != "" && current != caHash {
 		return finish(result, "failed", 1, "cluster-enrollment-create: K3s server CA differs from the recorded cluster CA", nil)
@@ -246,8 +247,17 @@ func runClusterEnrollmentCreate(opts cliOptions, logger *slog.Logger, result com
 		return finish(result, "failed", 1, "cluster-enrollment-create: validate enrollment: "+err.Error(), nil)
 	}
 
-	installed.Cluster.Topology = state.TopologyServerWorkers
-	installed.Cluster.ControlEndpoint = enrollment.ControlEndpoint
+	if opts.workerRole == "prime" {
+		installed.Cluster.Topology = state.TopologyMultiServer
+	} else if installed.Cluster.Topology != state.TopologyMultiServer {
+		installed.Cluster.Topology = state.TopologyServerWorkers
+	}
+	if strings.TrimSpace(installed.Cluster.ControlEndpoint) == "" {
+		installed.Cluster.ControlEndpoint = enrollment.ControlEndpoint
+	}
+	if parsed, err := url.Parse(enrollment.ControlEndpoint); err == nil {
+		installed.Cluster.AddAPIEndpoints(parsed.Hostname())
+	}
 	installed.Cluster.ClusterCAHash = caHash
 	installed.Cluster.EnrollmentSignerFingerprint = signerFingerprint
 	installed.UpdatedAt = now
@@ -362,6 +372,12 @@ func runClusterNodeRegister(ctx context.Context, opts cliOptions, logger *slog.L
 	}
 	if !found {
 		installed.Cluster.Nodes = append(installed.Cluster.Nodes, state.ClusterNode{ID: opts.workerName, NodeUID: strings.TrimSpace(uid), Name: opts.workerName, Role: role, Roles: []string{role}})
+	}
+	if ip, ok := state.IPv4FromNodeName(opts.workerName); ok {
+		installed.Cluster.AddAPIEndpoints(ip)
+	}
+	if _, err := helm.EnsureTraefikManagementExternalIPs(ctx, cli.Exec, defaultKubeconfigPath, installed.Cluster.PrimeIPv4s()...); err != nil {
+		return finish(result, "failed", 1, "cluster-node-register: publish Traefik externalIPs on prime LAN addresses: "+err.Error(), nil)
 	}
 	installed.UpdatedAt = time.Now().UTC()
 	if err := state.Save(statePath, installed); err != nil {

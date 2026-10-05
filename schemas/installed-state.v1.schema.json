@@ -59,6 +59,11 @@
         "controlPlaneNode": {"type": "string", "minLength": 1},
         "ingressNode": {"type": "string", "minLength": 1},
         "controlEndpoint": {"type": "string", "pattern": "^https://.+"},
+        "controlEndpoints": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^https://.+"},
+          "uniqueItems": true
+        },
         "clusterCAHash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
         "enrollmentSignerFingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
         "clusterCIDR": {"type": "string", "minLength": 1},

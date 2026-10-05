@@ -87,6 +87,8 @@ func TestSave_AcceptsMultiServerTopology(t *testing.T) {
 	cluster.Topology = state.TopologyMultiServer
 	cluster.ControlEndpoint = "https://10.0.0.1:6443"
 	want.Cluster = cluster
+	cluster.ControlEndpoints = []string{"https://10.0.0.2:6443", "https://10.0.0.3:6443"}
+	want.Cluster = cluster
 	if err := state.Save(path, want); err != nil {
 		t.Fatalf("multi-server topology must satisfy installed-state schema: %v", err)
 	}

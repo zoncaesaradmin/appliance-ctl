@@ -50,10 +50,13 @@ type Cluster struct {
 	Topology         string `json:"topology,omitempty"`
 	ControlPlaneNode string `json:"controlPlaneNode,omitempty"`
 	IngressNode      string `json:"ingressNode,omitempty"`
-	// ControlEndpoint is the stable, operator-selected K3s API endpoint used
-	// by enrolled workers. It is intentionally separate from the appliance
-	// ingress endpoint: ingress stays on the control-plane node in v1.
+	// ControlEndpoint is the preferred K3s API URL used to join a live
+	// server (usually the advertised prime). Every prime also serves the
+	// same API on its own LAN IPv4:6443; see ControlEndpoints.
 	ControlEndpoint string `json:"controlEndpoint,omitempty"`
+	// ControlEndpoints lists every known prime API URL (https://<lan-ip>:6443).
+	// There is no extra VIP. Clients may use any live entry.
+	ControlEndpoints []string `json:"controlEndpoints,omitempty"`
 	// ClusterCAHash pins the K3s server CA presented by ControlEndpoint. It is
 	// public verification material, never a CA private key or join secret.
 	ClusterCAHash string `json:"clusterCAHash,omitempty"`

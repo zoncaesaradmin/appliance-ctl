@@ -740,7 +740,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath)
+	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath, hostdns.LiteralIPv4s(opts.TLSSANs...)...)
 	checks = append(checks, traefikLBCheck)
 	if traefikLBErr != nil {
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", traefikLBErr), func() []evidence.Check {

@@ -193,7 +193,7 @@ func run(args []string) int {
 	imagePullRegistryTokenEnv := fs.String("image-pull-registry-token-env", "", "env var name holding the image-pull registry password/token (required when --image-pull-registry is set; e.g. DEV_REGISTRY_TOKEN)")
 	imagePullRegistryTLSVerifyEnv := fs.String("image-pull-registry-tls-verify-env", "", "env var name holding true|false for registry TLS verify (optional; default true; e.g. DEV_REGISTRY_TLS_VERIFY)")
 	enrollmentOut := fs.String("enrollment-out", "", "owner-only path where cluster-enrollment-create writes the worker enrollment artifact")
-	controlEndpoint := fs.String("control-endpoint", "", "https K3s API endpoint reachable by the joining worker (required for cluster-enrollment-create)")
+	controlEndpoint := fs.String("control-endpoint", "", "https K3s API URL of any live prime (https://<prime-ip>:6443); required for cluster-enrollment-create")
 	workerName := fs.String("worker-name", "", "expected K3s node name for cluster-enrollment-create")
 	workerRole := fs.String("worker-role", "worker", "cluster role: worker, inference, or prime (enrollment and registration)")
 	enrollmentTTL := fs.String("enrollment-ttl", "15m", "enrollment validity, from 1 minute through 24 hours (cluster-enrollment-create only)")

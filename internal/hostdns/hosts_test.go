@@ -93,6 +93,13 @@ func TestEnsureNodeHostsEntry_Exported(t *testing.T) {
 	}
 }
 
+func TestLiteralIPv4s_SkipsHostnamesAndWifiAP(t *testing.T) {
+	got := LiteralIPv4s("hostname.example", "192.168.1.155", "10.42.0.1", "192.168.1.155", "192.168.1.153")
+	if len(got) != 2 || got[0] != "192.168.1.155" || got[1] != "192.168.1.153" {
+		t.Fatalf("LiteralIPv4s = %#v, want [192.168.1.155 192.168.1.153]", got)
+	}
+}
+
 func TestPreferredLocalIPv4_LiteralWins(t *testing.T) {
 	if got := PreferredLocalIPv4("hostname.example", "192.0.2.10", "10.0.0.1"); got != "192.0.2.10" {
 		t.Fatalf("PreferredLocalIPv4 = %q, want 192.0.2.10", got)

@@ -121,6 +121,52 @@ func TestClusterEnrollmentCreateWritesProtectedArtifactAndClusterTrust(t *testin
 	}
 }
 
+func TestClusterEnrollmentCreateAcceptsAnyKnownPrimeAPI(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now().UTC()
+	clusterRecord := state.NewSingleServerCluster("cluster-1", "192-168-1-155", "10.44.0.0/16", "10.43.0.0/16")
+	clusterRecord.SetPreferredAPI("192.168.1.155")
+	clusterRecord.AddAPIEndpoints("192.168.1.153", "192.168.1.152")
+	installed := &state.InstalledState{
+		SchemaVersion: 1, ApplianceInstanceID: "cluster-1", InstalledVersion: "2.4.0", InstalledReleaseID: "release-1",
+		ApplianceProfile: "core", ApplianceName: "zon", Cluster: &clusterRecord,
+		Components:    state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: "2.4.0"},
+		K3sOwnership:  state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"},
+		LastOperation: state.Operation{Type: "install", Status: "completed", TransactionID: "txn-1", StartedAt: now, CompletedAt: &now},
+		CreatedAt:     now, UpdatedAt: now,
+	}
+	if err := state.Save(filepath.Join(stateDir, "installed-state.json"), installed); err != nil {
+		t.Fatal(err)
+	}
+	caPath := filepath.Join(stateDir, "server-ca.crt")
+	if err := os.WriteFile(caPath, []byte("test server ca"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldCAPath, oldBootstrapCreate := clusterServerCAPath, clusterBootstrapTokenCreate
+	clusterServerCAPath = caPath
+	clusterBootstrapTokenCreate = func(_ context.Context, ttl, description string) (string, error) {
+		return "K10bootstrap-token", nil
+	}
+	t.Cleanup(func() { clusterServerCAPath, clusterBootstrapTokenCreate = oldCAPath, oldBootstrapCreate })
+
+	outPath := filepath.Join(stateDir, "worker.enrollment")
+	result := runClusterEnrollmentCreate(cliOptions{stateDir: stateDir, nodeName: "192-168-1-155", workerName: "gpu-1", workerRole: "worker", controlEndpoint: "https://192.168.1.153:6443", enrollmentOut: outPath, enrollmentTTL: "15m"}, slog.Default(), commandResult{Command: "cluster-enrollment-create"})
+	if result.Status != "succeeded" {
+		t.Fatalf("result = %+v", result)
+	}
+	updated, err := state.Load(filepath.Join(stateDir, "installed-state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Cluster.ControlEndpoint != "https://192.168.1.155:6443" {
+		t.Fatalf("preferred API overwritten: %q", updated.Cluster.ControlEndpoint)
+	}
+	rejected := runClusterEnrollmentCreate(cliOptions{stateDir: stateDir, nodeName: "192-168-1-155", workerName: "gpu-2", workerRole: "worker", controlEndpoint: "https://192.168.1.200:6443", enrollmentOut: filepath.Join(stateDir, "bad.enrollment"), enrollmentTTL: "15m"}, slog.Default(), commandResult{Command: "cluster-enrollment-create"})
+	if rejected.Status == "succeeded" {
+		t.Fatal("unknown API URL must be rejected")
+	}
+}
+
 func TestClusterEnrollmentCreatePrimeUsesServerToken(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Now().UTC()

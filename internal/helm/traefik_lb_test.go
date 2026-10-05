@@ -43,6 +43,33 @@ func TestEnsureTraefikManagementExternalIPs_AddsMissingIP(t *testing.T) {
 	}
 }
 
+func TestEnsureTraefikManagementExternalIPs_AddsPrimeLANIPs(t *testing.T) {
+	var patched string
+	run := func(_ context.Context, name string, args ...string) (string, error) {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "get svc traefik") {
+			return `{"spec":{"externalIPs":["` + hostagent.WifiAPManagementAddress + `"]}}`, nil
+		}
+		if strings.Contains(joined, "patch svc traefik") {
+			patched = joined
+			return `service/traefik patched`, nil
+		}
+		t.Fatalf("unexpected kubectl args: %v", args)
+		return "", nil
+	}
+
+	_, err := helm.EnsureTraefikManagementExternalIPs(context.Background(), run, "/tmp/kubeconfig", "192.168.1.155", "192.168.1.153")
+	if err != nil {
+		t.Fatalf("EnsureTraefikManagementExternalIPs: %v", err)
+	}
+	if !strings.Contains(patched, "192.168.1.155") || !strings.Contains(patched, "192.168.1.153") {
+		t.Fatalf("patch missing prime LAN IPs: %q", patched)
+	}
+	if !strings.Contains(patched, hostagent.WifiAPManagementAddress) {
+		t.Fatalf("patch dropped management IP: %q", patched)
+	}
+}
+
 func TestEnsureTraefikManagementExternalIPs_IdempotentWhenPresent(t *testing.T) {
 	patchCount := 0
 	run := func(_ context.Context, name string, args ...string) (string, error) {
