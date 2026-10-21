@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 )
@@ -15,6 +16,7 @@ import (
 // cross the host command line. Its stdout is streamed to the protected path.
 type KubernetesPostgresExporter struct {
 	Kubeconfig, Namespace, StatefulSet string
+	Image                              string
 	Stream                             func(context.Context, string, string, ...string) error
 }
 
@@ -22,7 +24,7 @@ func (e KubernetesPostgresExporter) Export(ctx context.Context, destination stri
 	if e.Stream == nil {
 		e.Stream = cli.ExecToFile
 	}
-	if e.Kubeconfig == "" || e.Namespace == "" || e.StatefulSet == "" {
+	if e.Kubeconfig == "" || e.Namespace == "" || e.StatefulSet == "" || !strings.HasPrefix(e.Image, "registry.local/postgres@sha256:") {
 		return DatabaseArtifact{}, fmt.Errorf("recovery set: Kubernetes PostgreSQL exporter is incomplete")
 	}
 	args := []string{"--kubeconfig", e.Kubeconfig, "--namespace", e.Namespace, "exec", "statefulset/" + e.StatefulSet, "-c", "postgres", "--", "sh", "-ec", "exec pg_dump --format=custom --no-owner --no-acl -U \"$POSTGRES_USER\" \"$POSTGRES_DB\""}

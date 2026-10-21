@@ -11,7 +11,7 @@ import (
 func TestKubernetesPostgresExporterStreamsCustomDump(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "database.dump")
 	var got []string
-	e := KubernetesPostgresExporter{Kubeconfig: "/kube", Namespace: "ace-infra", StatefulSet: "controlplane-database", Stream: func(_ context.Context, destination, name string, args ...string) error {
+	e := KubernetesPostgresExporter{Kubeconfig: "/kube", Namespace: "ace-infra", StatefulSet: "controlplane-database", Image: "registry.local/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Stream: func(_ context.Context, destination, name string, args ...string) error {
 		if name != "kubectl" || destination != path {
 			t.Fatalf("stream target %q %q", name, destination)
 		}
