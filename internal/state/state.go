@@ -27,13 +27,14 @@ type Components struct {
 	// lifecycle commands to reject a recovery procedure that cannot capture
 	// that engine safely. Empty is retained for receipts written before this
 	// field existed.
-	DatabaseEngine        string `json:"databaseEngine,omitempty"`
-	ArtifactServerVersion string `json:"artifactServerVersion,omitempty"`
-	DNSVersion            string `json:"dnsVersion,omitempty"`
-	InferenceVersion      string `json:"inferenceVersion,omitempty"`
-	VideoVersion          string `json:"videoVersion,omitempty"`
-	MetadataVersion       string `json:"metadataVersion,omitempty"`
-	MetadataDigest        string `json:"metadataDigest,omitempty"`
+	DatabaseEngine         string `json:"databaseEngine,omitempty"`
+	PostgresImageReference string `json:"postgresImageReference,omitempty"`
+	ArtifactServerVersion  string `json:"artifactServerVersion,omitempty"`
+	DNSVersion             string `json:"dnsVersion,omitempty"`
+	InferenceVersion       string `json:"inferenceVersion,omitempty"`
+	VideoVersion           string `json:"videoVersion,omitempty"`
+	MetadataVersion        string `json:"metadataVersion,omitempty"`
+	MetadataDigest         string `json:"metadataDigest,omitempty"`
 }
 
 // K3sOwnership records that the installed K3s belongs to this appliance
