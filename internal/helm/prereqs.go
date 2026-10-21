@@ -44,6 +44,19 @@ var requiredKeysSecretFiles = []string{
 	configurationArchiveFile,
 }
 
+// replicatedKeysSecretFiles is the material consumed by workloads outside the
+// control-plane namespace. The configuration-archive key is intentionally
+// control-plane local: it encrypts same-appliance archives and must not be
+// mounted into unrelated application workloads merely because they share the
+// authentication/signing secret replica.
+var replicatedKeysSecretFiles = []string{
+	sessionPrivateFile,
+	registryPrivateFile,
+	apiTokenPepperFile,
+	refreshPepperFile,
+	cursorHMACFile,
+}
+
 type chartPrereqs struct {
 	KeysSecretName string
 }
@@ -453,7 +466,7 @@ func EnsureKeysSecretReplica(ctx context.Context, run cli.Runner, kubeconfig, so
 	if sourceSecret.Data == nil {
 		sourceSecret.Data = map[string]string{}
 	}
-	for _, name := range requiredKeysSecretFiles {
+	for _, name := range replicatedKeysSecretFiles {
 		if strings.TrimSpace(sourceSecret.Data[name]) == "" {
 			check.Status = evidence.StatusFail
 			check.Message = fmt.Sprintf("source keys secret %s is missing %s", secretName, name)
@@ -477,7 +490,7 @@ func EnsureKeysSecretReplica(ctx context.Context, run cli.Runner, kubeconfig, so
 			targetSecret.Data = map[string]string{}
 		}
 		patchData := map[string]string{}
-		for _, name := range requiredKeysSecretFiles {
+		for _, name := range replicatedKeysSecretFiles {
 			want := strings.TrimSpace(sourceSecret.Data[name])
 			have := strings.TrimSpace(targetSecret.Data[name])
 			if have == "" {
@@ -527,7 +540,7 @@ func EnsureKeysSecretReplica(ctx context.Context, run cli.Runner, kubeconfig, so
 	created := false
 	createErr := func() error {
 		defer os.RemoveAll(tempDir)
-		for _, name := range requiredKeysSecretFiles {
+		for _, name := range replicatedKeysSecretFiles {
 			raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sourceSecret.Data[name]))
 			if err != nil {
 				return fmt.Errorf("decode source keys secret file %s: %w", name, err)
@@ -541,7 +554,7 @@ func EnsureKeysSecretReplica(ctx context.Context, run cli.Runner, kubeconfig, so
 			"--namespace", targetNamespace,
 			"create", "secret", "generic", secretName,
 		}
-		for _, name := range requiredKeysSecretFiles {
+		for _, name := range replicatedKeysSecretFiles {
 			args = append(args, "--from-file="+filepath.Join(tempDir, name))
 		}
 		_, err := run(ctx, "kubectl", args...)

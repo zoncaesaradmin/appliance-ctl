@@ -85,6 +85,10 @@ type cliOptions struct {
 	clusterSignerFingerprint      string
 	clusterInit                   bool
 	bootstrapMode                 string
+	configurationEndpoint         string
+	configurationTokenFile        string
+	configurationArchivePath      string
+	configurationArchiveKeyFile   string
 }
 
 type commandSpec struct {
@@ -116,6 +120,8 @@ var commands = []commandSpec{
 	{"cluster-node-register", true},
 	{"cluster-inference-deploy", true},
 	{"cluster-node-remove", true},
+	{"configuration-export", false},
+	{"configuration-import", true},
 }
 
 func findCommand(name string) (commandSpec, bool) {
@@ -202,6 +208,10 @@ func run(args []string) int {
 	clusterSignerFingerprint := fs.String("cluster-signer-fingerprint", "", "pinned sha256 enrollment signer fingerprint obtained from the control plane (required for cluster-join)")
 	clusterInit := fs.Bool("cluster-init", false, "first prime of a three-prime cluster: enable embedded etcd")
 	bootstrapMode := fs.String("bootstrap-mode", "fresh", "install bootstrap source: fresh, adopt, restore-config, or restore-recovery-set")
+	configurationEndpoint := fs.String("configuration-endpoint", "", "HTTPS base URL of the control-plane API for configuration export/import")
+	configurationTokenFile := fs.String("configuration-token-file", "", "protected file containing a control-plane bearer token for configuration export/import")
+	configurationArchivePath := fs.String("configuration-archive", "", "portable encrypted configuration archive file path")
+	configurationArchiveKeyFile := fs.String("configuration-archive-key-file", "", "protected file containing the 32-byte or base64-encoded archive encryption key")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -250,6 +260,10 @@ func run(args []string) int {
 		clusterSignerFingerprint:      *clusterSignerFingerprint,
 		clusterInit:                   *clusterInit,
 		bootstrapMode:                 *bootstrapMode,
+		configurationEndpoint:         *configurationEndpoint,
+		configurationTokenFile:        *configurationTokenFile,
+		configurationArchivePath:      *configurationArchivePath,
+		configurationArchiveKeyFile:   *configurationArchiveKeyFile,
 	}
 
 	logger := newLogger(redact.New(), opts.output)

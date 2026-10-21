@@ -73,6 +73,8 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 			return runVerifyBundle(opts, logger, result)
 		case "support-bundle":
 			return runSupportBundle(context.Background(), opts, logger, result)
+		case "configuration-export":
+			return runConfigurationExport(context.Background(), opts, logger, result)
 		}
 		logger.Info("running read-only command", "command", spec.name, "dryRun", opts.dryRun)
 		return finish(result, "failed", 1, notImplemented, nil)
@@ -160,6 +162,8 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 		result = runClusterInferenceDeploy(context.Background(), opts, logger, result)
 	case "cluster-node-remove":
 		result = runClusterNodeRemove(context.Background(), opts, logger, result)
+	case "configuration-import":
+		result = runConfigurationImport(context.Background(), opts, logger, result)
 	default:
 		// Command bodies land with the adapters that implement them
 		// (R1-02/R1-03+); the skeleton always ends the transaction in a

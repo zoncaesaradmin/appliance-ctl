@@ -142,7 +142,6 @@ func TestEnsureKeysSecretReplicaCopiesMaterialToAppsNamespace(t *testing.T) {
 		"api_token_pepper.key":         base64.StdEncoding.EncodeToString([]byte("api-pepper")),
 		"refresh_pepper.key":           base64.StdEncoding.EncodeToString([]byte("refresh-pepper")),
 		"cursor_hmac.key":              base64.StdEncoding.EncodeToString([]byte("cursor-secret")),
-		"configuration_archive.key":    base64.StdEncoding.EncodeToString([]byte("archive-secret")),
 	}
 	var createArgs []string
 	run := func(_ context.Context, name string, args ...string) (string, error) {
