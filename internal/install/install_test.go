@@ -1152,6 +1152,31 @@ func TestInstall_ClearsStaleInstalledStateWhenK3sArtifactsAreAbsent(t *testing.T
 	}
 }
 
+func TestInstall_StaleReceiptDoesNotPermitOverwritingPostgresData(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	saveInstalledState(t, opts.InstalledStatePath, "2.4.0")
+	opts.ControlPlaneDatabaseDataDir = filepath.Join(t.TempDir(), "controlplane-database")
+	if err := os.MkdirAll(opts.ControlPlaneDatabaseDataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opts.ControlPlaneDatabaseDataDir, "PG_VERSION"), []byte("17\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil || !strings.Contains(err.Error(), "already contains data") {
+		t.Fatalf("expected stale receipt to retain PostgreSQL data guard, got: %v", err)
+	}
+	if len(fcli.calls) != 0 {
+		t.Fatalf("expected no Helm or image mutations after database guard, got %v", fcli.calls)
+	}
+}
+
 func TestInstall_RefusesStaleInstalledStateWhenK3sArtifactsRemain(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)

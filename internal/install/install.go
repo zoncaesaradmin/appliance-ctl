@@ -399,15 +399,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		if databaseDir == "" {
 			databaseDir = hostdirs.ControlPlaneDatabaseDataDir
 		}
-		if existing == nil {
-			nonEmpty, err := nonEmptyDirectory(databaseDir)
-			if err != nil {
-				return nil, checks, fmt.Errorf("install: inspect control-plane database directory: %w", err)
-			}
-			if nonEmpty {
-				return nil, checks, fmt.Errorf("install: control-plane database directory %s already contains data; choose an explicit adopt or restore bootstrap mode instead of fresh install", databaseDir)
-			}
-		}
 		if err := o.EnsureOwnedDir(databaseDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.PrivateServiceDirMode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare control-plane database directory: %w", err)
 		}
@@ -484,6 +475,23 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 		existing = nil
+	}
+	// A stale installed-state receipt cannot authorize overwriting durable
+	// PostgreSQL state. Check after the stale-receipt path has made its final
+	// ownership decision; otherwise that receipt would suppress the fresh
+	// install protection.
+	if resolved.PostgresImageReference != "" && existing == nil {
+		databaseDir := strings.TrimSpace(opts.ControlPlaneDatabaseDataDir)
+		if databaseDir == "" {
+			databaseDir = hostdirs.ControlPlaneDatabaseDataDir
+		}
+		nonEmpty, err := nonEmptyDirectory(databaseDir)
+		if err != nil {
+			return nil, checks, fmt.Errorf("install: inspect control-plane database directory: %w", err)
+		}
+		if nonEmpty {
+			return nil, checks, fmt.Errorf("install: control-plane database directory %s already contains data; choose an explicit adopt or restore bootstrap mode instead of fresh install", databaseDir)
+		}
 	}
 	if existing == nil && signal.Detected && signal.Active {
 		healthy, foreignNamespaces, inspectErr := k3s.InspectCluster(ctx, o.ClusterRun, opts.KubeconfigPath, opts.ChartNamespace)
