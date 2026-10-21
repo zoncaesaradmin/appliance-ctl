@@ -543,7 +543,7 @@ func TestRun_BackupRefusesLegacySnapshotForPostgresControlPlane(t *testing.T) {
 	if code != 1 {
 		t.Errorf("expected exit code 1, got %d", code)
 	}
-	if !strings.Contains(out, "omits the control-plane database") {
+	if !strings.Contains(out, "requires --recovery-set") {
 		t.Errorf("expected PostgreSQL safety refusal, got: %s", out)
 	}
 }

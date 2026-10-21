@@ -2,10 +2,8 @@ package recoveryset
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -20,6 +18,7 @@ type KubernetesPostgresExporter struct {
 	Image                              string
 	Stream                             func(context.Context, string, string, ...string) error
 	Run                                cli.Runner
+	Apply                              cli.InputRunner
 }
 
 func (e KubernetesPostgresExporter) Export(ctx context.Context, destination string) (DatabaseArtifact, error) {
@@ -33,12 +32,11 @@ func (e KubernetesPostgresExporter) Export(ctx context.Context, destination stri
 	if err := e.Stream(ctx, destination, "kubectl", args...); err != nil {
 		return DatabaseArtifact{}, fmt.Errorf("recovery set: pg_dump: %w", err)
 	}
-	data, err := os.ReadFile(destination)
+	sum, err := ChecksumFile(destination)
 	if err != nil {
-		return DatabaseArtifact{}, err
+		return DatabaseArtifact{}, fmt.Errorf("recovery set: checksum logical dump: %w", err)
 	}
-	sum := sha256.Sum256(data)
-	return DatabaseArtifact{Engine: "postgres", Format: "custom", Path: destination, SHA256: hex.EncodeToString(sum[:])}, nil
+	return DatabaseArtifact{Engine: "postgres", Format: "custom", Path: destination, SHA256: sum}, nil
 }
 
 func (e KubernetesPostgresExporter) VerifyRestore(ctx context.Context, artifact DatabaseArtifact) error {
@@ -49,6 +47,9 @@ func (e KubernetesPostgresExporter) verifyRestore(ctx context.Context, artifact 
 	if e.Run == nil {
 		e.Run = cli.Exec
 	}
+	if e.Apply == nil {
+		e.Apply = cli.ExecInput
+	}
 	if e.Kubeconfig == "" || e.Namespace == "" || !strings.HasPrefix(e.Image, "registry.local/postgres@sha256:") {
 		return fmt.Errorf("recovery set: Kubernetes PostgreSQL verifier is incomplete")
 	}
@@ -57,7 +58,26 @@ func (e KubernetesPostgresExporter) verifyRestore(ctx context.Context, artifact 
 	}
 	name := "recovery-verify-" + artifact.SHA256[:12]
 	base := []string{"--kubeconfig", e.Kubeconfig, "--namespace", e.Namespace}
-	if _, err := e.Run(ctx, "kubectl", append(base, "run", name, "--image="+e.Image, "--restart=Never", "--env=POSTGRES_HOST_AUTH_METHOD=trust", "--command", "--", "postgres")...); err != nil {
+	manifest, err := json.Marshal(map[string]any{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]any{"name": name, "labels": map[string]string{"app.kubernetes.io/name": "controlplane-database-recovery-verify"}},
+		"spec": map[string]any{
+			"restartPolicy": "Never", "automountServiceAccountToken": false,
+			"securityContext": map[string]any{"runAsNonRoot": true, "runAsUser": 70, "runAsGroup": 70, "fsGroup": 70, "fsGroupChangePolicy": "OnRootMismatch", "seccompProfile": map[string]string{"type": "RuntimeDefault"}},
+			"containers": []any{map[string]any{
+				"name": "postgres", "image": e.Image, "imagePullPolicy": "IfNotPresent", "args": []string{"postgres"},
+				"env":             []map[string]string{{"name": "POSTGRES_HOST_AUTH_METHOD", "value": "trust"}},
+				"securityContext": map[string]any{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": map[string][]string{"drop": {"ALL"}}},
+				"resources":       map[string]any{"requests": map[string]string{"cpu": "25m", "memory": "64Mi"}, "limits": map[string]string{"cpu": "250m", "memory": "256Mi"}},
+				"volumeMounts":    []map[string]string{{"name": "data", "mountPath": "/var/lib/postgresql/data"}, {"name": "tmp", "mountPath": "/tmp"}, {"name": "run", "mountPath": "/var/run/postgresql"}},
+			}},
+			"volumes": []map[string]any{{"name": "data", "emptyDir": map[string]any{}}, {"name": "tmp", "emptyDir": map[string]any{}}, {"name": "run", "emptyDir": map[string]any{}}},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("recovery set: encode verifier pod: %w", err)
+	}
+	if _, err := e.Apply(ctx, manifest, "kubectl", append(base, "apply", "-f", "-")...); err != nil {
 		return fmt.Errorf("recovery set: create isolated PostgreSQL verifier: %w", err)
 	}
 	defer func() {

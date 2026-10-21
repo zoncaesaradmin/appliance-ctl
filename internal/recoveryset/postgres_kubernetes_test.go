@@ -38,7 +38,12 @@ func TestKubernetesPostgresExporterStreamsCustomDump(t *testing.T) {
 
 func TestKubernetesPostgresExporterVerifiesInDisposablePod(t *testing.T) {
 	var calls []string
-	e := KubernetesPostgresExporter{Kubeconfig: "/kube", Namespace: "ace-infra", Image: "registry.local/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Run: func(_ context.Context, name string, args ...string) (string, error) {
+	var applied []byte
+	e := KubernetesPostgresExporter{Kubeconfig: "/kube", Namespace: "ace-infra", Image: "registry.local/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Apply: func(_ context.Context, input []byte, name string, args ...string) (string, error) {
+		applied = append([]byte(nil), input...)
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return "", nil
+	}, Run: func(_ context.Context, name string, args ...string) (string, error) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return "", nil
 	}}
@@ -47,9 +52,14 @@ func TestKubernetesPostgresExporterVerifiesInDisposablePod(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(calls, "\n")
-	for _, want := range []string{"run recovery-verify-bbbbbbbbbbbb", "--image=registry.local/postgres@sha256:", "cp /tmp/database.dump", "pg_restore --list", "delete pod recovery-verify-bbbbbbbbbbbb"} {
+	for _, want := range []string{"apply -f -", "cp /tmp/database.dump", "pg_restore --list", "delete pod recovery-verify-bbbbbbbbbbbb"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("calls missing %q:\n%s", want, joined)
+		}
+	}
+	for _, want := range []string{"runAsNonRoot", "runAsUser", "RuntimeDefault", "memory", "256Mi"} {
+		if !strings.Contains(string(applied), want) {
+			t.Fatalf("restricted verifier manifest missing %q: %s", want, applied)
 		}
 	}
 }

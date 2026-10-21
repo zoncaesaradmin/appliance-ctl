@@ -70,7 +70,7 @@ func runBackup(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		return finish(result, "failed", 1, "backup: nothing is installed on this host", nil)
 	}
 	if usesPostgresControlPlane(installed, opts.nodeName) {
-		return finish(result, "failed", 1, "backup: "+postgresRecoveryUnsupported, nil)
+		return runPostgresRecoveryBackup(ctx, opts, installed, logger, result)
 	}
 
 	ops := k3s.DefaultOps()

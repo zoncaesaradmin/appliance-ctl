@@ -89,6 +89,7 @@ type cliOptions struct {
 	configurationTokenFile        string
 	configurationArchivePath      string
 	configurationArchiveKeyFile   string
+	recoverySetPath               string
 }
 
 type commandSpec struct {
@@ -213,6 +214,7 @@ func run(args []string) int {
 	configurationTokenFile := fs.String("configuration-token-file", "", "protected file containing a control-plane bearer token for configuration export/import")
 	configurationArchivePath := fs.String("configuration-archive", "", "portable encrypted configuration archive file path")
 	configurationArchiveKeyFile := fs.String("configuration-archive-key-file", "", "protected file containing the 32-byte or base64-encoded archive encryption key")
+	recoverySetPath := fs.String("recovery-set", "", "empty destination directory for a PostgreSQL recovery set (required by backup on PostgreSQL installations)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -265,6 +267,7 @@ func run(args []string) int {
 		configurationTokenFile:        *configurationTokenFile,
 		configurationArchivePath:      *configurationArchivePath,
 		configurationArchiveKeyFile:   *configurationArchiveKeyFile,
+		recoverySetPath:               *recoverySetPath,
 	}
 
 	logger := newLogger(redact.New(), opts.output)

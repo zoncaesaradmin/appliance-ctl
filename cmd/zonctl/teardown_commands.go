@@ -13,6 +13,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/recoveryset"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/teardown"
 )
@@ -69,13 +70,26 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	}
 
 	backupVerified := false
+	// PostgreSQL recovery sets live at an operator-chosen durable location;
+	// unlike legacy backup IDs, they are intentionally not retained in the
+	// state directory that factory-reset destroys.
+	if opts.recoverySetPath != "" {
+		set, err := recoveryset.Load(opts.recoverySetPath)
+		if err != nil {
+			return finish(result, "failed", 1, "factory-reset: load recovery set: "+err.Error(), nil)
+		}
+		if err := recoveryset.VerifyFiles(opts.recoverySetPath, set); err != nil {
+			return finish(result, "failed", 1, "factory-reset: recovery set verification failed: "+err.Error(), nil)
+		}
+		backupVerified = true
+	}
 	if opts.backupID != "" {
 		installed, stateErr := state.Load(installedStatePath(opts.stateDir))
 		if stateErr != nil {
 			return finish(result, "failed", 1, stateErr.Error(), nil)
 		}
 		if usesPostgresControlPlane(installed, opts.nodeName) {
-			return finish(result, "failed", 1, "factory-reset: supplied legacy backup cannot protect PostgreSQL data; use --force-data-loss or wait for PostgreSQL recovery-set support", nil)
+			return finish(result, "failed", 1, "factory-reset: supplied legacy backup cannot protect PostgreSQL data; supply --recovery-set or --force-data-loss", nil)
 		}
 		backupDir := filepath.Join(backupRootDir(opts.stateDir), opts.backupID)
 		if _, err := backup.Verify(backupDir); err != nil {
@@ -85,7 +99,7 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 		backupVerified = true
 	}
 	if !backupVerified && !opts.forceDataLoss {
-		return finish(result, "failed", 1, "factory-reset: requires --backup-id <verified backup> or --force-data-loss", nil)
+		return finish(result, "failed", 1, "factory-reset: requires --backup-id <verified backup>, --recovery-set <verified directory>, or --force-data-loss", nil)
 	}
 
 	ops := k3s.DefaultOps()
