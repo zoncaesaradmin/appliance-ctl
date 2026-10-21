@@ -49,20 +49,21 @@ func (f *fakeK3s) ops() k3s.Ops {
 }
 
 type installedFiles struct {
-	stateDir           string
-	binaryPath         string
-	configPath         string
-	registriesPath     string
-	unitPath           string
-	kubectlSymlinkPath string
-	installedStatePath string
-	dataDir            string
-	metadataBundlesDir string
-	inferenceModelsDir string
-	workspaceRootDir   string
-	workspaceFilePath  string
-	zonctlRealPath     string
-	zonctlLauncherPath string
+	stateDir                string
+	binaryPath              string
+	configPath              string
+	registriesPath          string
+	unitPath                string
+	kubectlSymlinkPath      string
+	installedStatePath      string
+	dataDir                 string
+	controlPlaneDatabaseDir string
+	metadataBundlesDir      string
+	inferenceModelsDir      string
+	workspaceRootDir        string
+	workspaceFilePath       string
+	zonctlRealPath          string
+	zonctlLauncherPath      string
 	// Other things stateDir accumulates over normal operation, besides
 	// installed-state.json — factory-reset must wipe these too, not just
 	// that one file.
@@ -76,23 +77,24 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 	t.Helper()
 	stateDir := t.TempDir()
 	f := installedFiles{
-		stateDir:            stateDir,
-		binaryPath:          filepath.Join(stateDir, "..", "bin", "k3s"),
-		configPath:          filepath.Join(stateDir, "..", "k3s", "config.yaml"),
-		registriesPath:      filepath.Join(stateDir, "..", "k3s", "registries.yaml"),
-		unitPath:            filepath.Join(stateDir, "..", "systemd", "k3s.service"),
-		kubectlSymlinkPath:  filepath.Join(stateDir, "..", "bin", "kubectl"),
-		installedStatePath:  filepath.Join(stateDir, "installed-state.json"),
-		dataDir:             filepath.Join(stateDir, "..", "k3s-data"),
-		metadataBundlesDir:  filepath.Join(stateDir, "..", "data", "zon", "metadata-bundles"),
-		inferenceModelsDir:  filepath.Join(stateDir, "..", "data", "zon", "inference", "models"),
-		workspaceRootDir:    filepath.Join(stateDir, "..", "data", "zon", "workspaces"),
-		zonctlRealPath:      filepath.Join(stateDir, "..", "zonctl-lib", "bin", "zonctl-real"),
-		zonctlLauncherPath:  filepath.Join(stateDir, "..", "bin", "zonctl"),
-		installerLockPath:   filepath.Join(stateDir, "installer.lock"),
-		transactionJSONPath: filepath.Join(stateDir, "transaction.json"),
-		evidenceFilePath:    filepath.Join(stateDir, "evidence", "evidence-txn-0001.json"),
-		backupFilePath:      filepath.Join(stateDir, "backups", "backup-0001", "manifest.json"),
+		stateDir:                stateDir,
+		binaryPath:              filepath.Join(stateDir, "..", "bin", "k3s"),
+		configPath:              filepath.Join(stateDir, "..", "k3s", "config.yaml"),
+		registriesPath:          filepath.Join(stateDir, "..", "k3s", "registries.yaml"),
+		unitPath:                filepath.Join(stateDir, "..", "systemd", "k3s.service"),
+		kubectlSymlinkPath:      filepath.Join(stateDir, "..", "bin", "kubectl"),
+		installedStatePath:      filepath.Join(stateDir, "installed-state.json"),
+		dataDir:                 filepath.Join(stateDir, "..", "k3s-data"),
+		controlPlaneDatabaseDir: filepath.Join(stateDir, "..", "data", "zon", "controlplane-database"),
+		metadataBundlesDir:      filepath.Join(stateDir, "..", "data", "zon", "metadata-bundles"),
+		inferenceModelsDir:      filepath.Join(stateDir, "..", "data", "zon", "inference", "models"),
+		workspaceRootDir:        filepath.Join(stateDir, "..", "data", "zon", "workspaces"),
+		zonctlRealPath:          filepath.Join(stateDir, "..", "zonctl-lib", "bin", "zonctl-real"),
+		zonctlLauncherPath:      filepath.Join(stateDir, "..", "bin", "zonctl"),
+		installerLockPath:       filepath.Join(stateDir, "installer.lock"),
+		transactionJSONPath:     filepath.Join(stateDir, "transaction.json"),
+		evidenceFilePath:        filepath.Join(stateDir, "evidence", "evidence-txn-0001.json"),
+		backupFilePath:          filepath.Join(stateDir, "backups", "backup-0001", "manifest.json"),
 	}
 	f.workspaceFilePath = filepath.Join(f.workspaceRootDir, "myws", "repo", "README.md")
 	helmPath := filepath.Join(filepath.Dir(f.zonctlRealPath), "helm")
@@ -112,6 +114,12 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(f.dataDir, "state.db"), []byte("appliance data"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(f.controlPlaneDatabaseDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.controlPlaneDatabaseDir, "PG_VERSION"), []byte("17\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(f.metadataBundlesDir, "appliance-metadata-bundle-2.4.0.0"), 0o750); err != nil {
@@ -137,7 +145,7 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 
 func runFactoryResetForTest(t *testing.T, f installedFiles, fake *fakeK3s, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) error {
 	t.Helper()
-	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.metadataBundlesDir, f.inferenceModelsDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
+	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.controlPlaneDatabaseDir, f.metadataBundlesDir, f.inferenceModelsDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
 	return err
 }
 
@@ -296,6 +304,9 @@ func TestFactoryReset_WipesDataWithVerifiedBackup(t *testing.T) {
 	}
 	if _, err := os.Stat(f.dataDir); !os.IsNotExist(err) {
 		t.Errorf("expected the data directory to be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(f.controlPlaneDatabaseDir); !os.IsNotExist(err) {
+		t.Errorf("expected the control-plane database directory to be removed, stat err=%v", err)
 	}
 	if _, err := os.Stat(f.metadataBundlesDir); !os.IsNotExist(err) {
 		t.Errorf("expected the metadata-bundles directory to be removed, stat err=%v", err)

@@ -136,14 +136,15 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 	return checks, nil
 }
 
-// FactoryReset does everything Uninstall does, plus wipes dataDir,
-// stateDir, host-visible inference models, and removes zonctl itself.
+// FactoryReset does everything Uninstall does, plus wipes K3s data,
+// control-plane PostgreSQL data, stateDir, host-visible inference models, and
+// removes zonctl itself.
 // Builder workspaces are preserved unless wipeWorkspaces is explicitly
 // requested. It refuses outright unless recentBackupVerified or
 // dataLossOverride is true: "factory-reset requires a recent verified
 // backup or a separately confirmed data-loss override," never both
 // silently assumed.
-func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, metadataBundlesDir, inferenceModelsDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
+func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, controlPlaneDatabaseDir, metadataBundlesDir, inferenceModelsDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
 	if !recentBackupVerified && !dataLossOverride {
 		return nil, fmt.Errorf("teardown: factory-reset requires a recent verified backup or an explicit data-loss override")
 	}
@@ -166,6 +167,21 @@ func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPa
 		ID: "teardown-wipe-data", Category: "backup-restore", Status: evidence.StatusPass,
 		Message: "appliance data directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
+
+	// PostgreSQL uses a static hostPath outside K3s's own data directory.
+	// Leaving it behind makes the next fresh install correctly refuse to
+	// overwrite it, but would make factory-reset fail to deliver its promised
+	// clean target. A recovery set is required when this data must survive.
+	controlPlaneDatabaseDir = filepath.Clean(strings.TrimSpace(controlPlaneDatabaseDir))
+	if controlPlaneDatabaseDir != "" && controlPlaneDatabaseDir != "." && controlPlaneDatabaseDir != string(filepath.Separator) && filepath.IsAbs(controlPlaneDatabaseDir) {
+		if err := os.RemoveAll(controlPlaneDatabaseDir); err != nil {
+			return checks, fmt.Errorf("teardown: remove control-plane database directory: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "teardown-wipe-controlplane-database", Category: "backup-restore", Status: evidence.StatusPass,
+			Message: "control-plane PostgreSQL data directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	metadataBundlesDir = strings.TrimSpace(metadataBundlesDir)
 	if metadataBundlesDir == "" {
