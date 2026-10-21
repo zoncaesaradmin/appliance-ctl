@@ -82,28 +82,64 @@ func runConfigurationImport(ctx context.Context, opts cliOptions, logger *slog.L
 	return finish(result, "succeeded", 0, "configuration archive imported; reconciliation is pending", configurationData(manifest.ArchiveID, manifest.RevisionID, ""))
 }
 
+func runConfigurationList(ctx context.Context, opts cliOptions, result commandResult) commandResult {
+	endpoint, token, err := configurationEndpointToken(opts)
+	if err != nil {
+		return finish(result, "failed", 1, "configuration-list: "+err.Error(), nil)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/api/v1/configuration/archives", nil)
+	if err != nil {
+		return finish(result, "failed", 1, "configuration-list: "+err.Error(), nil)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := configurationHTTPClient.Do(req)
+	if err != nil {
+		return finish(result, "failed", 1, "configuration-list: "+err.Error(), nil)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return finish(result, "failed", 1, "configuration-list: "+apiFailure(resp).Error(), nil)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || !json.Valid(body) {
+		return finish(result, "failed", 1, "configuration-list: invalid archive list response", nil)
+	}
+	return finish(result, "succeeded", 0, "verified configuration archives listed", json.RawMessage(body))
+}
+
 func configurationData(archiveID, revisionID, path string) json.RawMessage {
 	data, _ := json.Marshal(map[string]string{"archiveId": archiveID, "revisionId": revisionID, "path": path})
 	return data
 }
 
 func configurationCommandInputs(opts cliOptions) (string, string, []byte, error) {
-	if opts.configurationEndpoint == "" || opts.configurationTokenFile == "" || opts.configurationArchiveKeyFile == "" {
+	endpoint, token, err := configurationEndpointToken(opts)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if opts.configurationArchiveKeyFile == "" {
 		return "", "", nil, fmt.Errorf("--configuration-endpoint, --configuration-token-file, and --configuration-archive-key-file are required")
-	}
-	u, err := url.Parse(opts.configurationEndpoint)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return "", "", nil, fmt.Errorf("--configuration-endpoint must be an absolute HTTPS URL")
-	}
-	tokenData, err := os.ReadFile(opts.configurationTokenFile)
-	if err != nil || strings.TrimSpace(string(tokenData)) == "" {
-		return "", "", nil, fmt.Errorf("read non-empty configuration token file")
 	}
 	key, err := readConfigurationArchiveKey(opts.configurationArchiveKeyFile)
 	if err != nil {
 		return "", "", nil, err
 	}
-	return strings.TrimRight(opts.configurationEndpoint, "/"), strings.TrimSpace(string(tokenData)), key, nil
+	return endpoint, token, key, nil
+}
+
+func configurationEndpointToken(opts cliOptions) (string, string, error) {
+	if opts.configurationEndpoint == "" || opts.configurationTokenFile == "" {
+		return "", "", fmt.Errorf("--configuration-endpoint and --configuration-token-file are required")
+	}
+	u, err := url.Parse(opts.configurationEndpoint)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return "", "", fmt.Errorf("--configuration-endpoint must be an absolute HTTPS URL")
+	}
+	tokenData, err := os.ReadFile(opts.configurationTokenFile)
+	if err != nil || strings.TrimSpace(string(tokenData)) == "" {
+		return "", "", fmt.Errorf("read non-empty configuration token file")
+	}
+	return strings.TrimRight(opts.configurationEndpoint, "/"), strings.TrimSpace(string(tokenData)), nil
 }
 
 func readConfigurationArchiveKey(path string) ([]byte, error) {

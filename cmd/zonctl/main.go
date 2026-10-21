@@ -121,6 +121,7 @@ var commands = []commandSpec{
 	{"cluster-inference-deploy", true},
 	{"cluster-node-remove", true},
 	{"configuration-export", false},
+	{"configuration-list", false},
 	{"configuration-import", true},
 }
 
