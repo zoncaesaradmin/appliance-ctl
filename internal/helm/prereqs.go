@@ -21,13 +21,14 @@ import (
 )
 
 const (
-	sessionPrivateFile  = "session_ed25519_private.key"
-	registryPrivateFile = "registry_ed25519_private.key"
-	registryPublicFile  = "registry_ed25519_public.pem"
-	apiTokenPepperFile  = "api_token_pepper.key"
-	refreshPepperFile   = "refresh_pepper.key"
-	cursorHMACFile      = "cursor_hmac.key"
-	pepperLength        = 32
+	sessionPrivateFile       = "session_ed25519_private.key"
+	registryPrivateFile      = "registry_ed25519_private.key"
+	registryPublicFile       = "registry_ed25519_public.pem"
+	apiTokenPepperFile       = "api_token_pepper.key"
+	refreshPepperFile        = "refresh_pepper.key"
+	cursorHMACFile           = "cursor_hmac.key"
+	configurationArchiveFile = "configuration_archive.key"
+	pepperLength             = 32
 )
 
 // requiredKeysSecretFiles is the exact set control-plane LoadOrGenerate expects
@@ -40,6 +41,7 @@ var requiredKeysSecretFiles = []string{
 	apiTokenPepperFile,
 	refreshPepperFile,
 	cursorHMACFile,
+	configurationArchiveFile,
 }
 
 type chartPrereqs struct {
@@ -671,7 +673,7 @@ func generateKeysSecretFileContent(name string) ([]byte, error) {
 			return nil, err
 		}
 		return []byte(base64.StdEncoding.EncodeToString(seed)), nil
-	case apiTokenPepperFile, refreshPepperFile, cursorHMACFile:
+	case apiTokenPepperFile, refreshPepperFile, cursorHMACFile, configurationArchiveFile:
 		raw, err := generateRandomBytes(pepperLength)
 		if err != nil {
 			return nil, err

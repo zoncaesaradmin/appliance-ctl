@@ -65,6 +65,7 @@ func TestEnsureReleasePrereqsCreatesKeysSecretWithCursorHMAC(t *testing.T) {
 		"api_token_pepper.key",
 		"refresh_pepper.key",
 		"cursor_hmac.key",
+		"configuration_archive.key",
 	} {
 		if _, ok := fromFiles[name]; !ok {
 			t.Fatalf("create secret args missing --from-file for %s; got %v", name, createArgs)
@@ -117,7 +118,7 @@ func TestEnsureReleasePrereqsPatchesMissingCursorHMAC(t *testing.T) {
 		t.Fatal(err)
 	}
 	if patchBody == "" {
-		t.Fatal("expected keys secret to be patched with missing cursor_hmac.key")
+		t.Fatal("expected keys secret to be patched with missing cursor/archive key material")
 	}
 	var patch map[string]map[string]string
 	if err := json.Unmarshal([]byte(patchBody), &patch); err != nil {
@@ -125,6 +126,9 @@ func TestEnsureReleasePrereqsPatchesMissingCursorHMAC(t *testing.T) {
 	}
 	if _, ok := patch["data"]["cursor_hmac.key"]; !ok {
 		t.Fatalf("expected cursor_hmac.key in patch data, got %v", patch)
+	}
+	if _, ok := patch["data"]["configuration_archive.key"]; !ok {
+		t.Fatalf("expected configuration_archive.key in patch data, got %v", patch)
 	}
 	if _, ok := patch["data"]["session_ed25519_private.key"]; ok {
 		t.Fatal("must not rotate existing session key when only cursor_hmac is missing")
@@ -138,6 +142,7 @@ func TestEnsureKeysSecretReplicaCopiesMaterialToAppsNamespace(t *testing.T) {
 		"api_token_pepper.key":         base64.StdEncoding.EncodeToString([]byte("api-pepper")),
 		"refresh_pepper.key":           base64.StdEncoding.EncodeToString([]byte("refresh-pepper")),
 		"cursor_hmac.key":              base64.StdEncoding.EncodeToString([]byte("cursor-secret")),
+		"configuration_archive.key":    base64.StdEncoding.EncodeToString([]byte("archive-secret")),
 	}
 	var createArgs []string
 	run := func(_ context.Context, name string, args ...string) (string, error) {
