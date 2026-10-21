@@ -570,13 +570,27 @@ func EnsureKeysSecretReplica(ctx context.Context, run cli.Runner, kubeconfig, so
 // control-plane namespace. Kubernetes Secrets are namespace-scoped, while the
 // S3 service intentionally lives in ace-infra.
 func EnsureBlobStorageCredentialsReplica(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, targetNamespace, secretName string) (PreparedRelease, error) {
+	return ensureSecretDataReplica(ctx, run, kubeconfig, sourceNamespace, targetNamespace, secretName,
+		[]string{"accessKey", "secretKey"}, "blob credentials", "chart-prereq-blob-credentials-replica")
+}
+
+// EnsurePostgresConnectionReplica mirrors the private local PostgreSQL
+// connection material from ace-infra into ace-system. The database and its
+// authoritative credentials remain infrastructure-owned; the control-plane
+// namespace receives only the Secret it must mount to construct its provider.
+func EnsurePostgresConnectionReplica(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, targetNamespace, secretName string) (PreparedRelease, error) {
+	return ensureSecretDataReplica(ctx, run, kubeconfig, sourceNamespace, targetNamespace, secretName,
+		[]string{"password", "dsn"}, "PostgreSQL connection", "chart-prereq-postgresql-connection-replica")
+}
+
+func ensureSecretDataReplica(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, targetNamespace, secretName string, keys []string, description, checkID string) (PreparedRelease, error) {
 	prepared := PreparedRelease{}
 	if err := EnsureNamespace(ctx, run, kubeconfig, targetNamespace, nil); err != nil {
 		return prepared, err
 	}
 	sourceOut, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", sourceNamespace, "get", "secret", secretName, "-o", "json")
 	if err != nil {
-		return prepared, fmt.Errorf("helm: read blob credentials %s/%s: %w", sourceNamespace, secretName, err)
+		return prepared, fmt.Errorf("helm: read %s %s/%s: %w", description, sourceNamespace, secretName, err)
 	}
 	sourcePayload, err := extractJSONObject(sourceOut)
 	if err != nil {
@@ -586,9 +600,9 @@ func EnsureBlobStorageCredentialsReplica(ctx context.Context, run cli.Runner, ku
 	if err := json.Unmarshal(sourcePayload, &source); err != nil {
 		return prepared, err
 	}
-	for _, key := range []string{"accessKey", "secretKey"} {
+	for _, key := range keys {
 		if strings.TrimSpace(source.Data[key]) == "" {
-			return prepared, fmt.Errorf("helm: blob credentials %s missing %s", secretName, key)
+			return prepared, fmt.Errorf("helm: %s %s missing %s", description, secretName, key)
 		}
 	}
 	targetOut, targetErr := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace, "get", "secret", secretName, "-o", "json")
@@ -601,9 +615,9 @@ func EnsureBlobStorageCredentialsReplica(ctx context.Context, run cli.Runner, ku
 		if err := json.Unmarshal(targetPayload, &target); err != nil {
 			return prepared, err
 		}
-		for _, key := range []string{"accessKey", "secretKey"} {
+		for _, key := range keys {
 			if strings.TrimSpace(target.Data[key]) != source.Data[key] {
-				return prepared, fmt.Errorf("helm: blob credentials conflict for %s in %s", key, targetNamespace)
+				return prepared, fmt.Errorf("helm: %s conflict for %s in %s", description, key, targetNamespace)
 			}
 		}
 		return prepared, nil
@@ -611,13 +625,13 @@ func EnsureBlobStorageCredentialsReplica(ctx context.Context, run cli.Runner, ku
 	if !secretNotFound(targetErr) {
 		return prepared, targetErr
 	}
-	tempDir, err := os.MkdirTemp("", "appliance-blob-credentials-*")
+	tempDir, err := os.MkdirTemp("", "appliance-secret-replica-*")
 	if err != nil {
 		return prepared, err
 	}
 	defer os.RemoveAll(tempDir)
 	args := []string{"--kubeconfig", kubeconfig, "--namespace", targetNamespace, "create", "secret", "generic", secretName}
-	for _, key := range []string{"accessKey", "secretKey"} {
+	for _, key := range keys {
 		raw, err := base64.StdEncoding.DecodeString(source.Data[key])
 		if err != nil {
 			return prepared, err
@@ -629,9 +643,9 @@ func EnsureBlobStorageCredentialsReplica(ctx context.Context, run cli.Runner, ku
 		args = append(args, "--from-file="+path)
 	}
 	if _, err := run(ctx, "kubectl", args...); err != nil && !secretAlreadyExists(err) {
-		return prepared, fmt.Errorf("helm: create blob credential replica: %w", err)
+		return prepared, fmt.Errorf("helm: create %s replica: %w", description, err)
 	}
-	prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-blob-credentials-replica", Category: "chart", Status: evidence.StatusPass, Message: fmt.Sprintf("replicated blob credentials into %s", targetNamespace), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+	prepared.Checks = append(prepared.Checks, evidence.Check{ID: checkID, Category: "chart", Status: evidence.StatusPass, Message: fmt.Sprintf("replicated %s into %s", description, targetNamespace), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 	return prepared, nil
 }
 

@@ -402,6 +402,13 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		}})
 		return string(payload), nil
 	}
+	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") && strings.Contains(call, "postgresql-connection") {
+		payload, _ := json.Marshal(map[string]any{"data": map[string]string{
+			"password": base64.StdEncoding.EncodeToString([]byte("postgres-password")),
+			"dsn":      base64.StdEncoding.EncodeToString([]byte("postgresql://controlplane:postgres-password@postgresql.ace-infra.svc.cluster.local:5432/controlplane?sslmode=disable")),
+		}})
+		return string(payload), nil
+	}
 	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") &&
 		(strings.Contains(call, "appliance-ca") || strings.Contains(call, "appliance-tls")) {
 		return "", errors.New("simulated missing secret")
@@ -1219,6 +1226,36 @@ func TestInstall_ReplicatesAppsKeysOnlyAfterAceSystemRelease(t *testing.T) {
 	}
 	if replicaIndex <= set0Index {
 		t.Fatalf("expected ace-apps keys replica after ace-system release, got release index %d and replica index %d\ncalls: %v", set0Index, replicaIndex, fcli.calls)
+	}
+}
+
+func TestInstall_ReplicatesPostgresConnectionBeforeAceSystemRelease(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+
+	replicaIndex := findCallIndex(fcli.calls, func(call string) bool {
+		return strings.Contains(call, "kubectl") &&
+			strings.Contains(call, "--namespace "+productconfig.InfrastructureNamespace) &&
+			strings.Contains(call, "get secret postgresql-connection -o json")
+	})
+	if replicaIndex < 0 {
+		t.Fatalf("missing ace-infra PostgreSQL connection Secret lookup in %v", fcli.calls)
+	}
+	aceSystemIndex := findCallIndex(fcli.calls, func(call string) bool {
+		return strings.Contains(call, "helm") &&
+			strings.Contains(call, "upgrade --install "+opts.ChartReleaseName+" ") &&
+			strings.Contains(call, "--namespace "+opts.ChartNamespace)
+	})
+	if aceSystemIndex < 0 || replicaIndex >= aceSystemIndex {
+		t.Fatalf("expected PostgreSQL Secret replica before ace-system release, got replica index %d and release index %d\ncalls: %v", replicaIndex, aceSystemIndex, fcli.calls)
 	}
 }
 

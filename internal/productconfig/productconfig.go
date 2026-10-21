@@ -482,7 +482,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		if postgres == nil {
 			postgres = map[string]any{}
 		}
-		postgres["connectionSecretName"] = "appliance-postgres"
+		postgres["connectionSecretName"] = "postgresql-connection"
 		local, _ := postgres["local"].(map[string]any)
 		if local == nil {
 			local = map[string]any{}

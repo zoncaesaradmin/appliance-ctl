@@ -976,6 +976,22 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, blobDiag)...)
 		return nil, checks, failInstall(fmt.Errorf("install: wait for blob storage: %w", waitErr), cleanupOnFailure())
 	}
+	if resolved.PostgresImageReference != "" {
+		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, "postgresql", "postgresql-ready")
+		checks = append(checks, ready)
+		if waitErr != nil {
+			postgresDiag := aceInfraRelease
+			postgresDiag.Namespace = productconfig.InfrastructureNamespace
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, postgresDiag)...)
+			return nil, checks, failInstall(fmt.Errorf("install: wait for PostgreSQL: %w", waitErr), cleanupOnFailure())
+		}
+		postgresReplica, postgresReplicaErr := helm.EnsurePostgresConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+			productconfig.InfrastructureNamespace, opts.ChartNamespace, "postgresql-connection")
+		checks = append(checks, postgresReplica.Checks...)
+		if postgresReplicaErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", postgresReplicaErr), cleanupOnFailure())
+		}
+	}
 	blobReplica, blobReplicaErr := helm.EnsureBlobStorageCredentialsReplica(ctx, o.HelmRun, opts.KubeconfigPath,
 		productconfig.InfrastructureNamespace, opts.ChartNamespace, "blob-storage-credentials")
 	checks = append(checks, blobReplica.Checks...)
@@ -1007,14 +1023,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	if set2Result.rollback != nil {
 		rollbacks = append(rollbacks, set2Result.rollback)
-	}
-	if resolved.PostgresImageReference != "" {
-		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, "appliance-postgres", "appliance-postgres-ready")
-		checks = append(checks, ready)
-		if waitErr != nil {
-			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, aceSystemRelease)...)
-			return nil, checks, failInstall(fmt.Errorf("install: wait for PostgreSQL: %w", waitErr), cleanupOnFailure())
-		}
 	}
 	ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, "controlplane", "appliance-controlplane-ready")
 	checks = append(checks, ready)
