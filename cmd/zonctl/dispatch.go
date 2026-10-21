@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/configarchive"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
@@ -375,42 +376,67 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		}
 		return finish(result, "failed", 1, withFailureDiagnostics("install: "+err.Error(), resolveChecks, reportPath), nil)
 	}
+	bootstrapPayload := []byte(nil)
+	bootstrapArchiveID := ""
+	if opts.bootstrapMode == string(install.BootstrapRestoreConfig) {
+		if opts.confirm != "restore-config" {
+			return finish(result, "failed", 2, "install: --bootstrap-mode restore-config requires --confirm restore-config", nil)
+		}
+		if opts.configurationArchivePath == "" || opts.configurationArchiveKeyFile == "" {
+			return finish(result, "failed", 2, "install: restore-config requires --configuration-archive and --configuration-archive-key-file", nil)
+		}
+		archive, readErr := os.ReadFile(opts.configurationArchivePath)
+		if readErr != nil {
+			return finish(result, "failed", 2, "install: read configuration archive: "+readErr.Error(), nil)
+		}
+		key, keyErr := readConfigurationArchiveKey(opts.configurationArchiveKeyFile)
+		if keyErr != nil {
+			return finish(result, "failed", 2, "install: "+keyErr.Error(), nil)
+		}
+		manifest, payload, openErr := configarchive.Open(archive, key)
+		if openErr != nil {
+			return finish(result, "failed", 2, "install: configuration archive verification failed: "+openErr.Error(), nil)
+		}
+		bootstrapPayload, bootstrapArchiveID = payload, manifest.ArchiveID
+	}
 	installOpts := install.Options{
-		ApplianceVersion:            version,
-		InstalledStatePath:          filepath.Join(opts.stateDir, "installed-state.json"),
-		K3sConfigPath:               defaultK3sConfigPath,
-		K3sRegistriesPath:           defaultK3sRegistriesPath,
-		K3sDataDir:                  defaultK3sDataDir,
-		K3sUnitPath:                 defaultK3sUnitPath,
-		K3sBinaryDestPath:           defaultK3sBinaryDestPath,
-		KubectlSymlinkPath:          defaultKubectlSymlinkPath,
-		K3sCNINetworkDir:            defaultK3sCNINetworkDir,
-		K3sCNIInterfaces:            append([]string(nil), defaultK3sCNIInterfaces...),
-		K3sUnitName:                 defaultK3sUnitName,
-		KubeconfigPath:              defaultKubeconfigPath,
-		HostAgentBinaryDestPath:     defaultHostAgentBinaryPath,
-		HostAgentUnitPath:           defaultHostAgentUnitPath,
-		HostAgentUnitName:           defaultHostAgentUnitName,
-		HostAgentSocketPath:         defaultHostAgentSocketPath,
-		HostAgentLogPath:            defaultHostAgentLogPath,
-		ApplianceProfile:            opts.applianceProfile,
-		WorkspaceRootDir:            defaultWorkspaceRootDir,
-		MetadataBundlesDir:          hostdirs.MetadataBundlesDir,
-		NodeName:                    opts.nodeName,
-		ApplianceName:               opts.applianceName,
-		DNSZone:                     opts.dnsZone,
-		TLSSANs:                     installTLSSANs(opts),
-		ZonctlRealDestPath:          defaultZonctlRealPath,
-		ZonctlLauncherDestPath:      defaultZonctlLauncherPath,
-		ChartReleaseName:            defaultChartReleaseName,
-		ChartNamespace:              defaultChartNamespace,
-		TransactionID:               txn.ID,
-		PriorInstallAttempted:       priorInstallAttempted,
-		ForceAdopt:                  opts.forceAdopt,
-		PreserveFailedState:         opts.preserveFailedState,
-		ClusterInit:                 opts.clusterInit,
-		BootstrapMode:               install.BootstrapMode(opts.bootstrapMode),
-		ControlPlaneDatabaseDataDir: hostdirs.ControlPlaneDatabaseDataDir,
+		ApplianceVersion:                version,
+		InstalledStatePath:              filepath.Join(opts.stateDir, "installed-state.json"),
+		K3sConfigPath:                   defaultK3sConfigPath,
+		K3sRegistriesPath:               defaultK3sRegistriesPath,
+		K3sDataDir:                      defaultK3sDataDir,
+		K3sUnitPath:                     defaultK3sUnitPath,
+		K3sBinaryDestPath:               defaultK3sBinaryDestPath,
+		KubectlSymlinkPath:              defaultKubectlSymlinkPath,
+		K3sCNINetworkDir:                defaultK3sCNINetworkDir,
+		K3sCNIInterfaces:                append([]string(nil), defaultK3sCNIInterfaces...),
+		K3sUnitName:                     defaultK3sUnitName,
+		KubeconfigPath:                  defaultKubeconfigPath,
+		HostAgentBinaryDestPath:         defaultHostAgentBinaryPath,
+		HostAgentUnitPath:               defaultHostAgentUnitPath,
+		HostAgentUnitName:               defaultHostAgentUnitName,
+		HostAgentSocketPath:             defaultHostAgentSocketPath,
+		HostAgentLogPath:                defaultHostAgentLogPath,
+		ApplianceProfile:                opts.applianceProfile,
+		WorkspaceRootDir:                defaultWorkspaceRootDir,
+		MetadataBundlesDir:              hostdirs.MetadataBundlesDir,
+		NodeName:                        opts.nodeName,
+		ApplianceName:                   opts.applianceName,
+		DNSZone:                         opts.dnsZone,
+		TLSSANs:                         installTLSSANs(opts),
+		ZonctlRealDestPath:              defaultZonctlRealPath,
+		ZonctlLauncherDestPath:          defaultZonctlLauncherPath,
+		ChartReleaseName:                defaultChartReleaseName,
+		ChartNamespace:                  defaultChartNamespace,
+		TransactionID:                   txn.ID,
+		PriorInstallAttempted:           priorInstallAttempted,
+		ForceAdopt:                      opts.forceAdopt,
+		PreserveFailedState:             opts.preserveFailedState,
+		ClusterInit:                     opts.clusterInit,
+		BootstrapMode:                   install.BootstrapMode(opts.bootstrapMode),
+		BootstrapConfigurationPayload:   bootstrapPayload,
+		BootstrapConfigurationArchiveID: bootstrapArchiveID,
+		ControlPlaneDatabaseDataDir:     hostdirs.ControlPlaneDatabaseDataDir,
 	}
 	imagePullRegistry, err := resolveImagePullRegistry(opts, nil)
 	if err != nil {

@@ -109,9 +109,14 @@ type Options struct {
 	// named modes prevent an ambiguous non-empty database from being treated as
 	// a new installation.
 	BootstrapMode BootstrapMode
-	NodeName      string
-	ApplianceName string
-	DNSZone       string
+	// BootstrapConfigurationPayload is decrypted locally from a portable
+	// archive and mounted one time into the control plane only for
+	// restore-config. It is never written to installed state or evidence.
+	BootstrapConfigurationPayload   []byte
+	BootstrapConfigurationArchiveID string
+	NodeName                        string
+	ApplianceName                   string
+	DNSZone                         string
 	// Host packages from the super-set bundle are always staged when present so
 	// day-2 host APIs can enable mDNS / client Wi-Fi / Wi-Fi AP. Services are not enabled here.
 	TLSSANs                []string
@@ -161,6 +166,30 @@ const (
 	BootstrapRestoreConfig      BootstrapMode = "restore-config"
 	BootstrapRestoreRecoverySet BootstrapMode = "restore-recovery-set"
 )
+
+func createBootstrapConfigurationSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, name string, payload []byte) (func() error, evidence.Check, error) {
+	check := evidence.Check{ID: "configuration-bootstrap-staged", Category: "configuration", Timestamp: time.Now().UTC(), Idempotent: false, SecretsRedacted: true}
+	if len(payload) == 0 {
+		return nil, check, errors.New("bootstrap configuration payload is empty")
+	}
+	dir, err := os.MkdirTemp("", "zon-bootstrap-configuration-*")
+	if err != nil {
+		return nil, check, fmt.Errorf("create bootstrap configuration staging directory: %w", err)
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "payload.json")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		return nil, check, fmt.Errorf("write bootstrap configuration payload: %w", err)
+	}
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "create", "secret", "generic", name, "--from-file="+path); err != nil {
+		return nil, check, fmt.Errorf("create bootstrap configuration secret: %w", err)
+	}
+	check.Status, check.Message = evidence.StatusPass, "staged verified configuration payload in temporary installer-managed Secret"
+	return func() error {
+		_, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "delete", "secret", name, "--ignore-not-found")
+		return err
+	}, check, nil
+}
 
 // Orchestrator holds the injectable adapters Install drives. Tests
 // construct one with fakes; production code uses NewOrchestrator.
@@ -274,8 +303,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// The non-fresh modes are named now so an operator cannot accidentally
 	// overwrite existing durable data. Their archive/recovery coordinators are
 	// intentionally required before the installer accepts them.
-	if bootstrapMode != BootstrapFresh {
+	if bootstrapMode == BootstrapAdopt || bootstrapMode == BootstrapRestoreRecoverySet {
 		return nil, checks, fmt.Errorf("install: bootstrap mode %q requires the configuration/recovery archive implementation", bootstrapMode)
+	}
+	if bootstrapMode == BootstrapRestoreConfig && len(opts.BootstrapConfigurationPayload) == 0 {
+		return nil, checks, fmt.Errorf("install: bootstrap mode %q requires a verified configuration archive payload", bootstrapMode)
 	}
 	existing, err := state.Load(opts.InstalledStatePath)
 	if err != nil {
@@ -806,6 +838,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-system values: %w", err), runRollbacks())
 	}
 	defer cleanupAceSystemValues()
+	const bootstrapConfigurationSecret = "controlplane-bootstrap-configuration"
+	if bootstrapMode == BootstrapRestoreConfig {
+		if err := productconfig.InjectBootstrapConfigurationSecret(aceSystemValuesPath, bootstrapConfigurationSecret); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: configure bootstrap payload mount: %w", err), runRollbacks())
+		}
+	}
 	aceInfraValuesPath, cleanupAceInfraValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.AceInfraOverlay())
 	if err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-infra values: %w", err), runRollbacks())
@@ -1069,6 +1107,14 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: %w", tlsErr), cleanupOnFailure())
 	}
 	rollbacks = append(rollbacks, tlsPrepared.Cleanup)
+	if bootstrapMode == BootstrapRestoreConfig {
+		cleanupBootstrap, bootstrapCheck, bootstrapErr := createBootstrapConfigurationSecret(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, bootstrapConfigurationSecret, opts.BootstrapConfigurationPayload)
+		checks = append(checks, bootstrapCheck)
+		if bootstrapErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", bootstrapErr), cleanupOnFailure())
+		}
+		rollbacks = append(rollbacks, cleanupBootstrap)
+	}
 
 	set2Result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceSystemRelease)
 	checks = append(checks, set2Result.checks...)
@@ -1083,6 +1129,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if waitErr != nil {
 		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, aceSystemRelease)...)
 		return nil, checks, failInstall(fmt.Errorf("install: wait for controlplane: %w", waitErr), cleanupOnFailure())
+	}
+	if bootstrapMode == BootstrapRestoreConfig {
+		if _, err := o.HelmRun(ctx, "kubectl", "--kubeconfig", opts.KubeconfigPath, "--namespace", opts.ChartNamespace, "delete", "secret", bootstrapConfigurationSecret, "--ignore-not-found"); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: remove consumed bootstrap configuration secret: %w", err), cleanupOnFailure())
+		}
+		checks = append(checks, evidence.Check{ID: "configuration-bootstrap-imported", Category: "configuration", Status: evidence.StatusPass, Message: "verified configuration archive was imported during control-plane bootstrap and its temporary payload secret was removed", Timestamp: time.Now().UTC(), Idempotent: false, SecretsRedacted: true})
 	}
 	if resolved.MessageBrokerChartPath != "" {
 		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, messageBrokerNamespace, "message-broker", "message-broker-ready")

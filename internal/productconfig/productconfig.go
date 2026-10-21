@@ -699,6 +699,40 @@ func InjectImagePullSecrets(valuesPath, secretName string) error {
 	return nil
 }
 
+// InjectBootstrapConfigurationSecret enables the one-shot control-plane
+// payload mount used only by a restore-config install.
+func InjectBootstrapConfigurationSecret(valuesPath, secretName string) error {
+	secretName = strings.TrimSpace(secretName)
+	if secretName == "" {
+		return nil
+	}
+	data, err := os.ReadFile(valuesPath)
+	if err != nil {
+		return fmt.Errorf("product config: read values for bootstrap configuration: %w", err)
+	}
+	var values map[string]any
+	if err := yaml.Unmarshal(data, &values); err != nil {
+		return fmt.Errorf("product config: parse values for bootstrap configuration: %w", err)
+	}
+	if values == nil {
+		values = map[string]any{}
+	}
+	secrets, _ := values["secrets"].(map[string]any)
+	if secrets == nil {
+		secrets = map[string]any{}
+	}
+	secrets["bootstrapConfigurationSecretName"] = secretName
+	values["secrets"] = secrets
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return fmt.Errorf("product config: render bootstrap configuration values: %w", err)
+	}
+	if err := os.WriteFile(valuesPath, rendered, 0o600); err != nil {
+		return fmt.Errorf("product config: write bootstrap configuration values: %w", err)
+	}
+	return nil
+}
+
 // PrepareRegistryValuesFile renders the small installer-owned values layer
 // for the separate artifact server release. The chart archive remains
 // immutable; only the verified digest pins, public-key Secret name, and
