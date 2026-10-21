@@ -524,6 +524,30 @@ func TestRun_BackupRequiresInstalledState(t *testing.T) {
 	}
 }
 
+func TestRun_BackupRefusesLegacySnapshotForPostgresControlPlane(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now().UTC()
+	installed := &state.InstalledState{
+		SchemaVersion: 1, ApplianceInstanceID: "postgres-control-plane", InstalledVersion: "2.4.0", InstalledReleaseID: "release-1",
+		Components:    state.Components{K3sVersion: "v1", ChartVersion: "2.4.0", DatabaseEngine: "postgres"},
+		K3sOwnership:  state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"},
+		LastOperation: state.Operation{Type: "install", Status: "completed", TransactionID: "txn-1", StartedAt: now, CompletedAt: &now},
+		CreatedAt:     now, UpdatedAt: now,
+	}
+	if err := state.Save(filepath.Join(stateDir, "installed-state.json"), installed); err != nil {
+		t.Fatal(err)
+	}
+	out, code := captureStdout(t, func() int {
+		return run([]string{"backup", "--output", "json", "--state-dir", stateDir})
+	})
+	if code != 1 {
+		t.Errorf("expected exit code 1, got %d", code)
+	}
+	if !strings.Contains(out, "omits the control-plane database") {
+		t.Errorf("expected PostgreSQL safety refusal, got: %s", out)
+	}
+}
+
 func TestRun_UpgradeRequiresBundleDir(t *testing.T) {
 	out, code := captureStdout(t, func() int {
 		return run([]string{"upgrade", "--output", "json", "--state-dir", t.TempDir()})

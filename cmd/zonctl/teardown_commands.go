@@ -13,6 +13,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/teardown"
 )
 
@@ -69,6 +70,13 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 
 	backupVerified := false
 	if opts.backupID != "" {
+		installed, stateErr := state.Load(installedStatePath(opts.stateDir))
+		if stateErr != nil {
+			return finish(result, "failed", 1, stateErr.Error(), nil)
+		}
+		if usesPostgresControlPlane(installed, opts.nodeName) {
+			return finish(result, "failed", 1, "factory-reset: supplied legacy backup cannot protect PostgreSQL data; use --force-data-loss or wait for PostgreSQL recovery-set support", nil)
+		}
 		backupDir := filepath.Join(backupRootDir(opts.stateDir), opts.backupID)
 		if _, err := backup.Verify(backupDir); err != nil {
 			logger.Error("supplied backup failed verification", "error", err, "backupId", opts.backupID)

@@ -20,8 +20,14 @@ import (
 // Components records the installed version of every product component
 // this appliance version owns.
 type Components struct {
-	K3sVersion            string `json:"k3sVersion"`
-	ChartVersion          string `json:"chartVersion"`
+	K3sVersion   string `json:"k3sVersion"`
+	ChartVersion string `json:"chartVersion"`
+	// DatabaseEngine identifies the authoritative control-plane persistence
+	// engine selected by the signed deployment configuration. It allows
+	// lifecycle commands to reject a recovery procedure that cannot capture
+	// that engine safely. Empty is retained for receipts written before this
+	// field existed.
+	DatabaseEngine        string `json:"databaseEngine,omitempty"`
 	ArtifactServerVersion string `json:"artifactServerVersion,omitempty"`
 	DNSVersion            string `json:"dnsVersion,omitempty"`
 	InferenceVersion      string `json:"inferenceVersion,omitempty"`

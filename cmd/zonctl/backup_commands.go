@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
@@ -34,6 +36,30 @@ func localWorkerReceipt(installed *state.InstalledState, nodeName string) (bool,
 	return true, false
 }
 
+// usesPostgresControlPlane identifies both newly written receipts and the
+// PostgreSQL installs that predate databaseEngine tracking. The legacy backup
+// implementation only copies K3s data, so it cannot truthfully represent a
+// recoverable PostgreSQL control-plane backup: PostgreSQL has its own durable
+// host path. A false negative here risks data loss, therefore an existing
+// local PostgreSQL directory is treated as PostgreSQL even if the old receipt
+// has no engine field.
+func usesPostgresControlPlane(installed *state.InstalledState, nodeName string) bool {
+	if installed == nil {
+		return false
+	}
+	worker, _ := localWorkerReceipt(installed, nodeName)
+	if worker {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(installed.Components.DatabaseEngine), "postgres") {
+		return true
+	}
+	info, err := os.Stat(hostdirs.ControlPlaneDatabaseDataDir)
+	return err == nil && info.IsDir()
+}
+
+const postgresRecoveryUnsupported = "PostgreSQL control-plane recovery is not yet implemented; zonctl refuses the legacy K3s-directory backup/restore path because it omits the control-plane database"
+
 func runBackup(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
 	installed, err := state.Load(installedStatePath(opts.stateDir))
 	if err != nil {
@@ -42,6 +68,9 @@ func runBackup(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	}
 	if installed == nil {
 		return finish(result, "failed", 1, "backup: nothing is installed on this host", nil)
+	}
+	if usesPostgresControlPlane(installed, opts.nodeName) {
+		return finish(result, "failed", 1, "backup: "+postgresRecoveryUnsupported, nil)
 	}
 
 	ops := k3s.DefaultOps()
@@ -115,6 +144,9 @@ func runRestore(ctx context.Context, opts cliOptions, logger *slog.Logger, resul
 			return finish(result, "failed", 1, loadErr.Error(), nil)
 		}
 		return finish(result, "failed", 1, "restore: nothing is installed on this host", nil)
+	}
+	if usesPostgresControlPlane(installed, opts.nodeName) {
+		return finish(result, "failed", 1, "restore: "+postgresRecoveryUnsupported, nil)
 	}
 	worker, inferenceWorker := localWorkerReceipt(installed, opts.nodeName)
 	var checks []evidence.Check

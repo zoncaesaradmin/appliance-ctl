@@ -92,6 +92,17 @@ type Resolved struct {
 	OCIImages []images.Image
 }
 
+// DatabaseEngine records the only production database engine represented by
+// this release input. Keeping this derived from the verified resolved source
+// avoids trusting an operator-supplied value when lifecycle code decides which
+// recovery protocol is safe.
+func DatabaseEngine(resolved Resolved) string {
+	if strings.TrimSpace(resolved.PostgresImageReference) != "" {
+		return "postgres"
+	}
+	return ""
+}
+
 // Source acquires and verifies every artifact Install needs, returning
 // local paths. V1 uses a signed local bundle only, but the interface
 // keeps the orchestration logic decoupled from bundle layout details.

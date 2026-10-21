@@ -393,6 +393,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if !sameVersionRefresh && !isSupportedSource(installed.InstalledVersion, resolved.Compatibility.SupportedUpgradeSources) {
 		return nil, checks, fmt.Errorf("upgrade: %s is not a supported upgrade source for target %s (supported: %v)", installed.InstalledVersion, targetVersion, resolved.Compatibility.SupportedUpgradeSources)
 	}
+	// The legacy upgrade rollback takes a K3s-directory snapshot. PostgreSQL
+	// deliberately lives outside that directory, so proceeding would advertise
+	// a rollback guarantee that cannot restore the control-plane database.
+	if install.DatabaseEngine(resolved) == "postgres" {
+		return nil, checks, fmt.Errorf("upgrade: PostgreSQL recovery-set backup is not yet implemented; refusing upgrade because legacy rollback would omit the control-plane database")
+	}
 	k3sBinarySrc := resolved.K3sBinaryPath
 	chartPath := resolved.ChartPath
 
@@ -1104,6 +1110,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Components: state.Components{
 			K3sVersion:            resolved.Compatibility.K3sVersion,
 			ChartVersion:          resolved.Compatibility.ChartVersion,
+			DatabaseEngine:        install.DatabaseEngine(resolved),
 			ArtifactServerVersion: resolved.ArtifactServerComponentVersion(resolved.Compatibility.ArtifactServerVersion),
 			DNSVersion:            resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
 			InferenceVersion:      resolved.InferenceComponentVersion(resolved.Compatibility.InferenceVersion),

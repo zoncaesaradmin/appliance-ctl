@@ -1346,6 +1346,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		Components: state.Components{
 			K3sVersion:            resolved.Compatibility.K3sVersion,
 			ChartVersion:          resolved.Compatibility.ChartVersion,
+			DatabaseEngine:        DatabaseEngine(resolved),
 			ArtifactServerVersion: resolved.ArtifactServerComponentVersion(resolved.Compatibility.ArtifactServerVersion),
 			DNSVersion:            resolved.DNSComponentVersion(resolved.Compatibility.DNSVersion),
 			InferenceVersion:      resolved.InferenceComponentVersion(resolved.Compatibility.InferenceVersion),

@@ -102,6 +102,10 @@
           "type": "string",
           "minLength": 1
         },
+        "databaseEngine": {
+          "enum": ["postgres"],
+          "description": "Authoritative control-plane database engine. Omitted only for receipts created before database-engine tracking."
+        },
         "artifactServerVersion": {
           "type": "string",
           "minLength": 1,
