@@ -358,12 +358,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// the private directory before Helm creates the PV rather than allowing a
 	// CrashLoopBackOff with a permission error on first boot.
 	if resolved.PostgresImageReference != "" {
-		if err := o.EnsureOwnedDir(hostdirs.PostgresDataDir, hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID, hostdirs.PrivateServiceDirMode); err != nil {
-			return nil, checks, fmt.Errorf("install: prepare PostgreSQL data directory: %w", err)
+		if err := o.EnsureOwnedDir(hostdirs.ControlPlaneDatabaseDataDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.PrivateServiceDirMode); err != nil {
+			return nil, checks, fmt.Errorf("install: prepare control-plane database directory: %w", err)
 		}
 		checks = append(checks, evidence.Check{
-			ID: "postgres-data-directory-owned", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.PostgresDataDir, hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID),
+			ID: "controlplane-database-directory-owned", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.ControlPlaneDatabaseDataDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
@@ -977,7 +977,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: wait for blob storage: %w", waitErr), cleanupOnFailure())
 	}
 	if resolved.PostgresImageReference != "" {
-		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, "postgresql", "postgresql-ready")
+		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, "controlplane-database", "controlplane-database-ready")
 		checks = append(checks, ready)
 		if waitErr != nil {
 			postgresDiag := aceInfraRelease
@@ -985,11 +985,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, postgresDiag)...)
 			return nil, checks, failInstall(fmt.Errorf("install: wait for PostgreSQL: %w", waitErr), cleanupOnFailure())
 		}
-		postgresReplica, postgresReplicaErr := helm.EnsurePostgresConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath,
-			productconfig.InfrastructureNamespace, opts.ChartNamespace, "postgresql-connection")
-		checks = append(checks, postgresReplica.Checks...)
-		if postgresReplicaErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: %w", postgresReplicaErr), cleanupOnFailure())
+		databaseReplica, databaseReplicaErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+			productconfig.InfrastructureNamespace, opts.ChartNamespace, "controlplane-database-connection")
+		checks = append(checks, databaseReplica.Checks...)
+		if databaseReplicaErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", databaseReplicaErr), cleanupOnFailure())
 		}
 	}
 	blobReplica, blobReplicaErr := helm.EnsureBlobStorageCredentialsReplica(ctx, o.HelmRun, opts.KubeconfigPath,

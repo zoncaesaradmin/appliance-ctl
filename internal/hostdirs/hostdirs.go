@@ -67,11 +67,11 @@ const (
 	// BlobStorageDirOwnerUID is the fixed numeric identity for the local
 	// S3-compatible blob-storage service.
 	BlobStorageDirOwnerUID = 10009
-	// PostgresDirOwnerUID is the fixed numeric identity of the PostgreSQL
+	// ControlPlaneDatabaseDirOwnerUID is the fixed numeric identity of the PostgreSQL
 	// image used by the appliance. PostgreSQL owns its data directory directly;
 	// unlike shared appliance storage, it must not be made writable through the
 	// appliance-wide fsGroup.
-	PostgresDirOwnerUID = 70
+	ControlPlaneDatabaseDirOwnerUID = 70
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -123,9 +123,10 @@ const (
 	// BlobStorageDir backs the foundation blob-storage pod in ace-system.
 	// Consumers use its S3 API and never receive this host path.
 	BlobStorageDir = "/data/zon/blob-storage"
-	// PostgresDataDir backs the appliance-private PostgreSQL StatefulSet.
+	// ControlPlaneDatabaseDataDir backs the appliance-private control-plane
+	// database StatefulSet.
 	// It is prepared by zonctl before Helm creates the static hostPath PV.
-	PostgresDataDir = "/data/zon/postgres"
+	ControlPlaneDatabaseDataDir = "/data/zon/controlplane-database"
 	// VideoMediaProjectionDir is a foundation-owned filesystem materialization
 	// of the canonical video object prefix. Only the control plane writes it;
 	// approved media applications receive it through a read-only PVC.

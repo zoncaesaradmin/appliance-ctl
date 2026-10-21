@@ -402,10 +402,10 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 		}})
 		return string(payload), nil
 	}
-	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") && strings.Contains(call, "postgresql-connection") {
+	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") && strings.Contains(call, "controlplane-database-connection") {
 		payload, _ := json.Marshal(map[string]any{"data": map[string]string{
 			"password": base64.StdEncoding.EncodeToString([]byte("postgres-password")),
-			"dsn":      base64.StdEncoding.EncodeToString([]byte("postgresql://controlplane:postgres-password@postgresql.ace-infra.svc.cluster.local:5432/controlplane?sslmode=disable")),
+			"dsn":      base64.StdEncoding.EncodeToString([]byte("postgresql://controlplane:postgres-password@controlplane-database.ace-infra.svc.cluster.local:5432/controlplane?sslmode=disable")),
 		}})
 		return string(payload), nil
 	}
@@ -1244,10 +1244,10 @@ func TestInstall_ReplicatesPostgresConnectionBeforeAceSystemRelease(t *testing.T
 	replicaIndex := findCallIndex(fcli.calls, func(call string) bool {
 		return strings.Contains(call, "kubectl") &&
 			strings.Contains(call, "--namespace "+productconfig.InfrastructureNamespace) &&
-			strings.Contains(call, "get secret postgresql-connection -o json")
+			strings.Contains(call, "get secret controlplane-database-connection -o json")
 	})
 	if replicaIndex < 0 {
-		t.Fatalf("missing ace-infra PostgreSQL connection Secret lookup in %v", fcli.calls)
+		t.Fatalf("missing ace-infra control-plane database connection Secret lookup in %v", fcli.calls)
 	}
 	aceSystemIndex := findCallIndex(fcli.calls, func(call string) bool {
 		return strings.Contains(call, "helm") &&
@@ -1255,7 +1255,7 @@ func TestInstall_ReplicatesPostgresConnectionBeforeAceSystemRelease(t *testing.T
 			strings.Contains(call, "--namespace "+opts.ChartNamespace)
 	})
 	if aceSystemIndex < 0 || replicaIndex >= aceSystemIndex {
-		t.Fatalf("expected PostgreSQL Secret replica before ace-system release, got replica index %d and release index %d\ncalls: %v", replicaIndex, aceSystemIndex, fcli.calls)
+		t.Fatalf("expected control-plane database Secret replica before ace-system release, got replica index %d and release index %d\ncalls: %v", replicaIndex, aceSystemIndex, fcli.calls)
 	}
 }
 
@@ -1381,16 +1381,16 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		t.Fatalf("expected exactly one workspace chown to %d:%d, got %v", hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, workspaceChowns)
 	}
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:          {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:                 {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:          {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.AutomationRuntimeLogDir:  {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ArtifactServerLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.BlobStorageDir:           {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.PostgresDataDir:          {hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID},
-		hostdirs.VideoMediaProjectionDir:  {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:           {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir:             {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:                    {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:             {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.AutomationRuntimeLogDir:     {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ArtifactServerLogDir:        {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.WorkflowControllerLogDir:    {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
+		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:              {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected service log ownership for %v, got %v", wantOwnedPaths, ownedPaths)
@@ -1452,13 +1452,13 @@ func TestInstall_CoreProfileOwnsRequiredHostPaths(t *testing.T) {
 		t.Fatalf("expected install to succeed, got: %v", err)
 	}
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:         {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.PostgresDataDir:         {hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID},
-		hostdirs.VideoMediaProjectionDir: {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir:             {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:                    {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.AutomationRuntimeLogDir:     {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
+		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:              {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected core required host path ownership %v, got %v", wantOwnedPaths, ownedPaths)
@@ -1494,15 +1494,15 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		t.Fatalf("expected storage-profile install to succeed, got: %v", err)
 	}
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:         {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:         {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ArtifactServerLogDir:    {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.PostgresDataDir:         {hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID},
-		hostdirs.VideoMediaProjectionDir: {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir:             {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:                    {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.HostAgentLogDir:             {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.AutomationRuntimeLogDir:     {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ArtifactServerLogDir:        {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
+		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:              {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only storage service log ownership %v, got %v", wantOwnedPaths, ownedPaths)

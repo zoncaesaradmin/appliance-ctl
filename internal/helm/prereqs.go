@@ -574,13 +574,14 @@ func EnsureBlobStorageCredentialsReplica(ctx context.Context, run cli.Runner, ku
 		[]string{"accessKey", "secretKey"}, "blob credentials", "chart-prereq-blob-credentials-replica")
 }
 
-// EnsurePostgresConnectionReplica mirrors the private local PostgreSQL
-// connection material from ace-infra into ace-system. The database and its
-// authoritative credentials remain infrastructure-owned; the control-plane
-// namespace receives only the Secret it must mount to construct its provider.
-func EnsurePostgresConnectionReplica(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, targetNamespace, secretName string) (PreparedRelease, error) {
+// EnsureControlPlaneDatabaseConnectionReplica mirrors the private local
+// database connection material from ace-infra into ace-system. The database
+// and its authoritative credentials remain infrastructure-owned; the
+// control-plane namespace receives only the Secret it must mount to construct
+// its provider.
+func EnsureControlPlaneDatabaseConnectionReplica(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, targetNamespace, secretName string) (PreparedRelease, error) {
 	return ensureSecretDataReplica(ctx, run, kubeconfig, sourceNamespace, targetNamespace, secretName,
-		[]string{"password", "dsn"}, "PostgreSQL connection", "chart-prereq-postgresql-connection-replica")
+		[]string{"password", "dsn"}, "control-plane database connection", "chart-prereq-controlplane-database-connection-replica")
 }
 
 func ensureSecretDataReplica(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, targetNamespace, secretName string, keys []string, description, checkID string) (PreparedRelease, error) {
