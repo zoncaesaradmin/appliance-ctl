@@ -9,7 +9,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -27,6 +29,42 @@ type InputRunner func(ctx context.Context, stdin []byte, name string, args ...st
 // jsonpath values, digests). On failure, stderr is included in the error.
 func Exec(ctx context.Context, name string, args ...string) (string, error) {
 	return ExecInput(ctx, nil, name, args...)
+}
+
+// ExecToFile streams stdout directly to an atomically published protected
+// file. It is for large, binary artifacts such as pg_dump output; callers
+// must not route such data through Runner's in-memory string result.
+func ExecToFile(ctx context.Context, destination, name string, args ...string) error {
+	dir := filepath.Dir(destination)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".stream-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdout = tmp
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("cli: %s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, destination)
 }
 
 // ExecInput is the stdin-aware counterpart to Exec. The provided stdin
