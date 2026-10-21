@@ -1169,7 +1169,7 @@ func TestInstall_StaleReceiptDoesNotPermitOverwritingPostgresData(t *testing.T) 
 	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
 
 	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
-	if err == nil || !strings.Contains(err.Error(), "already contains data") {
+	if err == nil || !strings.Contains(err.Error(), "already contains data") || !strings.Contains(err.Error(), "restore-recovery-set") {
 		t.Fatalf("expected stale receipt to retain PostgreSQL data guard, got: %v", err)
 	}
 	if len(fcli.calls) != 0 {

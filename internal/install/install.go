@@ -552,7 +552,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, fmt.Errorf("install: inspect control-plane database directory: %w", err)
 		}
 		if nonEmpty {
-			return nil, checks, fmt.Errorf("install: control-plane database directory %s already contains data; choose an explicit adopt or restore bootstrap mode instead of fresh install", databaseDir)
+			return nil, checks, fmt.Errorf("install: control-plane database directory %s already contains data; preserve it only through --bootstrap-mode restore-recovery-set, or run factory-reset with an explicit data-loss acknowledgement before a fresh install", databaseDir)
 		}
 	}
 	if existing == nil && signal.Detected && signal.Active {
