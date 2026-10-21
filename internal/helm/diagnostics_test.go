@@ -2,6 +2,7 @@ package helm_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,7 +11,9 @@ import (
 )
 
 func TestCollectFailureDiagnostics_SatisfiesEvidenceSchema(t *testing.T) {
+	var calls []string
 	run := func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
 		return name + " diagnostic output", nil
 	}
 
@@ -32,5 +35,8 @@ func TestCollectFailureDiagnostics_SatisfiesEvidenceSchema(t *testing.T) {
 
 	if _, err := evidence.BuildReport("install", "0.1.0", "evidence-test-diagnostics", checks, time.Now()); err != nil {
 		t.Fatalf("expected diagnostics checks to satisfy evidence schema, got: %v", err)
+	}
+	if !strings.Contains(strings.Join(calls, "\n"), "logs --previous --all-containers=true") {
+		t.Fatalf("expected previous container logs in diagnostics, got %v", calls)
 	}
 }

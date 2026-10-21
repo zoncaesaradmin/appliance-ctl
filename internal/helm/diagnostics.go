@@ -57,6 +57,17 @@ func CollectFailureDiagnostics(ctx context.Context, run cli.Runner, kubeconfig s
 				"logs", "--all-containers=true", "--tail=200", "-l", "app.kubernetes.io/instance=" + rel.Name,
 			},
 		},
+		{
+			// CrashLoopBackOff often leaves the actionable startup error only in
+			// the terminated container instance; the current instance may still
+			// be waiting in backoff when diagnostics run.
+			idSuffix: "pod-previous-logs",
+			category: "chart",
+			args: []string{
+				"--kubeconfig", kubeconfig, "--namespace", rel.Namespace,
+				"logs", "--previous", "--all-containers=true", "--tail=200", "-l", "app.kubernetes.io/instance=" + rel.Name,
+			},
+		},
 	}
 
 	checks := make([]evidence.Check, 0, len(commands))

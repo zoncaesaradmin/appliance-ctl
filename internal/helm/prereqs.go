@@ -45,16 +45,11 @@ var requiredKeysSecretFiles = []string{
 }
 
 // replicatedKeysSecretFiles is the material consumed by workloads outside the
-// control-plane namespace. The configuration-archive key is intentionally
-// control-plane local: it encrypts same-appliance archives and must not be
-// mounted into unrelated application workloads merely because they share the
-// authentication/signing secret replica.
+// control-plane namespace. automation-runtime verifies its internal caller
+// token with this one pepper; session, registry, cursor, and configuration
+// archive keys remain control-plane local.
 var replicatedKeysSecretFiles = []string{
-	sessionPrivateFile,
-	registryPrivateFile,
 	apiTokenPepperFile,
-	refreshPepperFile,
-	cursorHMACFile,
 }
 
 type chartPrereqs struct {

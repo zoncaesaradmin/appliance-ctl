@@ -185,6 +185,15 @@ func TestEnsureKeysSecretReplicaCopiesMaterialToAppsNamespace(t *testing.T) {
 	if !foundNS {
 		t.Fatalf("expected --namespace ace-apps, got %v", createArgs)
 	}
+	fromFiles := []string{}
+	for _, arg := range createArgs {
+		if strings.HasPrefix(arg, "--from-file=") {
+			fromFiles = append(fromFiles, filepath.Base(strings.TrimPrefix(arg, "--from-file=")))
+		}
+	}
+	if len(fromFiles) != 1 || fromFiles[0] != "api_token_pepper.key" {
+		t.Fatalf("automation-runtime replica must contain only api_token_pepper.key, got %v", fromFiles)
+	}
 	if err := prepared.Cleanup(); err != nil {
 		_ = err
 	}
