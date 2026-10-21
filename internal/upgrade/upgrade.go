@@ -86,7 +86,7 @@ type Options struct {
 
 const (
 	registryReleaseName      = "appliance-registry"
-	messageBrokerReleaseName = "appliance-message-broker"
+	messageBrokerReleaseName = "message-broker"
 	messageBrokerNamespace   = "ace-system"
 	registryNamespace        = "artifacts"
 	workflowsReleaseName     = "appliance-workflows"

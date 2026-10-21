@@ -45,7 +45,7 @@ const (
 	workflowsNamespace          = productconfig.WorkflowsControllerNamespace
 	workflowsBuildNamespace     = productconfig.WorkflowsBuildNamespace
 	registryReleaseName         = "appliance-registry"
-	messageBrokerReleaseName    = "appliance-message-broker"
+	messageBrokerReleaseName    = "message-broker"
 	messageBrokerNamespace      = productconfig.InfrastructureNamespace
 	registryNamespace           = "artifacts"
 	dnsReleaseName              = "appliance-dns"
@@ -1031,7 +1031,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: wait for controlplane: %w", waitErr), cleanupOnFailure())
 	}
 	if resolved.MessageBrokerChartPath != "" {
-		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, messageBrokerNamespace, "appliance-message-broker", "appliance-message-broker-ready")
+		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, messageBrokerNamespace, "message-broker", "message-broker-ready")
 		checks = append(checks, ready)
 		if waitErr != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: wait for message broker: %w", waitErr), cleanupOnFailure())
