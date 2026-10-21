@@ -100,9 +100,18 @@ type Options struct {
 	// mounted into the control plane. Empty defaults to
 	// hostdirs.MetadataBundlesDir.
 	MetadataBundlesDir string
-	NodeName           string
-	ApplianceName      string
-	DNSZone            string
+	// ControlPlaneDatabaseDataDir is the appliance-local PostgreSQL hostPath.
+	// It remains explicit for testability and so install can distinguish a new
+	// empty database from pre-existing durable state before Helm mutation.
+	ControlPlaneDatabaseDataDir string
+	// BootstrapMode chooses how a fresh target is initialized. Only fresh is
+	// executable until configuration/recovery archive import is wired; the
+	// named modes prevent an ambiguous non-empty database from being treated as
+	// a new installation.
+	BootstrapMode BootstrapMode
+	NodeName      string
+	ApplianceName string
+	DNSZone       string
 	// Host packages from the super-set bundle are always staged when present so
 	// day-2 host APIs can enable mDNS / client Wi-Fi / Wi-Fi AP. Services are not enabled here.
 	TLSSANs                []string
@@ -143,6 +152,15 @@ type Options struct {
 	// The default remains fail-closed rollback for normal operator use.
 	PreserveFailedState bool
 }
+
+type BootstrapMode string
+
+const (
+	BootstrapFresh              BootstrapMode = "fresh"
+	BootstrapAdopt              BootstrapMode = "adopt"
+	BootstrapRestoreConfig      BootstrapMode = "restore-config"
+	BootstrapRestoreRecoverySet BootstrapMode = "restore-recovery-set"
+)
 
 // Orchestrator holds the injectable adapters Install drives. Tests
 // construct one with fakes; production code uses NewOrchestrator.
@@ -243,6 +261,25 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	checks = append(checks, resolveChecks...)
 	if err != nil {
 		return nil, checks, err
+	}
+	bootstrapMode := opts.BootstrapMode
+	if bootstrapMode == "" {
+		bootstrapMode = BootstrapFresh
+	}
+	switch bootstrapMode {
+	case BootstrapFresh, BootstrapAdopt, BootstrapRestoreConfig, BootstrapRestoreRecoverySet:
+	default:
+		return nil, checks, fmt.Errorf("install: unsupported bootstrap mode %q", bootstrapMode)
+	}
+	// The non-fresh modes are named now so an operator cannot accidentally
+	// overwrite existing durable data. Their archive/recovery coordinators are
+	// intentionally required before the installer accepts them.
+	if bootstrapMode != BootstrapFresh {
+		return nil, checks, fmt.Errorf("install: bootstrap mode %q requires the configuration/recovery archive implementation", bootstrapMode)
+	}
+	existing, err := state.Load(opts.InstalledStatePath)
+	if err != nil {
+		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	effectiveProfile := resolved.EffectiveProfile
 	targetVersion := strings.TrimSpace(resolved.BundleVersion)
@@ -358,12 +395,25 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// the private directory before Helm creates the PV rather than allowing a
 	// CrashLoopBackOff with a permission error on first boot.
 	if resolved.PostgresImageReference != "" {
-		if err := o.EnsureOwnedDir(hostdirs.ControlPlaneDatabaseDataDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.PrivateServiceDirMode); err != nil {
+		databaseDir := strings.TrimSpace(opts.ControlPlaneDatabaseDataDir)
+		if databaseDir == "" {
+			databaseDir = hostdirs.ControlPlaneDatabaseDataDir
+		}
+		if existing == nil {
+			nonEmpty, err := nonEmptyDirectory(databaseDir)
+			if err != nil {
+				return nil, checks, fmt.Errorf("install: inspect control-plane database directory: %w", err)
+			}
+			if nonEmpty {
+				return nil, checks, fmt.Errorf("install: control-plane database directory %s already contains data; choose an explicit adopt or restore bootstrap mode instead of fresh install", databaseDir)
+			}
+		}
+		if err := o.EnsureOwnedDir(databaseDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.PrivateServiceDirMode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare control-plane database directory: %w", err)
 		}
 		checks = append(checks, evidence.Check{
 			ID: "controlplane-database-directory-owned", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.ControlPlaneDatabaseDataDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID),
+			Message:   fmt.Sprintf("%s owned by %d:%d", databaseDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
@@ -424,10 +474,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// owned appliance holds product CoreDNS on :53. Refuse reuse/upgrade so
 	// callers uninstall first and reinstall cleanly (in-place public upgrade
 	// is not the supported reinstall path for now).
-	existing, err := state.Load(opts.InstalledStatePath)
-	if err != nil {
-		return nil, checks, fmt.Errorf("install: %w", err)
-	}
 	if existing != nil && existing.K3sOwnership.Owned && !signal.Detected && k3sArtifactsAbsent(opts.K3sUnitPath, opts.K3sBinaryDestPath, opts.K3sConfigPath) {
 		if err := os.Remove(opts.InstalledStatePath); err != nil && !os.IsNotExist(err) {
 			return nil, checks, fmt.Errorf("install: remove stale installed-state: %w", err)
@@ -1377,6 +1423,21 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	return installed, checks, nil
+}
+
+// nonEmptyDirectory reports whether a durable directory already holds state.
+// A missing directory is the normal fresh-install case. It deliberately does
+// not recurse: PostgreSQL's top-level directory must be treated as occupied
+// as soon as any entry is present, including a partially initialized cluster.
+func nonEmptyDirectory(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return len(entries) > 0, nil
 }
 
 // preferredLocalIPv4 returns the first candidate that parses as a literal

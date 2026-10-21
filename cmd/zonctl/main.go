@@ -84,6 +84,7 @@ type cliOptions struct {
 	enrollmentFile                string
 	clusterSignerFingerprint      string
 	clusterInit                   bool
+	bootstrapMode                 string
 }
 
 type commandSpec struct {
@@ -200,6 +201,7 @@ func run(args []string) int {
 	enrollmentFile := fs.String("enrollment-file", "", "protected enrollment artifact to consume (required for cluster-join)")
 	clusterSignerFingerprint := fs.String("cluster-signer-fingerprint", "", "pinned sha256 enrollment signer fingerprint obtained from the control plane (required for cluster-join)")
 	clusterInit := fs.Bool("cluster-init", false, "first prime of a three-prime cluster: enable embedded etcd")
+	bootstrapMode := fs.String("bootstrap-mode", "fresh", "install bootstrap source: fresh, adopt, restore-config, or restore-recovery-set")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -247,6 +249,7 @@ func run(args []string) int {
 		enrollmentFile:                *enrollmentFile,
 		clusterSignerFingerprint:      *clusterSignerFingerprint,
 		clusterInit:                   *clusterInit,
+		bootstrapMode:                 *bootstrapMode,
 	}
 
 	logger := newLogger(redact.New(), opts.output)
