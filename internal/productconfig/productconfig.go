@@ -309,11 +309,15 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	hostAgentImageReference = strings.TrimSpace(hostAgentImageReference)
 	artifactServerImageReference := ""
 	blobStorageImageReference := ""
+	postgresImageReference := ""
 	if len(registry) > 0 {
 		artifactServerImageReference = strings.TrimSpace(registry[0])
 	}
 	if len(registry) > 1 {
 		blobStorageImageReference = strings.TrimSpace(registry[1])
+	}
+	if len(registry) > 2 {
+		postgresImageReference = strings.TrimSpace(registry[2])
 	}
 	if buildEnabled {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
@@ -330,6 +334,9 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if !validBlobStorageImageDigest(blobStorageImageReference) {
 		return "", func() {}, fmt.Errorf("product config: foundation requires a bundled registry.local/blob-storage@sha256 image reference; got %q", blobStorageImageReference)
+	}
+	if postgresImageReference != "" && !validPostgresImageDigest(postgresImageReference) {
+		return "", func() {}, fmt.Errorf("product config: PostgreSQL image must be registry.local/postgres@sha256:<64>; got %q", postgresImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host or application capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -462,6 +469,37 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	blobStorage["endpoint"] = "http://blob-storage.ace-infra.svc.cluster.local:9000"
 	delete(blobStorage, "namespace")
 	values["blobStorage"] = blobStorage
+	if postgresImageReference != "" {
+		database, _ := values["database"].(map[string]any)
+		if database == nil {
+			database = map[string]any{}
+		}
+		database["driver"] = "postgres"
+		database["maxOpenConns"] = 12
+		database["maxIdleConns"] = 4
+		database["connMaxLifetime"] = "30m"
+		postgres, _ := database["postgres"].(map[string]any)
+		if postgres == nil {
+			postgres = map[string]any{}
+		}
+		postgres["connectionSecretName"] = "appliance-postgres"
+		local, _ := postgres["local"].(map[string]any)
+		if local == nil {
+			local = map[string]any{}
+		}
+		local["enabled"] = true
+		image, _ := local["image"].(map[string]any)
+		if image == nil {
+			image = map[string]any{}
+		}
+		image["repository"] = "registry.local/postgres"
+		image["digest"] = strings.TrimPrefix(postgresImageReference, "registry.local/postgres@")
+		image["pullPolicy"] = "IfNotPresent"
+		local["image"] = image
+		postgres["local"] = local
+		database["postgres"] = postgres
+		values["database"] = database
+	}
 
 	// controlplane lives in the Helm release namespace (zonctl defaultChartNamespace =
 	// ace-system). Co-packaged apps go in ace-apps.
@@ -1051,6 +1089,14 @@ func validBlobStorageImageDigest(image string) bool {
 		return false
 	}
 	return strings.TrimPrefix(image, "registry.local/blob-storage@sha256:") != placeholderImageDigestHex
+}
+
+func validPostgresImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/postgres@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	return strings.TrimPrefix(image, "registry.local/postgres@sha256:") != placeholderImageDigestHex
 }
 
 func validDNSImageDigest(image string) bool {

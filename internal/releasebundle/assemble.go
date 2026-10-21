@@ -274,6 +274,15 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 
 	if includeProductAutoAdds {
+		if input.Artifacts.PostgresImage.Path != "" {
+			postgresImageTarget := "oci-images/" + filepath.Base(input.Artifacts.PostgresImage.Path)
+			if _, exists := entryByTarget[postgresImageTarget]; !exists {
+				if !isCanonicalPostgresReference(input.Artifacts.PostgresImage.ImageReference) {
+					return Result{}, fmt.Errorf("releasebundle: PostgreSQL imageReference must be registry.local/postgres@sha256:<64 lowercase hex>, got %q", input.Artifacts.PostgresImage.ImageReference)
+				}
+				entryByTarget[postgresImageTarget] = EntryConfig{SourcePath: input.Artifacts.PostgresImage.Path, TargetPath: postgresImageTarget, Component: "oci-images", ImageReference: input.Artifacts.PostgresImage.ImageReference}
+			}
+		}
 		if input.Artifacts.MessageBrokerImage.Path != "" && input.Artifacts.MessageBrokerChart.Path != "" {
 			messageBrokerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.MessageBrokerImage.Path)
 			if _, exists := entryByTarget[messageBrokerImageTarget]; !exists {
@@ -610,6 +619,19 @@ func isCanonicalRegistryLocalReference(ref, name string) bool {
 
 func isCanonicalMessageBrokerReference(ref string) bool {
 	const prefix = "registry.local/nats@sha256:"
+	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
+		return false
+	}
+	for _, c := range strings.TrimPrefix(ref, prefix) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCanonicalPostgresReference(ref string) bool {
+	const prefix = "registry.local/postgres@sha256:"
 	if !strings.HasPrefix(ref, prefix) || len(ref) != len(prefix)+64 {
 		return false
 	}

@@ -263,7 +263,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
 		webUIEnabled,
-		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference,
+		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference,
 	)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)

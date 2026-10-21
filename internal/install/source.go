@@ -67,6 +67,7 @@ type Resolved struct {
 	HostAgentImageReference      string
 	ArtifactServerImageReference string
 	BlobStorageImageReference    string
+	PostgresImageReference       string
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
 	// image reference used for the landns/storage-landns capability.
 	DNSImageReference string
@@ -285,7 +286,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -343,6 +344,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		}
 	}
 	messageBrokerImageReference := optionalMessageBrokerImageReference(view)
+	postgresImageReference := optionalPostgresImageReference(view)
 
 	return Resolved{
 		Runtimes:                           runtimes,
@@ -379,6 +381,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		HostAgentImageReference:            hostAgentImageReference,
 		ArtifactServerImageReference:       artifactServerImageReference,
 		BlobStorageImageReference:          blobStorageImageReference,
+		PostgresImageReference:             postgresImageReference,
 		DNSImageReference:                  dnsImageReference,
 		InferenceImageReference:            inferenceImageReference,
 		InferenceManagerImageReference:     inferenceManagerImageReference,
@@ -435,6 +438,24 @@ func isArtifactServerImageReference(ref string) bool {
 
 func isBlobStorageImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/blob-storage@sha256:")
+}
+
+func isPostgresImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/postgres@sha256:")
+}
+
+func optionalPostgresImageReference(b entrySource) string {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isPostgresImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return ""
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	return found
 }
 
 func isDNSImageReference(ref string) bool {

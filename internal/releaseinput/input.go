@@ -69,6 +69,7 @@ type Artifacts struct {
 	InferenceChart          FileArtifact
 	MetadataBundle          FileArtifact
 	MessageBrokerImage      FileArtifact
+	PostgresImage           FileArtifact
 	MessageBrokerChart      FileArtifact
 	WorkflowsChart          FileArtifact
 	WorkflowControllerImage FileArtifact
@@ -106,6 +107,7 @@ type doc struct {
 		InferenceChart          fileArtifact   `json:"inferenceChart"`
 		MetadataBundle          fileArtifact   `json:"metadataBundle"`
 		MessageBrokerImage      fileArtifact   `json:"messageBrokerImage"`
+		PostgresImage           fileArtifact   `json:"postgresImage"`
 		MessageBrokerChart      fileArtifact   `json:"messageBrokerChart"`
 		WorkflowsChart          fileArtifact   `json:"workflowsChart"`
 		WorkflowControllerImage fileArtifact   `json:"workflowControllerImage"`
@@ -178,6 +180,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			InferenceChart:          toFileArtifact(rootDir, parsed.Artifacts.InferenceChart),
 			MetadataBundle:          toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
 			MessageBrokerImage:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerImage),
+			PostgresImage:           toFileArtifact(rootDir, parsed.Artifacts.PostgresImage),
 			MessageBrokerChart:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerChart),
 			WorkflowsChart:          toFileArtifact(rootDir, parsed.Artifacts.WorkflowsChart),
 			WorkflowControllerImage: toFileArtifact(rootDir, parsed.Artifacts.WorkflowControllerImage),
@@ -210,6 +213,9 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 	}
 	if input.Artifacts.ArtifactServerImage.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{Name: "artifact-server-image", Path: input.Artifacts.ArtifactServerImage.Path, ExpectedDigest: input.Artifacts.ArtifactServerImage.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerImage.SizeBytes})
+	}
+	if input.Artifacts.PostgresImage.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "postgres-image", Path: input.Artifacts.PostgresImage.Path, ExpectedDigest: input.Artifacts.PostgresImage.Digest, ExpectedSizeBytes: input.Artifacts.PostgresImage.SizeBytes})
 	}
 	if input.Artifacts.ArtifactServerChart.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{Name: "artifact-server-chart", Path: input.Artifacts.ArtifactServerChart.Path, ExpectedDigest: input.Artifacts.ArtifactServerChart.Digest, ExpectedSizeBytes: input.Artifacts.ArtifactServerChart.SizeBytes})
