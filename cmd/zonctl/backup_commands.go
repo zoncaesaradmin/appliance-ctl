@@ -58,7 +58,7 @@ func usesPostgresControlPlane(installed *state.InstalledState, nodeName string) 
 	return err == nil && info.IsDir()
 }
 
-const postgresRecoveryUnsupported = "PostgreSQL control-plane recovery is not yet implemented; zonctl refuses the legacy K3s-directory backup/restore path because it omits the control-plane database"
+const postgresLegacyRestoreUnsupported = "legacy K3s-directory restore cannot restore PostgreSQL; use a clean install with --bootstrap-mode restore-recovery-set and --recovery-set"
 
 func runBackup(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
 	installed, err := state.Load(installedStatePath(opts.stateDir))
@@ -146,7 +146,7 @@ func runRestore(ctx context.Context, opts cliOptions, logger *slog.Logger, resul
 		return finish(result, "failed", 1, "restore: nothing is installed on this host", nil)
 	}
 	if usesPostgresControlPlane(installed, opts.nodeName) {
-		return finish(result, "failed", 1, "restore: "+postgresRecoveryUnsupported, nil)
+		return finish(result, "failed", 1, "restore: "+postgresLegacyRestoreUnsupported, nil)
 	}
 	worker, inferenceWorker := localWorkerReceipt(installed, opts.nodeName)
 	var checks []evidence.Check
