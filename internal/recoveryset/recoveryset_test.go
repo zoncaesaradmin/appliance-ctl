@@ -14,4 +14,8 @@ func TestManifestRejectsLiveDirectorySemantics(t *testing.T) {
 	if err := m.Validate(); err == nil {
 		t.Fatal("expected live PGDATA format to be rejected")
 	}
+	m.Database.Format, m.Database.SHA256 = "custom", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+	if err := m.Validate(); err == nil {
+		t.Fatal("expected non-hex checksum to be rejected")
+	}
 }

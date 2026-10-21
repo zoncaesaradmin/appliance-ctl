@@ -4,6 +4,7 @@ package recoveryset
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -43,6 +44,9 @@ func (m Manifest) Validate() error {
 	}
 	if m.Database.Engine != "postgres" || (m.Database.Format != "custom" && m.Database.Format != "directory") || m.Database.Path == "" || len(m.Database.SHA256) != 64 {
 		return fmt.Errorf("recovery set: invalid PostgreSQL logical artifact")
+	}
+	if _, err := hex.DecodeString(m.Database.SHA256); err != nil {
+		return fmt.Errorf("recovery set: invalid PostgreSQL logical artifact checksum")
 	}
 	return nil
 }
