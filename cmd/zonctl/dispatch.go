@@ -21,6 +21,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/manifest"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/preflight"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/recoveryset"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
@@ -382,6 +383,8 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	}
 	bootstrapPayload := []byte(nil)
 	bootstrapArchiveID := ""
+	bootstrapDatabaseRestorePath := ""
+	bootstrapRecoverySetID := ""
 	if opts.bootstrapMode == string(install.BootstrapRestoreConfig) {
 		if opts.confirm != "restore-config" {
 			return finish(result, "failed", 2, "install: --bootstrap-mode restore-config requires --confirm restore-config", nil)
@@ -402,6 +405,41 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 			return finish(result, "failed", 2, "install: configuration archive verification failed: "+openErr.Error(), nil)
 		}
 		bootstrapPayload, bootstrapArchiveID = payload, manifest.ArchiveID
+	}
+	if opts.bootstrapMode == string(install.BootstrapRestoreRecoverySet) {
+		if opts.confirm != "restore-recovery-set" {
+			return finish(result, "failed", 2, "install: --bootstrap-mode restore-recovery-set requires --confirm restore-recovery-set", nil)
+		}
+		if opts.recoverySetPath == "" || opts.configurationArchiveKeyFile == "" {
+			return finish(result, "failed", 2, "install: restore-recovery-set requires --recovery-set and --configuration-archive-key-file", nil)
+		}
+		set, loadErr := recoveryset.Load(opts.recoverySetPath)
+		if loadErr != nil {
+			return finish(result, "failed", 2, "install: recovery-set verification failed: "+loadErr.Error(), nil)
+		}
+		if verifyErr := recoveryset.VerifyFiles(opts.recoverySetPath, set); verifyErr != nil {
+			return finish(result, "failed", 2, "install: recovery-set verification failed: "+verifyErr.Error(), nil)
+		}
+		if set.PlatformVersion != "" && strings.TrimSpace(resolved.BundleVersion) != "" && set.PlatformVersion != resolved.BundleVersion {
+			return finish(result, "failed", 2, "install: recovery-set platform version does not match the signed bundle", nil)
+		}
+		recoveredState, stateErr := state.Load(filepath.Join(opts.recoverySetPath, "installed-state.json"))
+		if stateErr != nil || recoveredState == nil || recoveredState.Components.DatabaseEngine != "postgres" || recoveredState.Components.PostgresImageReference != resolved.PostgresImageReference {
+			return finish(result, "failed", 2, "install: recovery-set database image is incompatible with the signed bundle", nil)
+		}
+		key, keyErr := readConfigurationArchiveKey(opts.configurationArchiveKeyFile)
+		if keyErr != nil {
+			return finish(result, "failed", 2, "install: "+keyErr.Error(), nil)
+		}
+		archive, readErr := os.ReadFile(filepath.Join(opts.recoverySetPath, set.ConfigurationArchive))
+		if readErr != nil {
+			return finish(result, "failed", 2, "install: read recovery-set configuration archive: "+readErr.Error(), nil)
+		}
+		if _, _, openErr := configarchive.Open(archive, key); openErr != nil {
+			return finish(result, "failed", 2, "install: recovery-set configuration archive verification failed: "+openErr.Error(), nil)
+		}
+		bootstrapDatabaseRestorePath = filepath.Join(opts.recoverySetPath, set.Database.Path)
+		bootstrapRecoverySetID = set.ID
 	}
 	installOpts := install.Options{
 		ApplianceVersion:                version,
@@ -440,6 +478,8 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		BootstrapMode:                   install.BootstrapMode(opts.bootstrapMode),
 		BootstrapConfigurationPayload:   bootstrapPayload,
 		BootstrapConfigurationArchiveID: bootstrapArchiveID,
+		BootstrapDatabaseRestorePath:    bootstrapDatabaseRestorePath,
+		BootstrapRecoverySetID:          bootstrapRecoverySetID,
 		ControlPlaneDatabaseDataDir:     hostdirs.ControlPlaneDatabaseDataDir,
 	}
 	imagePullRegistry, err := resolveImagePullRegistry(opts, nil)

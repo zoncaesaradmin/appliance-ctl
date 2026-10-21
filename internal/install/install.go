@@ -114,9 +114,15 @@ type Options struct {
 	// restore-config. It is never written to installed state or evidence.
 	BootstrapConfigurationPayload   []byte
 	BootstrapConfigurationArchiveID string
-	NodeName                        string
-	ApplianceName                   string
-	DNSZone                         string
+	// BootstrapDatabaseRestorePath is a previously checksum-verified,
+	// custom-format PostgreSQL dump. It is copied directly to the database
+	// pod after that pod is ready and before the control plane is deployed.
+	// It is never persisted in installed state.
+	BootstrapDatabaseRestorePath string
+	BootstrapRecoverySetID       string
+	NodeName                     string
+	ApplianceName                string
+	DNSZone                      string
 	// Host packages from the super-set bundle are always staged when present so
 	// day-2 host APIs can enable mDNS / client Wi-Fi / Wi-Fi AP. Services are not enabled here.
 	TLSSANs                []string
@@ -189,6 +195,24 @@ func createBootstrapConfigurationSecret(ctx context.Context, run cli.Runner, kub
 		_, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "delete", "secret", name, "--ignore-not-found")
 		return err
 	}, check, nil
+}
+
+// restoreBootstrapPostgres runs before the ace-system release. The database
+// StatefulSet is already ready, but no control-plane process has connected to
+// it yet, so restoring a logical dump cannot race schema migration or normal
+// configuration reconciliation.
+func restoreBootstrapPostgres(ctx context.Context, run cli.Runner, kubeconfig, namespace, dumpPath string) error {
+	if info, err := os.Stat(dumpPath); err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("install: recovery-set database artifact is missing or invalid")
+	}
+	const pod = "controlplane-database-0"
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "cp", dumpPath, pod+":/tmp/recovery-set.dump", "-c", "postgres"); err != nil {
+		return fmt.Errorf("install: copy recovery-set database artifact: %w", err)
+	}
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "exec", pod, "-c", "postgres", "--", "sh", "-ec", "pg_restore --no-owner --no-acl -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" /tmp/recovery-set.dump && rm -f /tmp/recovery-set.dump"); err != nil {
+		return fmt.Errorf("install: restore recovery-set database artifact: %w", err)
+	}
+	return nil
 }
 
 // Orchestrator holds the injectable adapters Install drives. Tests
@@ -303,11 +327,17 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// The non-fresh modes are named now so an operator cannot accidentally
 	// overwrite existing durable data. Their archive/recovery coordinators are
 	// intentionally required before the installer accepts them.
-	if bootstrapMode == BootstrapAdopt || bootstrapMode == BootstrapRestoreRecoverySet {
+	if bootstrapMode == BootstrapAdopt {
 		return nil, checks, fmt.Errorf("install: bootstrap mode %q requires the configuration/recovery archive implementation", bootstrapMode)
 	}
 	if bootstrapMode == BootstrapRestoreConfig && len(opts.BootstrapConfigurationPayload) == 0 {
 		return nil, checks, fmt.Errorf("install: bootstrap mode %q requires a verified configuration archive payload", bootstrapMode)
+	}
+	if bootstrapMode == BootstrapRestoreRecoverySet && strings.TrimSpace(opts.BootstrapDatabaseRestorePath) == "" {
+		return nil, checks, fmt.Errorf("install: bootstrap mode %q requires a verified PostgreSQL logical artifact", bootstrapMode)
+	}
+	if bootstrapMode == BootstrapRestoreRecoverySet && strings.TrimSpace(resolved.PostgresImageReference) == "" {
+		return nil, checks, fmt.Errorf("install: bootstrap mode %q currently requires the appliance-local PostgreSQL deployment", bootstrapMode)
 	}
 	existing, err := state.Load(opts.InstalledStatePath)
 	if err != nil {
@@ -1082,6 +1112,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		checks = append(checks, databaseReplica.Checks...)
 		if databaseReplicaErr != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: %w", databaseReplicaErr), cleanupOnFailure())
+		}
+		if bootstrapMode == BootstrapRestoreRecoverySet {
+			if err := restoreBootstrapPostgres(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, opts.BootstrapDatabaseRestorePath); err != nil {
+				return nil, checks, failInstall(err, cleanupOnFailure())
+			}
+			checks = append(checks, evidence.Check{ID: "recovery-set-database-restored", Category: "backup-restore", Status: evidence.StatusPass, Message: "verified PostgreSQL logical artifact restored before control-plane deployment", Timestamp: time.Now().UTC(), Idempotent: false, SecretsRedacted: true})
 		}
 	}
 	blobReplica, blobReplicaErr := helm.EnsureBlobStorageCredentialsReplica(ctx, o.HelmRun, opts.KubeconfigPath,
