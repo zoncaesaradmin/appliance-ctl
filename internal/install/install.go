@@ -352,6 +352,21 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err := o.EnsureOwnedDir(hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
 		return nil, checks, fmt.Errorf("install: prepare blob storage directory: %w", err)
 	}
+	// A local PostgreSQL dependency uses a static hostPath PV. Kubernetes does
+	// not reliably apply fsGroup ownership to a pre-existing hostPath, and the
+	// PostgreSQL container intentionally runs as its own non-root UID. Prepare
+	// the private directory before Helm creates the PV rather than allowing a
+	// CrashLoopBackOff with a permission error on first boot.
+	if resolved.PostgresImageReference != "" {
+		if err := o.EnsureOwnedDir(hostdirs.PostgresDataDir, hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID, hostdirs.PrivateServiceDirMode); err != nil {
+			return nil, checks, fmt.Errorf("install: prepare PostgreSQL data directory: %w", err)
+		}
+		checks = append(checks, evidence.Check{
+			ID: "postgres-data-directory-owned", Category: "host", Status: evidence.StatusPass,
+			Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.PostgresDataDir, hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID),
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 	// The control-plane chart mounts this static hostPath for every profile.
 	// Create it before Helm so kubelet never rejects the control-plane pod on
 	// profiles that do not enable the Applications capability.
@@ -992,6 +1007,14 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	if set2Result.rollback != nil {
 		rollbacks = append(rollbacks, set2Result.rollback)
+	}
+	if resolved.PostgresImageReference != "" {
+		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, "appliance-postgres", "appliance-postgres-ready")
+		checks = append(checks, ready)
+		if waitErr != nil {
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, aceSystemRelease)...)
+			return nil, checks, failInstall(fmt.Errorf("install: wait for PostgreSQL: %w", waitErr), cleanupOnFailure())
+		}
 	}
 	ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, opts.ChartNamespace, "controlplane", "appliance-controlplane-ready")
 	checks = append(checks, ready)

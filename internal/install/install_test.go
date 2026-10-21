@@ -125,6 +125,7 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image tar", "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 		{"oci-images/blob-storage.tar", "oci-images", "fake blob storage image tar", "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
+		{"oci-images/postgres.tar", "oci-images", "fake PostgreSQL image tar", "registry.local/postgres@sha256:9999999999999999999999999999999999999999999999999999999999999999"},
 		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image tar", "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
 		{"oci-images/inference-manager.tar", "oci-images", "fake inference-manager image tar", "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 	}
@@ -446,6 +447,9 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	if name == "kubectl" && contains(args, "get") && contains(args, "deployment") {
 		return "1", nil
 	}
+	if name == "kubectl" && contains(args, "get") && contains(args, "statefulset") {
+		return "1", nil
+	}
 	if name == "kubectl" && contains(args, "get") && contains(args, "svc") && contains(args, "traefik") {
 		return `{"spec":{"externalIPs":["10.42.0.1"]}}`, nil
 	}
@@ -485,6 +489,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
 	case "blob-storage.tar":
 		return []string{"registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"}
+	case "postgres.tar":
+		return []string{"registry.local/postgres@sha256:9999999999999999999999999999999999999999999999999999999999999999"}
 	case "control-plane.tar":
 		return []string{"internal/control-plane:2.4.0"}
 	case "appliance-ui.tar":
@@ -673,8 +679,8 @@ func TestInstall_EndToEndSuccess(t *testing.T) {
 			secretCreateCalls++
 		}
 	}
-	if importCalls != 4 {
-		t.Errorf("expected 4 foundation image import calls for core profile, got %d: %v", importCalls, fcli.calls)
+	if importCalls != 5 {
+		t.Errorf("expected 5 foundation image import calls for core profile, got %d: %v", importCalls, fcli.calls)
 	}
 	if secretCreateCalls != 1 {
 		t.Errorf("expected installer-managed keys secret to be created once, got %d: %v", secretCreateCalls, fcli.calls)
@@ -1345,6 +1351,7 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		hostdirs.ArtifactServerLogDir:     {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.WorkflowControllerLogDir: {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:           {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.PostgresDataDir:          {hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID},
 		hostdirs.VideoMediaProjectionDir:  {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:           {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
@@ -1412,6 +1419,7 @@ func TestInstall_CoreProfileOwnsRequiredHostPaths(t *testing.T) {
 		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.PostgresDataDir:         {hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID},
 		hostdirs.VideoMediaProjectionDir: {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
@@ -1455,6 +1463,7 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		hostdirs.AutomationRuntimeLogDir: {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir:    {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.PostgresDataDir:         {hostdirs.PostgresDirOwnerUID, hostdirs.PostgresDirOwnerUID},
 		hostdirs.VideoMediaProjectionDir: {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:          {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
@@ -1751,7 +1760,7 @@ func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 			rmCalls++
 		}
 	}
-	if rmCalls != 4 {
+	if rmCalls != 5 {
 		t.Errorf("expected all newly-imported foundation images to be rolled back, got %d rm calls: %v", rmCalls, fcli.calls)
 	}
 
