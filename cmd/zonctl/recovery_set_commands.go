@@ -6,14 +6,17 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/configarchive"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/recoveryset"
@@ -76,7 +79,7 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 	// archived separately from PostgreSQL so its scope is visible in the
 	// manifest and can grow through component-owned exporters later.
 	blobPath := filepath.Join(root, "blob-storage.tar")
-	if err := archiveDirectory(hostdirs.BlobStorageDir, blobPath); err != nil {
+	if err := archiveQuiescedBlobStorage(ctx, cli.Exec, hostdirs.BlobStorageDir, blobPath); err != nil {
 		return finish(result, "failed", 1, "backup: archive blob storage: "+err.Error(), nil)
 	}
 	blobSum, err := recoveryset.ChecksumFile(blobPath)
@@ -110,6 +113,62 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 	data, _ := json.Marshal(map[string]string{"recoverySetId": id, "path": root, "databaseChecksum": database.SHA256, "configurationRevisionId": revision.ID})
 	logger.Info("PostgreSQL recovery set complete", "recoverySetId", id, "path", root)
 	return finish(result, "succeeded", 0, "verified PostgreSQL recovery set created", data)
+}
+
+const (
+	blobStorageNamespace  = "ace-infra"
+	blobStorageDeployment = "blob-storage"
+	blobStorageSelector   = "app.kubernetes.io/name=blob-storage"
+)
+
+// archiveQuiescedBlobStorage produces an object-store archive only after the
+// appliance-owned blob-storage deployment has stopped.  A raw host-directory
+// copy while S3 requests are in flight can silently produce a backup whose
+// metadata and objects disagree, so that is deliberately not an option.
+//
+// The original replica count is read first and restored even when archiving
+// fails.  This makes the outage explicit, bounded, and reversible rather than
+// leaving a failed backup with blob storage disabled.
+func archiveQuiescedBlobStorage(ctx context.Context, run cli.Runner, source, destination string) (resultErr error) {
+	if run == nil {
+		return errors.New("blob-storage quiesce runner is required")
+	}
+	base := []string{"--kubeconfig", defaultKubeconfigPath, "--namespace", blobStorageNamespace}
+	replicasText, err := run(ctx, "kubectl", append(base, "get", "deployment", blobStorageDeployment, "-o", "jsonpath={.spec.replicas}")...)
+	if err != nil {
+		return fmt.Errorf("read blob-storage replica count: %w", err)
+	}
+	replicas, err := strconv.Atoi(strings.TrimSpace(replicasText))
+	if err != nil || replicas < 1 {
+		return fmt.Errorf("invalid blob-storage replica count %q", strings.TrimSpace(replicasText))
+	}
+	if _, err := run(ctx, "kubectl", append(base, "scale", "deployment", blobStorageDeployment, "--replicas=0")...); err != nil {
+		return fmt.Errorf("stop blob-storage: %w", err)
+	}
+	defer func() {
+		restoreCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		_, restoreErr := run(restoreCtx, "kubectl", append(base, "scale", "deployment", blobStorageDeployment, "--replicas="+strconv.Itoa(replicas))...)
+		if restoreErr == nil {
+			_, restoreErr = run(restoreCtx, "kubectl", append(base, "rollout", "status", "deployment/"+blobStorageDeployment, "--timeout=120s")...)
+		}
+		if restoreErr != nil {
+			restoreErr = fmt.Errorf("restore blob-storage availability: %w", restoreErr)
+			if resultErr == nil {
+				resultErr = restoreErr
+			} else {
+				resultErr = fmt.Errorf("%v; %w", resultErr, restoreErr)
+			}
+		}
+	}()
+
+	if _, err := run(ctx, "kubectl", append(base, "wait", "--for=delete", "pod", "--selector="+blobStorageSelector, "--timeout=120s")...); err != nil {
+		return fmt.Errorf("wait for blob-storage to stop: %w", err)
+	}
+	if err := archiveDirectory(source, destination); err != nil {
+		return err
+	}
+	return nil
 }
 
 // archiveDirectory writes a path-safe regular-file archive. Appliance paths
