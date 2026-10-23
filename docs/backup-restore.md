@@ -79,4 +79,6 @@ sudo zonctl install --bundle-dir /path/to/foundation \
 ```
 
 Use this mode only for a clean appliance target. The recovery-set platform
-version and PostgreSQL image must match the signed bundle.
+version and PostgreSQL image must match the signed bundle. After the appliance
+is healthy, import the configuration archive from that recovery set with the
+configuration-only command above.
