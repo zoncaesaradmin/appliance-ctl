@@ -62,6 +62,9 @@ func runConfigurationImport(ctx context.Context, opts cliOptions, logger *slog.L
 	if opts.configurationArchivePath == "" {
 		return finish(result, "failed", 1, "configuration-import: --configuration-archive is required", nil)
 	}
+	if !opts.replaceConfiguration {
+		return finish(result, "failed", 1, "configuration-import: --replace-configuration is required because importing replaces the active desired configuration", nil)
+	}
 	data, err := os.ReadFile(opts.configurationArchivePath)
 	if err != nil {
 		return finish(result, "failed", 1, "configuration-import: read archive: "+err.Error(), nil)
@@ -73,7 +76,7 @@ func runConfigurationImport(ctx context.Context, opts cliOptions, logger *slog.L
 	if opts.dryRun {
 		return finish(result, "succeeded", 0, "configuration archive verified (dry run)", configurationData(manifest.ArchiveID, manifest.RevisionID, ""))
 	}
-	if err := importConfiguration(ctx, endpoint, token, payload); err != nil {
+	if err := importConfiguration(ctx, endpoint, token, payload, true); err != nil {
 		if logger != nil {
 			logger.Error("configuration import failed", "error", err)
 		}
@@ -180,8 +183,8 @@ func captureConfiguration(ctx context.Context, endpoint, token string) (configur
 	return revision, nil
 }
 
-func importConfiguration(ctx context.Context, endpoint, token string, payload []byte) error {
-	body, err := json.Marshal(map[string]json.RawMessage{"payload": payload})
+func importConfiguration(ctx context.Context, endpoint, token string, payload []byte, replace bool) error {
+	body, err := json.Marshal(map[string]any{"payload": json.RawMessage(payload), "replace": replace})
 	if err != nil {
 		return err
 	}

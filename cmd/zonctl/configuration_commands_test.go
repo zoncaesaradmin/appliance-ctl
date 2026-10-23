@@ -32,9 +32,14 @@ func TestConfigurationExportAndImportOverHTTPS(t *testing.T) {
 		case "/api/v1/configuration/revisions/import":
 			var body struct {
 				Payload json.RawMessage `json:"payload"`
+				Replace bool            `json:"replace"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if !body.Replace {
+				http.Error(w, "replacement confirmation required", http.StatusConflict)
 				return
 			}
 			imported = body.Payload
@@ -62,7 +67,7 @@ func TestConfigurationExportAndImportOverHTTPS(t *testing.T) {
 	if err := os.WriteFile(keyPath, []byte(base64.StdEncoding.EncodeToString(key)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	opts := cliOptions{configurationEndpoint: server.URL, configurationTokenFile: tokenPath, configurationArchiveKeyFile: keyPath, configurationArchivePath: archivePath}
+	opts := cliOptions{configurationEndpoint: server.URL, configurationTokenFile: tokenPath, configurationArchiveKeyFile: keyPath, configurationArchivePath: archivePath, replaceConfiguration: true}
 	if result := runConfigurationExport(context.Background(), opts, nil, commandResult{}); result.Status != "succeeded" {
 		t.Fatalf("export result = %+v", result)
 	}
