@@ -126,6 +126,9 @@ func runBackup(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 }
 
 func runRestore(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
+	if opts.recoverySetPath != "" {
+		return runPostgresRecoveryRestore(ctx, opts, logger, result)
+	}
 	if opts.backupID == "" {
 		return finish(result, "failed", 1, "restore: --backup-id is required", nil)
 	}

@@ -23,6 +23,137 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
+// runPostgresRecoveryRestore restores a verified recovery set into an already
+// installed compatible appliance. It deliberately quiesces control-plane
+// writers first; a recovery set never contains the product bundle itself.
+func runPostgresRecoveryRestore(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
+	if opts.confirm != "restore-recovery-set" || !opts.acknowledgeDataLoss {
+		return finish(result, "failed", 2, "restore: --recovery-set requires --confirm restore-recovery-set and --acknowledge-data-loss", nil)
+	}
+	set, err := recoveryset.Load(opts.recoverySetPath)
+	if err != nil {
+		return finish(result, "failed", 1, "restore: "+err.Error(), nil)
+	}
+	if err := recoveryset.VerifyFiles(opts.recoverySetPath, set); err != nil {
+		return finish(result, "failed", 1, "restore: "+err.Error(), nil)
+	}
+	installed, err := state.Load(installedStatePath(opts.stateDir))
+	if err != nil || installed == nil || installed.Components.DatabaseEngine != "postgres" {
+		return finish(result, "failed", 1, "restore: a PostgreSQL appliance installation is required", nil)
+	}
+	if set.PlatformVersion != "" && installed.InstalledVersion != "" && set.PlatformVersion != installed.InstalledVersion {
+		return finish(result, "failed", 1, "restore: recovery-set platform version is incompatible with this installed appliance", nil)
+	}
+	var blob string
+	for _, a := range set.Artifacts {
+		if a.Path == "blob-storage.tar" {
+			blob = filepath.Join(opts.recoverySetPath, a.Path)
+		}
+	}
+	if blob == "" {
+		return finish(result, "failed", 1, "restore: recovery set has no blob-storage artifact", nil)
+	}
+	base := []string{"--kubeconfig", defaultKubeconfigPath, "--namespace", blobStorageNamespace}
+	for _, deployment := range []string{"controlplane", "automation-runtime", blobStorageDeployment} {
+		ns := blobStorageNamespace
+		if deployment != blobStorageDeployment {
+			ns = "ace-system"
+			if deployment == "automation-runtime" {
+				ns = "ace-apps"
+			}
+		}
+		if _, err := cli.Exec(ctx, "kubectl", "--kubeconfig", defaultKubeconfigPath, "--namespace", ns, "scale", "deployment", deployment, "--replicas=0"); err != nil {
+			return finish(result, "failed", 1, "restore: quiesce "+deployment+": "+err.Error(), nil)
+		}
+	}
+	restore := func() error {
+		if err := restoreTar(blob, hostdirs.BlobStorageDir); err != nil {
+			return err
+		}
+		dump := filepath.Join(opts.recoverySetPath, set.Database.Path)
+		if _, err := cli.Exec(ctx, "kubectl", append(base, "cp", dump, "controlplane-database-0:/tmp/recovery-set.dump", "-c", "postgres")...); err != nil {
+			return err
+		}
+		_, err := cli.Exec(ctx, "kubectl", append(base, "exec", "controlplane-database-0", "-c", "postgres", "--", "sh", "-ec", "psql -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && pg_restore --no-owner --no-acl -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" /tmp/recovery-set.dump && rm -f /tmp/recovery-set.dump")...)
+		return err
+	}
+	err = restore()
+	for _, deployment := range []string{blobStorageDeployment, "controlplane", "automation-runtime"} {
+		ns := blobStorageNamespace
+		if deployment != blobStorageDeployment {
+			ns = "ace-system"
+			if deployment == "automation-runtime" {
+				ns = "ace-apps"
+			}
+		}
+		_, _ = cli.Exec(context.Background(), "kubectl", "--kubeconfig", defaultKubeconfigPath, "--namespace", ns, "scale", "deployment", deployment, "--replicas=1")
+	}
+	if err != nil {
+		return finish(result, "failed", 1, "restore: "+err.Error(), nil)
+	}
+	logger.Info("PostgreSQL recovery set restored", "recoverySetId", set.ID)
+	return finish(result, "succeeded", 0, "recovery set restored; import its configuration archive through the control-plane API", nil)
+}
+
+func restoreTar(archive, destination string) error {
+	// Recovery replaces the declared object domain. Leaving files that were not
+	// in the recovery set would create a mixed-time restore, so clear only the
+	// fixed appliance blob root after the caller has obtained explicit data-loss
+	// acknowledgement.
+	if destination != hostdirs.BlobStorageDir {
+		return fmt.Errorf("refusing to restore outside appliance blob-storage root")
+	}
+	if err := os.RemoveAll(destination); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(destination, 0o770); err != nil {
+		return err
+	}
+	in, err := os.Open(archive)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	r := tar.NewReader(in)
+	for {
+		h, err := r.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if filepath.IsAbs(h.Name) || strings.HasPrefix(filepath.Clean(h.Name), "..") {
+			return fmt.Errorf("unsafe blob archive path %q", h.Name)
+		}
+		path := filepath.Join(destination, h.Name)
+		if h.FileInfo().IsDir() {
+			if err := os.MkdirAll(path, 0o770); err != nil {
+				return err
+			}
+			continue
+		}
+		if !h.FileInfo().Mode().IsRegular() {
+			return fmt.Errorf("unsupported blob archive entry %q", h.Name)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o770); err != nil {
+			return err
+		}
+		out, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o660)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(out, r)
+		closeErr := out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+}
+
 // runPostgresRecoveryBackup creates a portable, declared recovery set. It
 // intentionally does not copy PGDATA or K3s state: those host-local files
 // are neither crash-consistent nor meaningful for a managed/cloud database.
