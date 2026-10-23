@@ -1,11 +1,13 @@
 package install
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,10 +121,13 @@ type Options struct {
 	// pod after that pod is ready and before the control plane is deployed.
 	// It is never persisted in installed state.
 	BootstrapDatabaseRestorePath string
-	BootstrapRecoverySetID       string
-	NodeName                     string
-	ApplianceName                string
-	DNSZone                      string
+	// BootstrapBlobRestorePath is the checksum-verified blob-storage archive
+	// from a system backup. It is restored before blob-storage is deployed.
+	BootstrapBlobRestorePath string
+	BootstrapRecoverySetID   string
+	NodeName                 string
+	ApplianceName            string
+	DNSZone                  string
 	// Host packages from the super-set bundle are always staged when present so
 	// day-2 host APIs can enable mDNS / client Wi-Fi / Wi-Fi AP. Services are not enabled here.
 	TLSSANs                []string
@@ -213,6 +218,54 @@ func restoreBootstrapPostgres(ctx context.Context, run cli.Runner, kubeconfig, n
 		return fmt.Errorf("install: restore recovery-set database artifact: %w", err)
 	}
 	return nil
+}
+
+func restoreBootstrapBlobStorage(archivePath, destination string) error {
+	in, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(destination, 0o750); err != nil {
+		return err
+	}
+	r := tar.NewReader(in)
+	for {
+		h, err := r.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if filepath.IsAbs(h.Name) || strings.Contains(filepath.Clean(h.Name), "..") {
+			return fmt.Errorf("unsafe blob backup path %q", h.Name)
+		}
+		path := filepath.Join(destination, filepath.FromSlash(h.Name))
+		if h.FileInfo().IsDir() {
+			if err := os.MkdirAll(path, h.FileInfo().Mode()); err != nil {
+				return err
+			}
+			continue
+		}
+		if !h.FileInfo().Mode().IsRegular() {
+			return fmt.Errorf("unsupported blob backup entry %q", h.Name)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return err
+		}
+		out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, h.FileInfo().Mode())
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, r); err != nil {
+			_ = out.Close()
+			return err
+		}
+		if err := out.Close(); err != nil {
+			return err
+		}
+	}
 }
 
 // Orchestrator holds the injectable adapters Install drives. Tests
@@ -1015,6 +1068,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, helm.RestrictedNamespaceLabels()); err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare infrastructure namespace: %w", err), runRollbacks())
+	}
+	if bootstrapMode == BootstrapRestoreRecoverySet && opts.BootstrapBlobRestorePath != "" {
+		if err := restoreBootstrapBlobStorage(opts.BootstrapBlobRestorePath, hostdirs.BlobStorageDir); err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: restore system-backup blob storage: %w", err), runRollbacks())
+		}
+		checks = append(checks, evidence.Check{ID: "system-backup-blob-storage-restored", Category: "backup-restore", Status: evidence.StatusPass, Message: "verified blob-storage artifact restored before blob-storage deployment", Timestamp: time.Now().UTC(), Idempotent: false, SecretsRedacted: true})
 	}
 
 	aceInfraRelease := helm.ChartRelease{

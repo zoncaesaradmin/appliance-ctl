@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/configarchive"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/recoveryset"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
@@ -70,13 +72,25 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 		return finish(result, "failed", 1, "backup: rejected un-restorable PostgreSQL dump: "+err.Error(), nil)
 	}
 
+	// Blob storage is the only v1 user-data domain. It is deliberately
+	// archived separately from PostgreSQL so its scope is visible in the
+	// manifest and can grow through component-owned exporters later.
+	blobPath := filepath.Join(root, "blob-storage.tar")
+	if err := archiveDirectory(hostdirs.BlobStorageDir, blobPath); err != nil {
+		return finish(result, "failed", 1, "backup: archive blob storage: "+err.Error(), nil)
+	}
+	blobSum, err := recoveryset.ChecksumFile(blobPath)
+	if err != nil {
+		return finish(result, "failed", 1, "backup: checksum blob storage archive: "+err.Error(), nil)
+	}
+
 	receiptPath := filepath.Join(root, "installed-state.json")
 	if err := copyProtectedFile(installedStatePath(opts.stateDir), receiptPath); err != nil {
 		return finish(result, "failed", 1, "backup: copy installation receipt: "+err.Error(), nil)
 	}
 	configSum, _ := recoveryset.ChecksumFile(configPath)
 	receiptSum, _ := recoveryset.ChecksumFile(receiptPath)
-	policy := []byte("This recovery set contains a verified PostgreSQL logical dump, encrypted desired configuration, and the installation receipt. The configuration key is deliberately operator-held and is not stored beside its ciphertext. Workspaces, build caches, models, and data-pipeline/blob payloads are excluded.\n")
+	policy := []byte("This system backup contains a verified PostgreSQL logical dump, encrypted desired configuration, blob-storage objects, and the installation receipt. The configuration key is deliberately operator-held and is not stored beside its ciphertext. Workspace source trees, build caches, models, logs, and registry caches are excluded.\n")
 	policyPath := filepath.Join(root, "RECOVERY-SCOPE.txt")
 	if err := os.WriteFile(policyPath, policy, 0o600); err != nil {
 		return finish(result, "failed", 1, "backup: write recovery scope: "+err.Error(), nil)
@@ -85,7 +99,7 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 	manifest := recoveryset.Manifest{Format: recoveryset.Format, ID: id, CreatedAt: time.Now().UTC(), PlatformVersion: installed.InstalledVersion,
 		Database:             recoveryset.DatabaseArtifact{Engine: database.Engine, Format: database.Format, Path: "database.dump", SHA256: database.SHA256},
 		ConfigurationArchive: "configuration.zonconfig", ConfigurationSHA256: configSum,
-		Artifacts: []recoveryset.Artifact{{Path: "installed-state.json", SHA256: receiptSum}, {Path: "RECOVERY-SCOPE.txt", SHA256: policySum}},
+		Artifacts: []recoveryset.Artifact{{Path: "blob-storage.tar", SHA256: blobSum}, {Path: "installed-state.json", SHA256: receiptSum}, {Path: "RECOVERY-SCOPE.txt", SHA256: policySum}},
 	}
 	if err := recoveryset.Save(root, manifest); err != nil {
 		return finish(result, "failed", 1, "backup: "+err.Error(), nil)
@@ -96,6 +110,59 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 	data, _ := json.Marshal(map[string]string{"recoverySetId": id, "path": root, "databaseChecksum": database.SHA256, "configurationRevisionId": revision.ID})
 	logger.Info("PostgreSQL recovery set complete", "recoverySetId", id, "path", root)
 	return finish(result, "succeeded", 0, "verified PostgreSQL recovery set created", data)
+}
+
+// archiveDirectory writes a path-safe regular-file archive. Appliance paths
+// are controlled by hostdirs; symlinks and special files are refused so a
+// backup cannot capture data outside its declared storage boundary.
+func archiveDirectory(source, destination string) error {
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", source)
+	}
+	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	w := tar.NewWriter(out)
+	defer w.Close()
+	return filepath.Walk(source, func(path string, entry os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Mode()&os.ModeSymlink != 0 || !entry.Mode().IsRegular() && !entry.IsDir() {
+			return fmt.Errorf("unsupported blob-storage entry %s", path)
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		h, err := tar.FileInfoHeader(entry, "")
+		if err != nil {
+			return err
+		}
+		h.Name = filepath.ToSlash(rel)
+		if err := w.WriteHeader(h); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		_, err = io.Copy(w, in)
+		return err
+	})
 }
 
 func prepareRecoverySetRoot(path string) (string, error) {

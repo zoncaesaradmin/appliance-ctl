@@ -384,6 +384,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	bootstrapPayload := []byte(nil)
 	bootstrapArchiveID := ""
 	bootstrapDatabaseRestorePath := ""
+	bootstrapBlobRestorePath := ""
 	bootstrapRecoverySetID := ""
 	if opts.bootstrapMode == string(install.BootstrapRestoreConfig) {
 		if opts.confirm != "restore-config" {
@@ -439,6 +440,16 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 			return finish(result, "failed", 2, "install: recovery-set configuration archive verification failed: "+openErr.Error(), nil)
 		}
 		bootstrapDatabaseRestorePath = filepath.Join(opts.recoverySetPath, set.Database.Path)
+		foundBlob := false
+		for _, artifact := range set.Artifacts {
+			if artifact.Path == "blob-storage.tar" {
+				bootstrapBlobRestorePath, foundBlob = filepath.Join(opts.recoverySetPath, artifact.Path), true
+				break
+			}
+		}
+		if !foundBlob {
+			return finish(result, "failed", 2, "install: system backup does not include required blob-storage artifact", nil)
+		}
 		bootstrapRecoverySetID = set.ID
 	}
 	installOpts := install.Options{
@@ -479,6 +490,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		BootstrapConfigurationPayload:   bootstrapPayload,
 		BootstrapConfigurationArchiveID: bootstrapArchiveID,
 		BootstrapDatabaseRestorePath:    bootstrapDatabaseRestorePath,
+		BootstrapBlobRestorePath:        bootstrapBlobRestorePath,
 		BootstrapRecoverySetID:          bootstrapRecoverySetID,
 		ControlPlaneDatabaseDataDir:     hostdirs.ControlPlaneDatabaseDataDir,
 	}

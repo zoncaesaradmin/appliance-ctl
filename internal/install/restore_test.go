@@ -1,12 +1,42 @@
 package install
 
 import (
+	"archive/tar"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRestoreBootstrapBlobStorageRestoresRelativeEntries(t *testing.T) {
+	archive := filepath.Join(t.TempDir(), "blob-storage.tar")
+	out, err := os.Create(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := tar.NewWriter(out)
+	if err := w.WriteHeader(&tar.Header{Name: "objects/item", Mode: 0o600, Size: int64(len("data"))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "blob-storage")
+	if err := restoreBootstrapBlobStorage(archive, destination); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(destination, "objects", "item"))
+	if err != nil || string(data) != "data" {
+		t.Fatalf("data = %q, %v", data, err)
+	}
+}
 
 func TestRestoreBootstrapPostgresCopiesThenRestores(t *testing.T) {
 	dump := filepath.Join(t.TempDir(), "database.dump")
