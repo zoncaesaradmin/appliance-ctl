@@ -14,6 +14,9 @@ make unit-test
 make verify
 ```
 
+See [Backup and restore](docs/backup-restore.md) for the supported
+configuration-only and system-backup workflows.
+
 ## Offline builds
 
 Dependencies are vendored under `vendor/` and committed to the repo, so
