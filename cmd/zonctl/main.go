@@ -91,6 +91,7 @@ type cliOptions struct {
 	configurationArchiveKeyFile   string
 	replaceConfiguration          bool
 	recoverySetPath               string
+	preparedConfigurationArchive  string
 }
 
 type commandSpec struct {
@@ -217,6 +218,7 @@ func run(args []string) int {
 	configurationArchiveKeyFile := fs.String("configuration-archive-key-file", "", "protected file containing the 32-byte or base64-encoded archive encryption key")
 	replaceConfiguration := fs.Bool("replace-configuration", false, "configuration-import only: explicitly replace the active desired configuration")
 	recoverySetPath := fs.String("recovery-set", "", "empty destination directory for a PostgreSQL recovery set (required by backup on PostgreSQL installations)")
+	preparedConfigurationArchive := fs.String("prepared-configuration-archive", "", "internal: sealed configuration archive supplied by the host-agent backup operation")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -271,6 +273,7 @@ func run(args []string) int {
 		configurationArchiveKeyFile:   *configurationArchiveKeyFile,
 		replaceConfiguration:          *replaceConfiguration,
 		recoverySetPath:               *recoverySetPath,
+		preparedConfigurationArchive:  *preparedConfigurationArchive,
 	}
 
 	logger := newLogger(redact.New(), opts.output)

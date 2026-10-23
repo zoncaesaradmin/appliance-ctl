@@ -164,8 +164,10 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 	if strings.TrimSpace(installed.Components.PostgresImageReference) == "" {
 		return finish(result, "failed", 1, "backup: installed state has no pinned PostgreSQL image reference", nil)
 	}
-	if _, _, _, err := configurationCommandInputs(opts); err != nil {
-		return finish(result, "failed", 1, "backup: configuration archive inputs: "+err.Error(), nil)
+	if opts.preparedConfigurationArchive == "" {
+		if _, _, _, err := configurationCommandInputs(opts); err != nil {
+			return finish(result, "failed", 1, "backup: configuration archive inputs: "+err.Error(), nil)
+		}
 	}
 	if opts.dryRun {
 		return finish(result, "succeeded", 0, "PostgreSQL recovery-set inputs validated (dry run)", nil)
@@ -179,20 +181,31 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 		return finish(result, "failed", 1, "backup: "+err.Error(), nil)
 	}
 
-	endpoint, token, key, err := configurationCommandInputs(opts)
-	if err != nil {
-		return finish(result, "failed", 1, "backup: "+err.Error(), nil)
-	}
-	revision, err := captureConfiguration(ctx, endpoint, token)
-	if err != nil {
-		return finish(result, "failed", 1, "backup: capture configuration: "+err.Error(), nil)
-	}
-	archive, _, err := configarchive.Seal(revision.ID, revision.SchemaVersion, revision.Payload, key)
-	if err != nil {
-		return finish(result, "failed", 1, "backup: seal configuration archive: "+err.Error(), nil)
-	}
 	configPath := filepath.Join(root, "configuration.zonconfig")
-	if err := writeProtectedArchive(configPath, archive); err != nil {
+	var revisionID string
+	if opts.preparedConfigurationArchive != "" {
+		if err := copyProtectedFile(opts.preparedConfigurationArchive, configPath); err != nil {
+			return finish(result, "failed", 1, "backup: stage supplied configuration archive: "+err.Error(), nil)
+		}
+	} else {
+		endpoint, token, key, err := configurationCommandInputs(opts)
+		if err != nil {
+			return finish(result, "failed", 1, "backup: "+err.Error(), nil)
+		}
+		revision, err := captureConfiguration(ctx, endpoint, token)
+		if err != nil {
+			return finish(result, "failed", 1, "backup: capture configuration: "+err.Error(), nil)
+		}
+		revisionID = revision.ID
+		archive, _, err := configarchive.Seal(revision.ID, revision.SchemaVersion, revision.Payload, key)
+		if err != nil {
+			return finish(result, "failed", 1, "backup: seal configuration archive: "+err.Error(), nil)
+		}
+		if err := writeProtectedArchive(configPath, archive); err != nil {
+			return finish(result, "failed", 1, "backup: write configuration archive: "+err.Error(), nil)
+		}
+	}
+	if _, err := os.Stat(configPath); err != nil {
 		return finish(result, "failed", 1, "backup: write configuration archive: "+err.Error(), nil)
 	}
 
@@ -241,7 +254,7 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 	if err := recoveryset.VerifyFiles(root, manifest); err != nil {
 		return finish(result, "failed", 1, "backup: final recovery-set verification: "+err.Error(), nil)
 	}
-	data, _ := json.Marshal(map[string]string{"recoverySetId": id, "path": root, "databaseChecksum": database.SHA256, "configurationRevisionId": revision.ID})
+	data, _ := json.Marshal(map[string]string{"recoverySetId": id, "path": root, "databaseChecksum": database.SHA256, "configurationRevisionId": revisionID})
 	logger.Info("PostgreSQL recovery set complete", "recoverySetId", id, "path", root)
 	return finish(result, "succeeded", 0, "verified PostgreSQL recovery set created", data)
 }
