@@ -41,6 +41,9 @@ func runPostgresRecoveryRestore(ctx context.Context, opts cliOptions, logger *sl
 	if err != nil || installed == nil || installed.Components.DatabaseEngine != "postgres" {
 		return finish(result, "failed", 1, "restore: a PostgreSQL appliance installation is required", nil)
 	}
+	if err := requireLegacySingleHostLifecycle(opts, installed, "restore"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
 	if set.PlatformVersion != "" && installed.InstalledVersion != "" && set.PlatformVersion != installed.InstalledVersion {
 		return finish(result, "failed", 1, "restore: recovery-set platform version is incompatible with this installed appliance", nil)
 	}

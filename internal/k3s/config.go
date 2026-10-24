@@ -7,7 +7,10 @@ package k3s
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
+
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 )
 
 // DefaultClusterCIDR is the appliance-owned pod network. It intentionally
@@ -37,6 +40,10 @@ type Config struct {
 	NodeName string
 	DataDir  string
 	TLSSANs  []string
+	// DeploymentTopology and NodeIP are set by the three-server inventory
+	// path. Legacy receipts leave both empty and retain their original render.
+	DeploymentTopology string
+	NodeIP             string
 	// ServerURL and TokenFile join an existing cluster. Agents always set
 	// both. Additional primes (k3s server etcd peers) set both without
 	// ClusterInit. TokenFile avoids putting a join credential in a unit
@@ -65,6 +72,24 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.DataDir) == "" {
 		return errors.New("k3s config: data dir is required")
+	}
+	if c.DeploymentTopology != "" {
+		if c.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+			return fmt.Errorf("k3s config: unsupported deployment topology %q", c.DeploymentTopology)
+		}
+		if c.EffectiveMode() != NodeModeServer {
+			return errors.New("k3s config: three-server topology cannot run an agent")
+		}
+		address, err := netip.ParseAddr(c.NodeIP)
+		if err != nil || !address.Is4() {
+			return errors.New("k3s config: three-server topology requires an explicit IPv4 node IP")
+		}
+		if c.ClusterInit == (strings.TrimSpace(c.ServerURL) != "") {
+			return errors.New("k3s config: three-server topology requires exactly one of cluster-init or server URL")
+		}
+		if len(c.TLSSANs) == 0 {
+			return errors.New("k3s config: three-server topology requires direct API TLS SANs")
+		}
 	}
 	switch c.EffectiveMode() {
 	case NodeModeServer:
@@ -106,6 +131,10 @@ func (c Config) Render() string {
 	// 10.42.0.0/24 is reserved for the management WiFi AP; do not use the
 	// upstream K3s default cluster-cidr of 10.42.0.0/16 on fresh installs.
 	if c.EffectiveMode() == NodeModeServer {
+		if c.DeploymentTopology == clustertopology.ThreeServerEtcdV1 {
+			fmt.Fprintf(&b, "node-ip: %q\n", c.NodeIP)
+			fmt.Fprintf(&b, "advertise-address: %q\n", c.NodeIP)
+		}
 		if cidr := strings.TrimSpace(c.ClusterCIDR); cidr != "" {
 			fmt.Fprintf(&b, "cluster-cidr: %q\n", cidr)
 		}
@@ -119,7 +148,7 @@ func (c Config) Render() string {
 		// Agent rejects this flag: "flag provided but not defined: -write-kubeconfig-mode".
 		b.WriteString("write-kubeconfig-mode: \"0640\"\n")
 	}
-	if c.EffectiveMode() == NodeModeServer && strings.TrimSpace(c.ServerURL) == "" {
+	if c.EffectiveMode() == NodeModeServer && (strings.TrimSpace(c.ServerURL) == "" || c.DeploymentTopology == clustertopology.ThreeServerEtcdV1) {
 		b.WriteString("node-label:\n  - \"svccontroller.k3s.cattle.io/enablelb=true\"\n")
 	}
 	if c.ClusterInit {
@@ -138,4 +167,38 @@ func (c Config) Render() string {
 	}
 
 	return b.String()
+}
+
+// ThreeServerConfig derives the K3s config of one schedulable server from
+// the same validated inventory used by install preflight. The bootstrap node
+// initializes etcd; both peers join the bootstrap server directly. Once
+// complete, callers retry the inventory's three direct API endpoints.
+func ThreeServerConfig(in clustertopology.Inventory, nodeName, dataDir, tokenFile string) (Config, error) {
+	if err := in.Validate(); err != nil {
+		return Config{}, err
+	}
+	var nodeIP string
+	for _, node := range in.Nodes {
+		if node.Name == nodeName {
+			nodeIP = node.Address
+			break
+		}
+	}
+	if nodeIP == "" {
+		return Config{}, fmt.Errorf("k3s config: node %q is not in inventory", nodeName)
+	}
+	cfg := Config{
+		Mode: NodeModeServer, NodeName: nodeName, DataDir: dataDir,
+		DeploymentTopology: clustertopology.ThreeServerEtcdV1, NodeIP: nodeIP,
+		TLSSANs: in.APISANs(), ClusterInit: nodeName == in.BootstrapNode,
+		ClusterCIDR: DefaultClusterCIDR, ServiceCIDR: DefaultServiceCIDR,
+	}
+	if !cfg.ClusterInit {
+		cfg.ServerURL = in.BootstrapAPIEndpoint()
+		cfg.TokenFile = tokenFile
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }

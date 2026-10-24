@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
@@ -62,6 +64,20 @@ type freshReleaseResult struct {
 	err      error
 }
 
+// ThreeServerFinalization is the observed cluster identity recorded only after
+// the three-server substrate gate has passed. It prevents the legacy
+// single-host installer from treating one staged server as a completed
+// appliance.
+type ThreeServerFinalization struct {
+	ClusterID                   string
+	ControlPlaneNode            string
+	ControlEndpoint             string
+	ControlEndpoints            []string
+	ClusterCAHash               string
+	EnrollmentSignerFingerprint string
+	Nodes                       []state.ClusterNode
+}
+
 // Options fully parameterizes a fresh install. Every path is explicit
 // (no hidden defaults inside this package) so tests can point every
 // mutating operation at a temp directory; cmd/zonctl is responsible for
@@ -69,6 +85,9 @@ type freshReleaseResult struct {
 // Source, not part of Options.
 type Options struct {
 	ApplianceVersion string
+	// ClusterInventoryPath is an install-time, operator-owned topology file.
+	// It is never copied into the signed release or persisted with secrets.
+	ClusterInventoryPath string
 
 	InstalledStatePath      string
 	K3sConfigPath           string
@@ -141,6 +160,9 @@ type Options struct {
 	// writing even when ImagePullRegistry is set.
 	K3sRegistriesPath string
 	ClusterInit       bool
+	// ThreeServerFinalization is internal coordinator input, never a user
+	// topology switch or a replacement for the live cluster-health gates.
+	ThreeServerFinalization *ThreeServerFinalization
 	// ImagePullRegistry, when Registry is non-empty, configures K3s
 	// containerd to pull from that private registry (auth + TLS). Offline
 	// bundle preload remains the primary image source; this only enables
@@ -276,6 +298,9 @@ type Orchestrator struct {
 	HelmRun    cli.Runner
 	ClusterRun cli.Runner // kubectl calls used to inspect an existing cluster before adopting it
 	DetectHost func(host.Options) (host.Facts, error)
+	// LocalAddresses is a read-only interface probe for the three-server
+	// inventory. Tests inject addresses without depending on the CI host.
+	LocalAddresses func() ([]netip.Addr, error)
 	// EnsureOwnedDir prepares a host directory backing a static hostPath
 	// PersistentVolume (currently just workspace storage) with the
 	// correct owner before the chart mounts it — see internal/hostdirs
@@ -314,6 +339,7 @@ func NewOrchestrator() *Orchestrator {
 		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
 			return hostdirs.EnsureOwnedFile(path, uid, gid, perm, os.Chown)
 		},
+		LocalAddresses:      clustertopology.LocalAddresses,
 		PrepareHostDNS:      hostdns.Prepare,
 		RestoreHostDNS:      hostdns.Restore,
 		InstallHostAgent:    hostagent.InstallOrUpdate,
@@ -367,6 +393,33 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	checks = append(checks, resolveChecks...)
 	if err != nil {
 		return nil, checks, err
+	}
+	if resolved.Compatibility.DeploymentTopology == "three-server-etcd-v1" {
+		inventory, err := clustertopology.Load(opts.ClusterInventoryPath)
+		if err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
+		if !inventory.HasNode(opts.NodeName) {
+			return nil, checks, fmt.Errorf("install: node %q is not in the three-server inventory", opts.NodeName)
+		}
+		localAddresses := o.LocalAddresses
+		if localAddresses == nil {
+			localAddresses = clustertopology.LocalAddresses
+		}
+		addresses, err := localAddresses()
+		if err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
+		if err := inventory.ValidateLocalAddress(opts.NodeName, addresses); err != nil {
+			return nil, checks, fmt.Errorf("install: %w", err)
+		}
+		if opts.ThreeServerFinalization == nil {
+			return nil, checks, fmt.Errorf("install: signed three-server-etcd-v1 release requires the three-server coordinator; this single-host installer cannot complete that topology")
+		}
+		finalization := opts.ThreeServerFinalization
+		if opts.NodeName != inventory.BootstrapNode || finalization.ClusterID == "" || finalization.ControlPlaneNode != inventory.BootstrapNode || finalization.ControlEndpoint != inventory.BootstrapAPIEndpoint() || !sameStringSet(finalization.ControlEndpoints, inventory.APIEndpoints()) || len(finalization.Nodes) != len(inventory.Nodes) {
+			return nil, checks, fmt.Errorf("install: three-server finalization does not match the verified inventory")
+		}
 	}
 	bootstrapMode := opts.BootstrapMode
 	if bootstrapMode == "" {
@@ -877,9 +930,10 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	// Publish https://10.42.0.1/ and every prime LAN IPv4 as Traefik
-	// externalIPs so kube-proxy on each node forwards :443 to the Traefik
-	// pod. No extra VIP; ServiceLB stays on the advertised prime.
+	// Publish https://10.42.0.1/ and every configured server LAN IPv4 as
+	// Traefik externalIPs so kube-proxy on each node can forward :443 to the
+	// Traefik pod. The three-server K3s configuration enables ServiceLB on
+	// every topology server; this still is not an application-HA guarantee.
 	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath, hostdns.LiteralIPv4s(opts.TLSSANs...)...)
 	checks = append(checks, traefikLBCheck)
 	if traefikLBErr != nil {
@@ -1510,14 +1564,32 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	now := time.Now().UTC()
 	instanceID := newApplianceInstanceID()
 	clusterRecord := state.NewSingleServerCluster(instanceID, opts.NodeName, k3s.DefaultClusterCIDR, k3s.DefaultServiceCIDR)
-	if opts.ClusterInit {
+	if finalization := opts.ThreeServerFinalization; finalization != nil {
+		instanceID = finalization.ClusterID
+		clusterRecord = state.Cluster{
+			ID:                          finalization.ClusterID,
+			Topology:                    state.TopologyMultiServer,
+			DeploymentTopology:          state.DeploymentTopologyThreeServerEtcdV1,
+			ControlPlaneNode:            finalization.ControlPlaneNode,
+			IngressNode:                 finalization.ControlPlaneNode,
+			ControlEndpoint:             finalization.ControlEndpoint,
+			ControlEndpoints:            append([]string(nil), finalization.ControlEndpoints...),
+			ClusterCAHash:               finalization.ClusterCAHash,
+			EnrollmentSignerFingerprint: finalization.EnrollmentSignerFingerprint,
+			ClusterCIDR:                 k3s.DefaultClusterCIDR,
+			ServiceCIDR:                 k3s.DefaultServiceCIDR,
+			Nodes:                       append([]state.ClusterNode(nil), finalization.Nodes...),
+		}
+	} else if opts.ClusterInit {
 		clusterRecord.Topology = state.TopologyMultiServer
 	}
 	if ips := hostdns.LiteralIPv4s(opts.TLSSANs...); len(ips) > 0 {
 		clusterRecord.SetPreferredAPI(ips[0])
 		clusterRecord.AddAPIEndpoints(ips...)
 	}
-	clusterRecord.Nodes[0].NodeUID = controlPlaneNodeUID
+	if opts.ThreeServerFinalization == nil {
+		clusterRecord.Nodes[0].NodeUID = controlPlaneNodeUID
+	}
 	// The control-plane signer is created on the target, never bundled. Its
 	// public fingerprint is cluster state so a future worker can pin the
 	// enrollment authority before accepting a join artifact.
@@ -1532,6 +1604,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			cleanupErr = errors.Join(cleanupErr, runRollbacks())
 		}
 		return nil, checks, failInstall(fmt.Errorf("install: create cluster enrollment signer: %w", err), cleanupErr)
+	}
+	if expected := strings.TrimSpace(clusterRecord.EnrollmentSignerFingerprint); expected != "" && expected != signerFingerprint {
+		return nil, checks, failInstall(fmt.Errorf("install: staged enrollment signer differs from local key"), runRollbacks())
 	}
 	clusterRecord.EnrollmentSignerFingerprint = signerFingerprint
 	installed := &state.InstalledState{

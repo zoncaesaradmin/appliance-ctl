@@ -69,6 +69,9 @@ func runBackup(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	if installed == nil {
 		return finish(result, "failed", 1, "backup: nothing is installed on this host", nil)
 	}
+	if err := requireLegacySingleHostLifecycle(opts, installed, "backup"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
 	if usesPostgresControlPlane(installed, opts.nodeName) {
 		return runPostgresRecoveryBackup(ctx, opts, installed, logger, result)
 	}
@@ -133,6 +136,19 @@ func runRestore(ctx context.Context, opts cliOptions, logger *slog.Logger, resul
 		return finish(result, "failed", 1, "restore: --backup-id is required", nil)
 	}
 
+	installed, loadErr := state.Load(installedStatePath(opts.stateDir))
+	if loadErr != nil || installed == nil {
+		if loadErr != nil {
+			return finish(result, "failed", 1, loadErr.Error(), nil)
+		}
+		return finish(result, "failed", 1, "restore: nothing is installed on this host", nil)
+	}
+	if err := requireLegacySingleHostLifecycle(opts, installed, "restore"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
+	if usesPostgresControlPlane(installed, opts.nodeName) {
+		return finish(result, "failed", 1, "restore: "+postgresLegacyRestoreUnsupported, nil)
+	}
 	backupDir := filepath.Join(backupRootDir(opts.stateDir), opts.backupID)
 	manifest, err := backup.LoadManifest(backupDir)
 	if err != nil {
@@ -141,16 +157,6 @@ func runRestore(ctx context.Context, opts cliOptions, logger *slog.Logger, resul
 	}
 
 	ops := k3s.DefaultOps()
-	installed, loadErr := state.Load(installedStatePath(opts.stateDir))
-	if loadErr != nil || installed == nil {
-		if loadErr != nil {
-			return finish(result, "failed", 1, loadErr.Error(), nil)
-		}
-		return finish(result, "failed", 1, "restore: nothing is installed on this host", nil)
-	}
-	if usesPostgresControlPlane(installed, opts.nodeName) {
-		return finish(result, "failed", 1, "restore: "+postgresLegacyRestoreUnsupported, nil)
-	}
 	worker, inferenceWorker := localWorkerReceipt(installed, opts.nodeName)
 	var checks []evidence.Check
 	if worker {

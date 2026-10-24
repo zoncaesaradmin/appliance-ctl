@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/support"
@@ -191,6 +192,35 @@ func TestClusterEnrollmentCreateAcceptsAnyKnownPrimeAPI(t *testing.T) {
 	}
 }
 
+func TestClusterEnrollmentCreateRejectsFinalizedThreeServerTopology(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now().UTC()
+	clusterRecord := state.NewSingleServerCluster("cluster-1", "server-a", "10.44.0.0/16", "10.43.0.0/16")
+	clusterRecord.Topology = state.TopologyMultiServer
+	clusterRecord.DeploymentTopology = state.DeploymentTopologyThreeServerEtcdV1
+	clusterRecord.SetPreferredAPI("10.0.0.11")
+	clusterRecord.AddAPIEndpoints("10.0.0.12", "10.0.0.13")
+	installed := &state.InstalledState{
+		SchemaVersion: 1, ApplianceInstanceID: "cluster-1", InstalledVersion: "2.4.0", InstalledReleaseID: "release-1",
+		ApplianceProfile: "core", ApplianceName: "zon", Cluster: &clusterRecord,
+		Components:    state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: "2.4.0"},
+		K3sOwnership:  state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"},
+		LastOperation: state.Operation{Type: "install", Status: "completed", TransactionID: "txn-1", StartedAt: now, CompletedAt: &now},
+		CreatedAt:     now, UpdatedAt: now,
+	}
+	if err := state.Save(filepath.Join(stateDir, "installed-state.json"), installed); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runClusterEnrollmentCreate(cliOptions{
+		stateDir: stateDir, nodeName: "server-a", workerName: "worker-1", workerRole: "worker",
+		controlEndpoint: "https://10.0.0.12:6443", enrollmentOut: filepath.Join(stateDir, "worker.enrollment"), enrollmentTTL: "15m",
+	}, slog.Default(), commandResult{Command: "cluster-enrollment-create"})
+	if result.Status == "succeeded" || !strings.Contains(result.Message, "not supported by the finalized three-server topology") {
+		t.Fatalf("three-server enrollment must be rejected, result = %+v", result)
+	}
+}
+
 func TestClusterEnrollmentCreatePrimeUsesServerToken(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Now().UTC()
@@ -337,17 +367,34 @@ func TestRun_InstallRequiresBundleDir(t *testing.T) {
 	}
 }
 
+func TestRun_ClusterHACheckRequiresVerifiedInputsWithoutHostMutation(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "not-created")
+	out, code := captureStdout(t, func() int {
+		return run([]string{"cluster-ha-check", "--output", "json", "--state-dir", stateDir})
+	})
+	if code != 2 || !strings.Contains(out, "--bundle-dir is required") {
+		t.Fatalf("expected missing bundle rejection, code=%d output=%s", code, out)
+	}
+	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
+		t.Fatalf("read-only HA check changed host state: %v", err)
+	}
+}
+
 // With --bundle-dir present, install should advance to bundle loading
 // rather than failing the upfront source-selection gate.
 func TestRun_InstallBundleDirAdvancesToBundleLoad(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "not-created")
 	out, code := captureStdout(t, func() int {
-		return run([]string{"install", "--output", "json", "--state-dir", t.TempDir(), "--bundle-dir", filepath.Join(t.TempDir(), "missing-bundle")})
+		return run([]string{"install", "--output", "json", "--state-dir", stateDir, "--bundle-dir", filepath.Join(t.TempDir(), "missing-bundle")})
 	})
 	if code != 1 {
 		t.Errorf("expected exit code 1, got %d", code)
 	}
 	if strings.Contains(out, "--bundle-dir is required") {
 		t.Errorf("expected --bundle-dir to avoid the missing-bundle-dir error entirely, got: %s", out)
+	}
+	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
+		t.Fatalf("invalid release input changed host state before verification: %v", err)
 	}
 }
 
@@ -521,6 +568,42 @@ func TestRun_BackupRequiresInstalledState(t *testing.T) {
 	}
 	if !strings.Contains(out, "nothing is installed") {
 		t.Errorf("expected a clear not-installed error, got: %s", out)
+	}
+}
+
+func TestRequireLegacySingleHostLifecycleOnlyRejectsCoordinatedThreeServerReceipt(t *testing.T) {
+	opts := cliOptions{stateDir: t.TempDir()}
+	legacy := &state.InstalledState{Cluster: &state.Cluster{Topology: state.TopologyMultiServer}}
+	if err := requireLegacySingleHostLifecycle(opts, legacy, "backup"); err != nil {
+		t.Fatalf("legacy multi-server receipt unexpectedly rejected: %v", err)
+	}
+
+	coordinated := &state.InstalledState{Cluster: &state.Cluster{
+		Topology:           state.TopologyMultiServer,
+		DeploymentTopology: state.DeploymentTopologyThreeServerEtcdV1,
+	}}
+	for _, command := range []string{"backup", "restore", "repair", "upgrade", "uninstall", "factory-reset"} {
+		if err := requireLegacySingleHostLifecycle(opts, coordinated, command); err == nil || !strings.Contains(err.Error(), "cluster-safe coordinated lifecycle") {
+			t.Errorf("%s accepted coordinated receipt or gave unclear error: %v", command, err)
+		}
+	}
+}
+
+func TestRequireLegacySingleHostLifecycleRejectsStagedPeerWithoutInstalledReceipt(t *testing.T) {
+	opts := cliOptions{stateDir: t.TempDir()}
+	now := time.Now().UTC()
+	staged := clustertopology.BootstrapState{
+		SchemaVersion: clustertopology.BootstrapStateVersion, Topology: clustertopology.ThreeServerEtcdV1,
+		InventoryFingerprint: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ClusterID:            "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal",
+		ReleaseID: "release-1", BundleVersion: "2.4.0", K3sVersion: "v1.30.4+k3s1", LocalNode: "server-b",
+		Phase: clustertopology.PhaseJoined, NodeUID: "node-uid", CreatedAt: now, UpdatedAt: now,
+	}
+	if err := clustertopology.SaveBootstrapState(filepath.Join(opts.stateDir, "cluster-bootstrap-state.json"), staged); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireLegacySingleHostLifecycle(opts, nil, "uninstall"); err == nil || !strings.Contains(err.Error(), "cluster-safe coordinated lifecycle") {
+		t.Fatalf("staged peer was allowed to run local teardown: %v", err)
 	}
 }
 

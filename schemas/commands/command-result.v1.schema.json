@@ -116,6 +116,10 @@
         "status",
         "verify",
         "verify-bundle",
+        "cluster-ha-check",
+        "cluster-server-stage",
+        "cluster-server-enrollment-create",
+        "cluster-finalize",
         "backup",
         "restore",
         "upgrade",
@@ -200,6 +204,9 @@
               "cluster-node-register",
               "cluster-inference-deploy",
               "cluster-node-remove"
+              ,"cluster-server-stage"
+              ,"cluster-server-enrollment-create"
+              ,"cluster-finalize"
             ]
           }
         },
@@ -439,6 +446,10 @@
                   "type": ["object", "null"],
                   "description": "Public local cluster receipt summary; join credentials are never included."
                 },
+                "topologyStage": {
+                  "type": ["object", "null"],
+                  "description": "Public three-server staging receipt for a peer before cluster finalization; join credentials are never included."
+                },
                 "k3sHealthy": {
                   "type": "boolean"
                 },
@@ -510,6 +521,10 @@
                 },
                 "metadataDigest": {
                   "type": "string"
+                },
+                "receiptKind": {
+                  "type": "string",
+                  "description": "The verified local receipt: installed-state or three-server-stage."
                 }
               }
             }

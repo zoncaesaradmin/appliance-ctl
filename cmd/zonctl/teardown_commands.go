@@ -22,6 +22,13 @@ func runUninstall(ctx context.Context, opts cliOptions, logger *slog.Logger, res
 	if opts.confirm == "" {
 		return finish(result, "failed", 1, "uninstall: --confirm <token> is required to acknowledge this destructive operation", nil)
 	}
+	installed, err := state.Load(installedStatePath(opts.stateDir))
+	if err != nil {
+		return finish(result, "failed", 1, "uninstall: "+err.Error(), nil)
+	}
+	if err := requireLegacySingleHostLifecycle(opts, installed, "uninstall"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
 
 	ops := k3s.DefaultOps()
 	checks, err := teardown.Uninstall(ctx, ops, defaultK3sUnitName, installedStatePath(opts.stateDir), defaultK3sBinaryDestPath, defaultK3sConfigPath, defaultK3sRegistriesPath, defaultK3sUnitPath, defaultKubectlSymlinkPath, defaultK3sCNINetworkDir, append([]string(nil), defaultK3sCNIInterfaces...))
@@ -68,6 +75,13 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	if !opts.acknowledgeDataLoss {
 		return finish(result, "failed", 1, "factory-reset: --acknowledge-data-loss is required", nil)
 	}
+	installed, stateErr := state.Load(installedStatePath(opts.stateDir))
+	if stateErr != nil {
+		return finish(result, "failed", 1, "factory-reset: "+stateErr.Error(), nil)
+	}
+	if err := requireLegacySingleHostLifecycle(opts, installed, "factory-reset"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
 
 	backupVerified := false
 	// PostgreSQL recovery sets live at an operator-chosen durable location;
@@ -84,10 +98,6 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 		backupVerified = true
 	}
 	if opts.backupID != "" {
-		installed, stateErr := state.Load(installedStatePath(opts.stateDir))
-		if stateErr != nil {
-			return finish(result, "failed", 1, stateErr.Error(), nil)
-		}
 		if usesPostgresControlPlane(installed, opts.nodeName) {
 			return finish(result, "failed", 1, "factory-reset: supplied legacy backup cannot protect PostgreSQL data; supply --recovery-set or --force-data-loss", nil)
 		}

@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/configarchive"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
@@ -73,6 +76,8 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 			return runVerify(context.Background(), opts, logger, result)
 		case "verify-bundle":
 			return runVerifyBundle(opts, logger, result)
+		case "cluster-ha-check":
+			return runClusterHACheck(context.Background(), opts, result)
 		case "support-bundle":
 			return runSupportBundle(context.Background(), opts, logger, result)
 		case "configuration-export":
@@ -82,6 +87,14 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 		}
 		logger.Info("running read-only command", "command", spec.name, "dryRun", opts.dryRun)
 		return finish(result, "failed", 1, notImplemented, nil)
+	}
+	// Verify the release and, for the new topology, the host inventory before
+	// even creating a lifecycle journal or state directory. A bad bundle or
+	// wrong-node inventory must not leave an install attempt on the target.
+	if (spec.name == "install" || spec.name == "cluster-server-stage" || spec.name == "cluster-finalize") && opts.bundleDir != "" {
+		if err := precheckInstallInputs(opts); err != nil {
+			return finish(result, "failed", 1, spec.name+": "+err.Error(), nil)
+		}
 	}
 
 	if !opts.dryRun {
@@ -115,7 +128,7 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 	// repair / uninstall / factory-reset are the recovery paths for a
 	// crashed mid-operation host. Blocking uninstall here strands
 	// --uninstall-first reinstall flows after --preserve-failed-state.
-	if current != nil && current.Interrupted() && !allowsInterruptedRecovery(spec.name) {
+	if current != nil && current.Interrupted() && !((spec.name == "cluster-server-stage" && current.Type == "cluster-server-stage") || (spec.name == "cluster-finalize" && current.Type == "cluster-finalize")) && !allowsInterruptedRecovery(spec.name) {
 		msg := fmt.Sprintf("a prior %s operation (transaction %s) did not complete; run 'zonctl repair' or 'zonctl uninstall --confirm yes' before starting a new operation", current.Type, current.ID)
 		logger.Warn("interrupted prior operation detected", "transactionId", current.ID, "operation", current.Type)
 		return finish(result, "failed", 1, msg, nil)
@@ -132,6 +145,12 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 	switch spec.name {
 	case "install":
 		result = runInstall(context.Background(), opts, txn, priorInstallAttempted, logger, result)
+	case "cluster-server-stage":
+		result = runClusterServerStage(context.Background(), opts, logger, result)
+	case "cluster-server-enrollment-create":
+		result = runClusterServerEnrollmentCreate(opts, result)
+	case "cluster-finalize":
+		result = runClusterFinalize(context.Background(), opts, txn.ID, logger, result)
 	case "repair":
 		result = runRepair(context.Background(), opts, logger, result)
 	case "backup":
@@ -186,6 +205,73 @@ func dispatch(spec commandSpec, opts cliOptions, logger *slog.Logger) commandRes
 	}
 
 	return result
+}
+
+func runClusterHACheck(ctx context.Context, opts cliOptions, result commandResult) commandResult {
+	if opts.bundleDir == "" {
+		return finish(result, "failed", 2, "cluster-ha-check: --bundle-dir is required", nil)
+	}
+	if opts.clusterInventoryPath == "" {
+		return finish(result, "failed", 2, "cluster-ha-check: --cluster-inventory is required", nil)
+	}
+	profile := productconfig.SelectApplianceProfile(opts.applianceProfile, "")
+	_, resolved, _, err := resolveVerifiedInstallSource(ctx, opts, profile)
+	if err != nil {
+		return finish(result, "failed", 1, "cluster-ha-check: "+err.Error(), nil)
+	}
+	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+		return finish(result, "failed", 1, "cluster-ha-check: verified bundle does not declare three-server embedded etcd", nil)
+	}
+	inventory, err := clustertopology.Load(opts.clusterInventoryPath)
+	if err != nil {
+		return finish(result, "failed", 1, "cluster-ha-check: "+err.Error(), nil)
+	}
+	addresses, err := clustertopology.LocalAddresses()
+	if err != nil {
+		return finish(result, "failed", 1, "cluster-ha-check: "+err.Error(), nil)
+	}
+	if err := inventory.ValidateLocalAddress(opts.nodeName, addresses); err != nil {
+		return finish(result, "failed", 1, "cluster-ha-check: "+err.Error(), nil)
+	}
+	recordedUIDs := map[string]string{}
+	if installed, err := state.Load(filepath.Join(opts.stateDir, "installed-state.json")); err != nil {
+		return finish(result, "failed", 1, "cluster-ha-check: "+err.Error(), nil)
+	} else if installed != nil && installed.Cluster != nil {
+		if installed.InstalledReleaseID != resolved.ReleaseID {
+			return finish(result, "failed", 1, "cluster-ha-check: installed receipt release differs from verified bundle", nil)
+		}
+		for _, node := range installed.Cluster.Nodes {
+			recordedUIDs[node.Name] = node.NodeUID
+		}
+	}
+	nodes := cluster.ValidateThreeServerNodeReadiness(ctx, cli.Exec, defaultKubeconfigPath, inventory, resolved.Compatibility.K3sVersion, recordedUIDs)
+	apiEndpoints := cluster.ValidateThreeServerAPIEndpoints(ctx, cli.Exec, defaultKubeconfigPath, inventory)
+	etcd := cluster.ReadLocalEtcdMembership(ctx, defaultK3sDataDir, inventory)
+	data, _ := json.Marshal(map[string]bool{"kubernetesNodesReady": nodes.Healthy, "directAPIEndpointsReady": apiEndpoints.Healthy, "embeddedEtcdMembership": etcd.Healthy, "applicationHA": false})
+	if !nodes.Healthy || !apiEndpoints.Healthy || !etcd.Healthy {
+		return finish(result, "failed", 1, "cluster-ha-check: Kubernetes: "+nodes.Message+"; direct APIs: "+apiEndpoints.Message+"; etcd: "+etcd.Message, data)
+	}
+	return finish(result, "succeeded", 0, "cluster-ha-check: Kubernetes and embedded-etcd substrate pass; application HA is not established", data)
+}
+
+func precheckInstallInputs(opts cliOptions) error {
+	profile := productconfig.SelectApplianceProfile(opts.applianceProfile, "")
+	_, resolved, _, err := resolveVerifiedInstallSource(context.Background(), opts, profile)
+	if err != nil {
+		return err
+	}
+	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+		return nil
+	}
+	inventory, err := clustertopology.Load(opts.clusterInventoryPath)
+	if err != nil {
+		return err
+	}
+	addresses, err := clustertopology.LocalAddresses()
+	if err != nil {
+		return err
+	}
+	return inventory.ValidateLocalAddress(opts.nodeName, addresses)
 }
 
 // localIPv4s is the LAN addresses of this host. Tests replace it.
@@ -454,6 +540,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	}
 	installOpts := install.Options{
 		ApplianceVersion:                version,
+		ClusterInventoryPath:            opts.clusterInventoryPath,
 		InstalledStatePath:              filepath.Join(opts.stateDir, "installed-state.json"),
 		K3sConfigPath:                   defaultK3sConfigPath,
 		K3sRegistriesPath:               defaultK3sRegistriesPath,

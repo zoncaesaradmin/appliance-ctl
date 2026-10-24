@@ -479,6 +479,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		"chartVersion":            input.Compatibility.ChartVersion,
 		"supportedUpgradeSources": supportedUpgradeSources,
 	}
+	if input.Compatibility.DeploymentTopology != "" {
+		compatibility["deploymentTopology"] = input.Compatibility.DeploymentTopology
+	}
 	if strings.TrimSpace(input.Compatibility.ArtifactServerVersion) != "" {
 		compatibility["artifactServerVersion"] = input.Compatibility.ArtifactServerVersion
 	}

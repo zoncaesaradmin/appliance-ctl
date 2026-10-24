@@ -23,6 +23,9 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	if loadErr != nil {
 		return finish(result, "failed", 1, "upgrade: "+loadErr.Error(), nil)
 	}
+	if err := requireLegacySingleHostLifecycle(opts, installed, "upgrade"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
 	currentProfile := ""
 	if installed != nil {
 		currentProfile = installed.ApplianceProfile

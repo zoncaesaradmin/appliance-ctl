@@ -55,6 +55,38 @@ func TestEnrollmentRejectsUnpinnedSigner(t *testing.T) {
 	}
 }
 
+func TestThreeServerEnrollmentBindsSignedInventory(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	e := cluster.Enrollment{
+		ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal", ControlPlaneNode: "server-a",
+		NodeRole: "prime", DeploymentTopology: "three-server-etcd-v1", InventoryFingerprint: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		ReleaseID: "release-1", ReleaseVersion: "1.2.3", ControlEndpoint: "https://api.example.internal:6443",
+		ClusterCAHash:    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ExpectedNodeName: "server-b", K3sToken: "K10token", TokenFingerprint: cluster.TokenFingerprint("K10token"),
+		IssuedAt: now, ExpiresAt: now.Add(time.Hour), Nonce: "nonce",
+	}
+	if err := e.Sign(private); err == nil {
+		t.Fatal("v2 enrollment was signed as legacy v1")
+	}
+	if err := e.SignThreeServer(private); err != nil {
+		t.Fatal(err)
+	}
+	if e.Version != cluster.ThreeServerEnrollmentVersion {
+		t.Fatalf("enrollment version = %d", e.Version)
+	}
+	if err := e.Validate(now, cluster.Fingerprint(public)); err != nil {
+		t.Fatalf("valid three-server enrollment rejected: %v", err)
+	}
+	e.InventoryFingerprint = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	if err := e.Validate(now, cluster.Fingerprint(public)); err == nil {
+		t.Fatal("tampered inventory binding accepted")
+	}
+}
+
 func TestWriteAndReadEnrollment(t *testing.T) {
 	path := t.TempDir() + "/worker.enrollment"
 	e := cluster.Enrollment{ClusterID: "cluster-1"}

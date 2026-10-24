@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/diagnostics"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
@@ -67,6 +68,42 @@ func TestEvaluate_CorruptInstalledState(t *testing.T) {
 	})
 	if got := statusOf(t, checks, "installed-state-valid"); got != evidence.StatusFail {
 		t.Errorf("expected fail, got %s", got)
+	}
+}
+
+func TestEvaluate_ThreeServerPeerReceiptIsOperationalButIncompleteBootstrapIsActionable(t *testing.T) {
+	now := time.Now().UTC()
+	joined := clustertopology.BootstrapState{
+		SchemaVersion:        clustertopology.BootstrapStateVersion,
+		Topology:             clustertopology.ThreeServerEtcdV1,
+		InventoryFingerprint: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ClusterID:            "cluster-1",
+		ApplianceName:        "zon",
+		ApplianceProfile:     "core",
+		DNSZone:              "appliance.internal",
+		ReleaseID:            "release-1",
+		BundleVersion:        "2.4.0",
+		K3sVersion:           "v1.30.4+k3s1",
+		LocalNode:            "server-b",
+		Phase:                clustertopology.PhaseJoined,
+		NodeUID:              "uid-b",
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	checks := diagnostics.Evaluate(diagnostics.Signals{ThreeServerStage: &joined, K3sHealth: k3s.HealthStatus{Healthy: true}})
+	if got := statusOf(t, checks, "three-server-stage-present"); got != evidence.StatusPass {
+		t.Fatalf("joined peer receipt status = %s", got)
+	}
+	if got := evidence.OverallStatus(checks); got != evidence.StatusPass {
+		t.Fatalf("joined peer overall status = %s, want pass: %+v", got, checks)
+	}
+
+	bootstrap := joined
+	bootstrap.Phase = clustertopology.PhaseServerReady
+	bootstrap.NodeUID = ""
+	checks = diagnostics.Evaluate(diagnostics.Signals{ThreeServerStage: &bootstrap, K3sHealth: k3s.HealthStatus{Healthy: true}})
+	if got := statusOf(t, checks, "three-server-stage-present"); got != evidence.StatusOperatorAction {
+		t.Fatalf("incomplete bootstrap receipt status = %s", got)
 	}
 }
 

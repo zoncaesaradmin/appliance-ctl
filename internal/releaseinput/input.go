@@ -30,6 +30,7 @@ type Input struct {
 type Compatibility struct {
 	K3sVersion              string
 	ChartVersion            string
+	DeploymentTopology      string `json:"deploymentTopology"`
 	WorkflowsVersion        string
 	ArtifactServerVersion   string
 	DnsVersion              string
@@ -307,6 +308,22 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 	checks, err := verify.VerifyArtifacts(nil, artifacts)
 	if err != nil {
 		return nil, checks, fmt.Errorf("release-input: %w", err)
+	}
+	// The compatibility artifact and the release-input envelope are two
+	// independently copied forms of the product contract. A topology claim in
+	// either form must agree before the release assembler can sign it.
+	compatibilityBytes, err := os.ReadFile(input.Artifacts.Compatibility.Path)
+	if err != nil {
+		return nil, checks, fmt.Errorf("release-input: read compatibility artifact: %w", err)
+	}
+	var artifactCompatibility struct {
+		DeploymentTopology string `json:"deploymentTopology"`
+	}
+	if err := json.Unmarshal(compatibilityBytes, &artifactCompatibility); err != nil {
+		return nil, checks, fmt.Errorf("release-input: parse compatibility artifact: %w", err)
+	}
+	if input.Compatibility.DeploymentTopology != artifactCompatibility.DeploymentTopology {
+		return nil, checks, fmt.Errorf("release-input: deployment topology differs between release-input.json and compatibility artifact")
 	}
 
 	dirChecks, dirErr := verifyDirArtifacts([]namedDirArtifact{

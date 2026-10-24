@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 )
 
@@ -172,5 +173,47 @@ func TestConfig_Render_ClusterInitAndJoiningPrime(t *testing.T) {
 	invalid := k3s.Config{NodeName: "n", DataDir: "/d", ClusterInit: true, ServerURL: "https://10.0.0.1:6443"}
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("cluster-init plus server URL must fail")
+	}
+}
+
+func TestThreeServerConfigRendersAllActiveServers(t *testing.T) {
+	inventory := clustertopology.Inventory{
+		Topology: clustertopology.ThreeServerEtcdV1, BootstrapNode: "server-a",
+		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}, {Name: "server-b", Address: "10.0.0.12"}, {Name: "server-c", Address: "10.0.0.13"}},
+	}
+	for i, node := range inventory.Nodes {
+		tokenFile := ""
+		if i > 0 {
+			tokenFile = "/etc/rancher/k3s/zon-server-token"
+		}
+		cfg, err := k3s.ThreeServerConfig(inventory, node.Name, "/var/lib/rancher/k3s", tokenFile)
+		if err != nil {
+			t.Fatalf("server %s config rejected: %v", node.Name, err)
+		}
+		rendered := cfg.Render()
+		for _, want := range []string{`node-ip: "` + node.Address + `"`, `advertise-address: "` + node.Address + `"`, `- "10.0.0.11"`, `- "10.0.0.12"`, `- "10.0.0.13"`, `svccontroller.k3s.cattle.io/enablelb=true`} {
+			if !strings.Contains(rendered, want) {
+				t.Fatalf("server %s config missing %q:\n%s", node.Name, want, rendered)
+			}
+		}
+		if i == 0 {
+			if !strings.Contains(rendered, "cluster-init: true") || strings.Contains(rendered, "server: ") {
+				t.Fatalf("bootstrap config must initialize etcd without server URL:\n%s", rendered)
+			}
+		} else {
+			if strings.Contains(rendered, "cluster-init: true") || !strings.Contains(rendered, `server: "https://10.0.0.11:6443"`) || !strings.Contains(rendered, `token-file: "`+tokenFile+`"`) {
+				t.Fatalf("joining server config is inconsistent:\n%s", rendered)
+			}
+		}
+	}
+	if _, err := k3s.ThreeServerConfig(inventory, "server-d", "/var/lib/rancher/k3s", "token"); err == nil {
+		t.Fatal("unknown server was accepted")
+	}
+	if _, err := k3s.ThreeServerConfig(inventory, "server-b", "/var/lib/rancher/k3s", ""); err == nil {
+		t.Fatal("joining server without protected token file was accepted")
+	}
+	agent := k3s.Config{DeploymentTopology: clustertopology.ThreeServerEtcdV1, Mode: k3s.NodeModeAgent, NodeName: "server-b", DataDir: "/d", NodeIP: "10.0.0.12", ServerURL: inventory.BootstrapAPIEndpoint(), TokenFile: "token", TLSSANs: inventory.APISANs()}
+	if err := agent.Validate(); err == nil {
+		t.Fatal("agent mode was accepted for three-server topology")
 	}
 }

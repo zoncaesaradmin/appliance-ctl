@@ -11,6 +11,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/diagnostics"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
@@ -48,6 +49,11 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, nodeName, 
 	}
 
 	sig := diagnostics.Signals{InstalledState: installed, InstalledStateErr: stateErr, K3sHealth: health}
+	if installed == nil && stateErr == nil {
+		staged, stageErr := clustertopology.LoadBootstrapState(filepath.Join(stateDir, "cluster-bootstrap-state.json"))
+		sig.ThreeServerStage = staged
+		sig.ThreeServerStageErr = stageErr
+	}
 
 	if installed == nil || !signal.Active {
 		return sig, nil
@@ -133,6 +139,10 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		copied := *sig.InstalledState.Cluster
 		clusterState = &copied
 	}
+	var topologyStage any
+	if sig.ThreeServerStage != nil {
+		topologyStage = sig.ThreeServerStage
+	}
 	componentHealth := []map[string]any{{"name": "k3s", "healthy": sig.K3sHealth.Healthy}}
 	if !sig.K3sHealth.Healthy {
 		componentHealth[0]["detail"] = sig.K3sHealth.Reasons[0]
@@ -186,6 +196,7 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		"k3sHealthy":       sig.K3sHealth.Healthy,
 		"componentHealth":  componentHealth,
 		"cluster":          clusterState,
+		"topologyStage":    topologyStage,
 	})
 
 	overall := evidence.OverallStatus(checks)
@@ -221,15 +232,21 @@ func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	// retaining that manifest post-install, which is not yet wired up
 	// (a gap worth closing in a future pass, not silently pretended away
 	// here).
-	manifestValid := sig.InstalledStateErr == nil && sig.InstalledState != nil
+	manifestValid := sig.InstalledStateErr == nil && (sig.InstalledState != nil || (sig.ThreeServerStageErr == nil && sig.ThreeServerStage != nil))
 	entriesVerified := 0
 	entriesFailed := []string{}
 	metadataVersion := ""
 	metadataDigest := ""
+	receiptKind := ""
 	if manifestValid {
 		entriesVerified = 1
-		metadataVersion = sig.InstalledState.Components.MetadataVersion
-		metadataDigest = sig.InstalledState.Components.MetadataDigest
+		if sig.InstalledState != nil {
+			receiptKind = "installed-state"
+			metadataVersion = sig.InstalledState.Components.MetadataVersion
+			metadataDigest = sig.InstalledState.Components.MetadataDigest
+		} else {
+			receiptKind = "three-server-stage"
+		}
 	} else {
 		entriesFailed = append(entriesFailed, "installed-state.json")
 	}
@@ -239,6 +256,7 @@ func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		"entriesFailed":   entriesFailed,
 		"metadataVersion": metadataVersion,
 		"metadataDigest":  metadataDigest,
+		"receiptKind":     receiptKind,
 	})
 
 	overall := evidence.OverallStatus(checks)
@@ -253,6 +271,9 @@ func runRepair(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	installed, err := state.Load(installedStatePath(opts.stateDir))
 	if err != nil {
 		logger.Error("failed to load installed-state", "error", err)
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
+	if err := requireLegacySingleHostLifecycle(opts, installed, "repair"); err != nil {
 		return finish(result, "failed", 1, err.Error(), nil)
 	}
 

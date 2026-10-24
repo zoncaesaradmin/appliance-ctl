@@ -53,15 +53,23 @@ type K3sOwnership struct {
 // do not belong here: they are short-lived secrets held in protected K3s
 // configuration on the joining node.
 type Cluster struct {
-	ID               string `json:"id,omitempty"`
-	Topology         string `json:"topology,omitempty"`
-	ControlPlaneNode string `json:"controlPlaneNode,omitempty"`
-	IngressNode      string `json:"ingressNode,omitempty"`
+	ID       string `json:"id,omitempty"`
+	Topology string `json:"topology,omitempty"`
+	// DeploymentTopology records the signed product topology that produced this
+	// receipt. It is distinct from Topology: the latter describes the observed
+	// K3s member shape and is also used by pre-existing prime/worker receipts.
+	// Keeping the signed selection lets day-two commands decline unsafe
+	// single-host implementations only for the coordinated embedded-etcd
+	// product topology, without changing legacy receipt behavior.
+	DeploymentTopology string `json:"deploymentTopology,omitempty"`
+	ControlPlaneNode   string `json:"controlPlaneNode,omitempty"`
+	IngressNode        string `json:"ingressNode,omitempty"`
 	// ControlEndpoint is the preferred K3s API URL used to join a live
 	// server (usually the advertised prime). Every prime also serves the
-	// same API on its own LAN IPv4:6443; see ControlEndpoints.
+	// same API on its own planned server IPv4:6443; see ControlEndpoints.
 	ControlEndpoint string `json:"controlEndpoint,omitempty"`
-	// ControlEndpoints lists every known prime API URL (https://<lan-ip>:6443).
+	// ControlEndpoints lists every known prime API URL
+	// (https://<server-ip>:6443).
 	// There is no extra VIP. Clients may use any live entry.
 	ControlEndpoints []string `json:"controlEndpoints,omitempty"`
 	// ClusterCAHash pins the K3s server CA presented by ControlEndpoint. It is
@@ -87,12 +95,13 @@ type ClusterNode struct {
 }
 
 const (
-	TopologySingleServer  = "single-server"
-	TopologyServerWorkers = "server-workers"
-	TopologyMultiServer   = "multi-server"
-	NodeRoleControlPlane  = "control-plane"
-	NodeRoleWorker        = "worker"
-	NodeRoleInference     = "inference"
+	TopologySingleServer                = "single-server"
+	TopologyServerWorkers               = "server-workers"
+	TopologyMultiServer                 = "multi-server"
+	DeploymentTopologyThreeServerEtcdV1 = "three-server-etcd-v1"
+	NodeRoleControlPlane                = "control-plane"
+	NodeRoleWorker                      = "worker"
+	NodeRoleInference                   = "inference"
 )
 
 // NewSingleServerCluster constructs the v1-compatible cluster record. The

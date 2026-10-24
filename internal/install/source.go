@@ -144,6 +144,9 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		packs = append(packs, pb)
 	}
 	view := mergedBundle{primary: b, packs: packs}
+	if err := validatePackTopologies(b, packs); err != nil {
+		return Resolved{}, checks, err
+	}
 	compat := mergeCompatibility(b, packs)
 	runtimeOwners, err := runtimeBundleOwners(b, packs)
 	if err != nil {
@@ -422,6 +425,15 @@ func (m mergedBundle) Entries(component string) []bundle.Entry {
 		out = append(out, p.Entries(component)...)
 	}
 	return out
+}
+
+func validatePackTopologies(primary *bundle.Bundle, packs []*bundle.Bundle) error {
+	for _, pack := range packs {
+		if pack.Compatibility.DeploymentTopology != primary.Compatibility.DeploymentTopology {
+			return fmt.Errorf("install: delivery pack deployment topology %q does not match foundation %q", pack.Compatibility.DeploymentTopology, primary.Compatibility.DeploymentTopology)
+		}
+	}
+	return nil
 }
 
 func mergeCompatibility(primary *bundle.Bundle, packs []*bundle.Bundle) bundle.Compatibility {

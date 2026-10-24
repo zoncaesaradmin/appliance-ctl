@@ -170,6 +170,9 @@ func runClusterEnrollmentCreate(opts cliOptions, logger *slog.Logger, result com
 	if installed == nil || installed.Cluster == nil {
 		return finish(result, "failed", 1, "cluster-enrollment-create: this host has no appliance cluster state", nil)
 	}
+	if installed.Cluster.DeploymentTopology == state.DeploymentTopologyThreeServerEtcdV1 {
+		return finish(result, "failed", 1, "cluster-enrollment-create: workers and ad-hoc server enrollment are not supported by the finalized three-server topology", nil)
+	}
 	if installed.Cluster.ControlPlaneNode != opts.nodeName {
 		return finish(result, "failed", 1, "cluster-enrollment-create: this receipt is not the cluster control-plane node", nil)
 	}
@@ -334,6 +337,9 @@ func runClusterNodeRegister(ctx context.Context, opts cliOptions, logger *slog.L
 		}
 		return finish(result, "failed", 1, "cluster-node-register: cluster state is required", nil)
 	}
+	if err := requireNoThreeServerNodeLifecycle(installed, "cluster-node-register"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
 	if installed.Cluster.ControlPlaneNode != opts.nodeName {
 		return finish(result, "failed", 1, "cluster-node-register: must run on the control-plane node", nil)
 	}
@@ -405,6 +411,9 @@ func runClusterNodeRemove(ctx context.Context, opts cliOptions, logger *slog.Log
 		}
 		return finish(result, "failed", 1, "cluster-node-remove: cluster state is required", nil)
 	}
+	if err := requireNoThreeServerNodeLifecycle(installed, "cluster-node-remove"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
+	}
 	if installed.Cluster.ControlPlaneNode != opts.nodeName {
 		return finish(result, "failed", 1, "cluster-node-remove: must run on the control-plane node", nil)
 	}
@@ -472,6 +481,9 @@ func runClusterInferenceDeploy(ctx context.Context, opts cliOptions, logger *slo
 	installed, err := state.Load(filepath.Join(opts.stateDir, "installed-state.json"))
 	if err != nil || installed == nil || installed.Cluster == nil {
 		return finish(result, "failed", 1, "cluster-inference-deploy: cluster state is required", nil)
+	}
+	if err := requireNoThreeServerNodeLifecycle(installed, "cluster-inference-deploy"); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
 	}
 	if installed.Cluster.ControlPlaneNode != opts.nodeName {
 		return finish(result, "failed", 1, "cluster-inference-deploy: must run on the control-plane node", nil)

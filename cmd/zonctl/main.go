@@ -79,11 +79,13 @@ type cliOptions struct {
 	enrollmentOut                 string
 	controlEndpoint               string
 	workerName                    string
+	serverName                    string
 	workerRole                    string
 	enrollmentTTL                 string
 	enrollmentFile                string
 	clusterSignerFingerprint      string
 	clusterInit                   bool
+	clusterInventoryPath          string
 	bootstrapMode                 string
 	configurationEndpoint         string
 	configurationTokenFile        string
@@ -109,6 +111,10 @@ var commands = []commandSpec{
 	{"status", false},
 	{"verify", false},
 	{"verify-bundle", false},
+	{"cluster-ha-check", false},
+	{"cluster-server-stage", true},
+	{"cluster-server-enrollment-create", true},
+	{"cluster-finalize", true},
 	{"backup", true},
 	{"restore", true},
 	{"upgrade", true},
@@ -203,14 +209,16 @@ func run(args []string) int {
 	imagePullRegistryUsernameEnv := fs.String("image-pull-registry-username-env", "", "env var name holding the image-pull registry username (required when --image-pull-registry is set; e.g. DEV_REGISTRY_USER)")
 	imagePullRegistryTokenEnv := fs.String("image-pull-registry-token-env", "", "env var name holding the image-pull registry password/token (required when --image-pull-registry is set; e.g. DEV_REGISTRY_TOKEN)")
 	imagePullRegistryTLSVerifyEnv := fs.String("image-pull-registry-tls-verify-env", "", "env var name holding true|false for registry TLS verify (optional; default true; e.g. DEV_REGISTRY_TLS_VERIFY)")
-	enrollmentOut := fs.String("enrollment-out", "", "owner-only path where cluster-enrollment-create writes the worker enrollment artifact")
-	controlEndpoint := fs.String("control-endpoint", "", "https K3s API URL of any live prime (https://<prime-ip>:6443); required for cluster-enrollment-create")
-	workerName := fs.String("worker-name", "", "expected K3s node name for cluster-enrollment-create")
-	workerRole := fs.String("worker-role", "worker", "cluster role: worker, inference, or prime (enrollment and registration)")
-	enrollmentTTL := fs.String("enrollment-ttl", "15m", "enrollment validity, from 1 minute through 24 hours (cluster-enrollment-create only)")
-	enrollmentFile := fs.String("enrollment-file", "", "protected enrollment artifact to consume (required for cluster-join)")
-	clusterSignerFingerprint := fs.String("cluster-signer-fingerprint", "", "pinned sha256 enrollment signer fingerprint obtained from the control plane (required for cluster-join)")
-	clusterInit := fs.Bool("cluster-init", false, "first prime of a three-prime cluster: enable embedded etcd")
+	enrollmentOut := fs.String("enrollment-out", "", "legacy-only owner path for a worker/prime enrollment artifact; unsupported by three-server releases")
+	controlEndpoint := fs.String("control-endpoint", "", "legacy enrollment API URL; three-server peers use their signed inventory-bound bootstrap endpoint")
+	workerName := fs.String("worker-name", "", "legacy enrollment node name; three-server peer enrollment uses --server-name")
+	serverName := fs.String("server-name", "", "inventory node name for cluster-server-enrollment-create")
+	workerRole := fs.String("worker-role", "worker", "legacy enrollment/registration role: worker, inference, or prime")
+	enrollmentTTL := fs.String("enrollment-ttl", "15m", "legacy enrollment validity, from 1 minute through 24 hours")
+	enrollmentFile := fs.String("enrollment-file", "", "legacy protected enrollment artifact; three-server peers use --server-enrollment-file internally")
+	clusterSignerFingerprint := fs.String("cluster-signer-fingerprint", "", "pinned enrollment signer fingerprint for staged three-server peers or legacy join")
+	clusterInit := fs.Bool("cluster-init", false, "deprecated manual topology flag; signed three-server inventory selects the bootstrap server")
+	clusterInventoryPath := fs.String("cluster-inventory", "", "path to the install-time three-server inventory JSON file")
 	bootstrapMode := fs.String("bootstrap-mode", "fresh", "install bootstrap source: fresh, adopt, restore-config, or restore-recovery-set")
 	configurationEndpoint := fs.String("configuration-endpoint", "", "HTTPS base URL of the control-plane API for configuration export/import")
 	configurationTokenFile := fs.String("configuration-token-file", "", "protected file containing a control-plane bearer token for configuration export/import")
@@ -261,11 +269,13 @@ func run(args []string) int {
 		enrollmentOut:                 *enrollmentOut,
 		controlEndpoint:               *controlEndpoint,
 		workerName:                    *workerName,
+		serverName:                    *serverName,
 		workerRole:                    *workerRole,
 		enrollmentTTL:                 *enrollmentTTL,
 		enrollmentFile:                *enrollmentFile,
 		clusterSignerFingerprint:      *clusterSignerFingerprint,
 		clusterInit:                   *clusterInit,
+		clusterInventoryPath:          *clusterInventoryPath,
 		bootstrapMode:                 *bootstrapMode,
 		configurationEndpoint:         *configurationEndpoint,
 		configurationTokenFile:        *configurationTokenFile,

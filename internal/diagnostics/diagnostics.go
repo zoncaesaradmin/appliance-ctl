@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -22,7 +23,12 @@ type Signals struct {
 	// InstalledStateErr is set when installed-state.json exists but
 	// failed to load or validate (corruption, schema drift).
 	InstalledStateErr error
-	K3sHealth         k3s.HealthStatus
+	// ThreeServerStage identifies a local server that has joined the
+	// coordinated embedded-etcd topology. It is not an InstalledState because
+	// product finalization and Helm ownership remain on the bootstrap node.
+	ThreeServerStage    *clustertopology.BootstrapState
+	ThreeServerStageErr error
+	K3sHealth           k3s.HealthStatus
 	// ChartHealth and IngressHealth are only populated when the caller
 	// actually reached far enough to check them (installed-state present
 	// and K3s active). Checked distinguishes "not checked" from "checked
@@ -73,6 +79,22 @@ func Evaluate(sig Signals) []evidence.Check {
 		checks = append(checks, evidence.Check{
 			ID: "installed-state-valid", Category: "manifest", Status: evidence.StatusFail,
 			Message: sig.InstalledStateErr.Error(), Timestamp: now, Idempotent: true, SecretsRedacted: true,
+		})
+	case sig.InstalledState == nil && sig.ThreeServerStageErr != nil:
+		checks = append(checks, evidence.Check{
+			ID: "three-server-stage-valid", Category: "manifest", Status: evidence.StatusFail,
+			Message: sig.ThreeServerStageErr.Error(), Timestamp: now, Idempotent: true, SecretsRedacted: true,
+		})
+	case sig.InstalledState == nil && sig.ThreeServerStage != nil:
+		status := evidence.StatusPass
+		message := "three-server Kubernetes member receipt present: phase " + sig.ThreeServerStage.Phase
+		if sig.ThreeServerStage.Phase == clustertopology.PhasePrepared || sig.ThreeServerStage.Phase == clustertopology.PhaseServerReady {
+			status = evidence.StatusOperatorAction
+			message += "; complete the other server stages and run cluster-finalize on the bootstrap server"
+		}
+		checks = append(checks, evidence.Check{
+			ID: "three-server-stage-present", Category: "manifest", Status: status,
+			Message: message, Timestamp: now, Idempotent: true, SecretsRedacted: true,
 		})
 	case sig.InstalledState == nil:
 		checks = append(checks, evidence.Check{

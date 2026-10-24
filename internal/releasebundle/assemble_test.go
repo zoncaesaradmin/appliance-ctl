@@ -51,7 +51,7 @@ func buildReleaseInputDir(t *testing.T) string {
 		"appliance-inference-0.9.0.tgz":                     "inference-chart",
 		"appliance-metadata-bundle-2.4.0.0.tar.zst":         "metadata-bundle-bytes",
 		"configuration.schema.json":                         `{"type":"object"}`,
-		"compatibility.json":                                `{"k3sVersion":"v1.30.4+k3s1"}`,
+		"compatibility.json":                                `{"k3sVersion":"v1.30.4+k3s1","deploymentTopology":"three-server-etcd-v1"}`,
 		"checksums.txt":                                     "checksums",
 		"sbom/appliance.spdx.json":                          "{}",
 		"provenance/appliance.provenance.json":              "{}",
@@ -109,7 +109,7 @@ func buildReleaseInputDir(t *testing.T) string {
 			"inferenceChart":        map[string]any{"path": "appliance-inference-0.9.0.tgz", "digest": digestOf("appliance-inference-0.9.0.tgz"), "sizeBytes": len("inference-chart")},
 			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": metadataInfo.Size()},
 			"configurationSchema":   map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
-			"compatibility":         map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1"}`)},
+			"compatibility":         map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1","deploymentTopology":"three-server-etcd-v1"}`)},
 			"checksums":             map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("checksums")},
 			"sbom":                  map[string]any{"path": "sbom", "manifestDigest": dirDigestOf("sbom")},
 			"provenance":            map[string]any{"path": "provenance", "manifestDigest": dirDigestOf("provenance")},
@@ -118,6 +118,7 @@ func buildReleaseInputDir(t *testing.T) string {
 		},
 		"compatibility": map[string]any{
 			"k3sVersion":              "v1.30.4+k3s1",
+			"deploymentTopology":      "three-server-etcd-v1",
 			"chartVersion":            "2.4.0",
 			"artifactServerVersion":   "2.1.7",
 			"dnsVersion":              "1.14.4",
@@ -192,6 +193,9 @@ func TestAssembleAndVerifyBundle(t *testing.T) {
 	}
 	if b.BundleVersion != "9.1.0" || b.ReleaseID != "release-2.4.0" {
 		t.Fatalf("unexpected bundle metadata: %+v", b)
+	}
+	if b.Compatibility.DeploymentTopology != "three-server-etcd-v1" {
+		t.Fatalf("signed bundle lost deployment topology: %q", b.Compatibility.DeploymentTopology)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "configuration", "configuration.schema.json")); err != nil {
 		t.Fatalf("expected configuration schema to be carried into the bundle: %v", err)

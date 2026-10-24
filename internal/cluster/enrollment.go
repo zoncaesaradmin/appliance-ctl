@@ -21,31 +21,37 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/lifecycle"
 )
 
-const EnrollmentVersion = 1
+const (
+	EnrollmentVersion            = 1 // legacy worker/prime enrollments
+	ThreeServerEnrollmentVersion = 2
+)
 
 // Enrollment is a short-lived, single-worker K3s join authorization. The
 // token is intentionally absent from installed-state and command arguments;
 // it is carried only in this protected file and copied into an agent-only
 // token file during the join transaction.
 type Enrollment struct {
-	Version          int       `json:"version"`
-	ClusterID        string    `json:"clusterId"`
-	ApplianceName    string    `json:"applianceName"`
-	ApplianceProfile string    `json:"applianceProfile"`
-	ControlPlaneNode string    `json:"controlPlaneNode"`
-	NodeRole         string    `json:"nodeRole"`
-	ReleaseID        string    `json:"releaseId"`
-	ReleaseVersion   string    `json:"releaseVersion"`
-	ControlEndpoint  string    `json:"controlEndpoint"`
-	ClusterCAHash    string    `json:"clusterCAHash"`
-	ExpectedNodeName string    `json:"expectedNodeName"`
-	K3sToken         string    `json:"k3sToken"`
-	TokenFingerprint string    `json:"tokenFingerprint"`
-	IssuedAt         time.Time `json:"issuedAt"`
-	ExpiresAt        time.Time `json:"expiresAt"`
-	Nonce            string    `json:"nonce"`
-	SignerPublicKey  string    `json:"signerPublicKey"`
-	Signature        string    `json:"signature"`
+	Version              int       `json:"version"`
+	ClusterID            string    `json:"clusterId"`
+	ApplianceName        string    `json:"applianceName"`
+	ApplianceProfile     string    `json:"applianceProfile"`
+	DNSZone              string    `json:"dnsZone,omitempty"`
+	ControlPlaneNode     string    `json:"controlPlaneNode"`
+	NodeRole             string    `json:"nodeRole"`
+	DeploymentTopology   string    `json:"deploymentTopology,omitempty"`
+	InventoryFingerprint string    `json:"inventoryFingerprint,omitempty"`
+	ReleaseID            string    `json:"releaseId"`
+	ReleaseVersion       string    `json:"releaseVersion"`
+	ControlEndpoint      string    `json:"controlEndpoint"`
+	ClusterCAHash        string    `json:"clusterCAHash"`
+	ExpectedNodeName     string    `json:"expectedNodeName"`
+	K3sToken             string    `json:"k3sToken"`
+	TokenFingerprint     string    `json:"tokenFingerprint"`
+	IssuedAt             time.Time `json:"issuedAt"`
+	ExpiresAt            time.Time `json:"expiresAt"`
+	Nonce                string    `json:"nonce"`
+	SignerPublicKey      string    `json:"signerPublicKey"`
+	Signature            string    `json:"signature"`
 }
 
 type unsignedEnrollment Enrollment
@@ -57,10 +63,27 @@ func (e Enrollment) unsigned() unsignedEnrollment {
 
 // Sign signs e in place using the cluster enrollment private key.
 func (e *Enrollment) Sign(private ed25519.PrivateKey) error {
+	if e.DeploymentTopology != "" || e.InventoryFingerprint != "" || e.DNSZone != "" {
+		return errors.New("cluster enrollment: topology-bound enrollment requires version 2 signing")
+	}
+	e.Version = EnrollmentVersion
+	return e.sign(private)
+}
+
+// SignThreeServer binds a server join credential to one three-server
+// inventory. Legacy v1 enrollment artifacts remain readable for migration.
+func (e *Enrollment) SignThreeServer(private ed25519.PrivateKey) error {
+	if e.DeploymentTopology != "three-server-etcd-v1" || e.InventoryFingerprint == "" || e.NodeRole != "prime" {
+		return errors.New("cluster enrollment: three-server signing requires topology, inventory fingerprint, and prime role")
+	}
+	e.Version = ThreeServerEnrollmentVersion
+	return e.sign(private)
+}
+
+func (e *Enrollment) sign(private ed25519.PrivateKey) error {
 	if len(private) != ed25519.PrivateKeySize {
 		return errors.New("cluster enrollment: invalid private key")
 	}
-	e.Version = EnrollmentVersion
 	e.SignerPublicKey = base64.RawStdEncoding.EncodeToString(private.Public().(ed25519.PublicKey))
 	payload, err := json.Marshal(e.unsigned())
 	if err != nil {
@@ -75,8 +98,19 @@ func (e *Enrollment) Sign(private ed25519.PrivateKey) error {
 // accepting the public key embedded in the artifact alone would permit an
 // attacker to replace both it and the signature.
 func (e Enrollment) Validate(now time.Time, expectedKey string) error {
-	if e.Version != EnrollmentVersion {
+	if e.Version != EnrollmentVersion && e.Version != ThreeServerEnrollmentVersion {
 		return fmt.Errorf("cluster enrollment: unsupported version %d", e.Version)
+	}
+	if e.Version == EnrollmentVersion && (e.DeploymentTopology != "" || e.InventoryFingerprint != "" || e.DNSZone != "") {
+		return errors.New("cluster enrollment: v1 artifact cannot declare deployment topology")
+	}
+	if e.Version == ThreeServerEnrollmentVersion {
+		if e.DeploymentTopology != "three-server-etcd-v1" || e.NodeRole != "prime" || strings.TrimSpace(e.DNSZone) == "" || len(e.InventoryFingerprint) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(e.InventoryFingerprint, "sha256:") {
+			return errors.New("cluster enrollment: invalid three-server topology binding")
+		}
+		if _, err := hex.DecodeString(strings.TrimPrefix(e.InventoryFingerprint, "sha256:")); err != nil {
+			return errors.New("cluster enrollment: invalid inventory fingerprint")
+		}
 	}
 	for field, value := range map[string]string{
 		"clusterId": e.ClusterID, "applianceName": e.ApplianceName, "applianceProfile": e.ApplianceProfile,

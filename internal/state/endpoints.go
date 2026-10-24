@@ -137,7 +137,7 @@ func (c *Cluster) PrimeIPv4s() []string {
 	return out
 }
 
-// AddAPIEndpoints records https://<ip>:6443 for each IPv4 without changing
+// AddAPIEndpoints records https://<ip>:6443 for each server IPv4 without changing
 // ControlEndpoint (the preferred join URL).
 func (c *Cluster) AddAPIEndpoints(ips ...string) {
 	if c == nil {
