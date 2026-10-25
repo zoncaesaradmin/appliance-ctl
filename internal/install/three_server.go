@@ -107,10 +107,12 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 	if err != nil {
 		return nil, checks, err
 	}
+	renewRelease := false
 	if staged != nil {
-		if err := staged.Matches(inventory, resolved.ReleaseID, resolved.BundleVersion, resolved.Compatibility.K3sVersion, base.NodeName, identity.Name, resolved.EffectiveProfile, identity.Zone); err != nil {
+		if err := staged.MatchesSubstrate(inventory, resolved.Compatibility.K3sVersion, base.NodeName, identity.Name, resolved.EffectiveProfile, identity.Zone); err != nil {
 			return nil, checks, err
 		}
+		renewRelease = staged.ReleaseID != resolved.ReleaseID || staged.BundleVersion != resolved.BundleVersion
 		if !bootstrap && (staged.ClusterID != enrollment.ClusterID || staged.EnrollmentSignerFingerprint != opts.SignerFingerprint) {
 			return nil, checks, errors.New("cluster server stage: enrollment differs from the staged cluster")
 		}
@@ -192,6 +194,14 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 		if !bootstrap {
 			staged.EnrollmentSignerFingerprint = opts.SignerFingerprint
 		}
+		if err := clustertopology.SaveBootstrapState(stagePath, *staged); err != nil {
+			return nil, checks, err
+		}
+	}
+	if renewRelease {
+		staged.ReleaseID = resolved.ReleaseID
+		staged.BundleVersion = resolved.BundleVersion
+		staged.UpdatedAt = time.Now().UTC()
 		if err := clustertopology.SaveBootstrapState(stagePath, *staged); err != nil {
 			return nil, checks, err
 		}

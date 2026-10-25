@@ -114,6 +114,16 @@ func TestStageThreeServerBootstrapsWithoutClaimingInstallation(t *testing.T) {
 	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
 		t.Fatalf("same-input stage rerun failed: %v", err)
 	}
+	successor := source
+	successor.resolved.ReleaseID = "release-2"
+	successor.resolved.BundleVersion = "2.4.1"
+	staged, _, err = orch.StageEmbeddedEtcd(context.Background(), successor, opts)
+	if err != nil {
+		t.Fatalf("same-substrate successor stage rerun failed: %v", err)
+	}
+	if staged.ReleaseID != "release-2" || staged.BundleVersion != "2.4.1" {
+		t.Fatalf("successor release was not recorded: %+v", staged)
+	}
 }
 
 func TestStageThreeServerJoinsOnlyWithSignedInventoryBoundEnrollment(t *testing.T) {

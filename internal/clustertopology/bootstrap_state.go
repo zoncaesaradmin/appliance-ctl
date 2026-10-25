@@ -83,6 +83,20 @@ func (s BootstrapState) Validate() error {
 }
 
 func (s BootstrapState) Matches(in Inventory, releaseID, bundleVersion, k3sVersion, nodeName, applianceName, applianceProfile, dnsZone string) error {
+	if err := s.MatchesSubstrate(in, k3sVersion, nodeName, applianceName, applianceProfile, dnsZone); err != nil {
+		return err
+	}
+	if s.ReleaseID != releaseID || s.BundleVersion != bundleVersion {
+		return errors.New("cluster bootstrap state: rerun inputs differ from the staged cluster; refuse to overwrite it")
+	}
+	return nil
+}
+
+// MatchesSubstrate validates immutable staged-cluster inputs, independent of
+// the signed product release that will later deploy charts. A verified
+// successor bundle may replace a failed pre-finalization candidate only when
+// this substrate identity is unchanged.
+func (s BootstrapState) MatchesSubstrate(in Inventory, k3sVersion, nodeName, applianceName, applianceProfile, dnsZone string) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -90,7 +104,7 @@ func (s BootstrapState) Matches(in Inventory, releaseID, bundleVersion, k3sVersi
 	if err != nil {
 		return err
 	}
-	if s.InventoryFingerprint != fingerprint || s.ReleaseID != releaseID || s.BundleVersion != bundleVersion || s.K3sVersion != k3sVersion || s.LocalNode != nodeName || s.ApplianceName != applianceName || s.ApplianceProfile != applianceProfile || s.DNSZone != dnsZone {
+	if s.InventoryFingerprint != fingerprint || s.K3sVersion != k3sVersion || s.LocalNode != nodeName || s.ApplianceName != applianceName || s.ApplianceProfile != applianceProfile || s.DNSZone != dnsZone {
 		return errors.New("cluster bootstrap state: rerun inputs differ from the staged cluster; refuse to overwrite it")
 	}
 	return nil

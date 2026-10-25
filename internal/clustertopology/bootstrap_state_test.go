@@ -44,6 +44,12 @@ func TestBootstrapStateRoundTripAndRerunFence(t *testing.T) {
 	if err := loaded.Matches(validInventory(), "release-2", "2.4.0", "v1.30.4+k3s1", "server-a", "zon", "core", "appliance.internal"); err == nil {
 		t.Fatal("different release accepted for staged cluster")
 	}
+	if err := loaded.MatchesSubstrate(validInventory(), "v1.30.4+k3s1", "server-a", "zon", "core", "appliance.internal"); err != nil {
+		t.Fatalf("successor release with the same substrate rejected: %v", err)
+	}
+	if err := loaded.MatchesSubstrate(validInventory(), "v1.30.4+k3s1", "server-b", "zon", "core", "appliance.internal"); err == nil {
+		t.Fatal("wrong local node accepted for staged substrate")
+	}
 	if err := loaded.Matches(validInventory(), "release-1", "2.4.0", "v1.30.4+k3s1", "server-b", "zon", "core", "appliance.internal"); err == nil {
 		t.Fatal("wrong local node accepted for staged cluster")
 	}
