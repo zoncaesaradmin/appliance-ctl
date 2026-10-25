@@ -63,7 +63,7 @@ func TestThreeServerEnrollmentBindsSignedInventory(t *testing.T) {
 	now := time.Now().UTC()
 	e := cluster.Enrollment{
 		ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal", ControlPlaneNode: "server-a",
-		NodeRole: "prime", DeploymentTopology: "embedded-etcd-v1", InventoryFingerprint: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		NodeRole: "server", DeploymentTopology: "embedded-etcd-v1", InventoryFingerprint: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		ReleaseID: "release-1", ReleaseVersion: "1.2.3", ControlEndpoint: "https://api.example.internal:6443",
 		ClusterCAHash:    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ExpectedNodeName: "server-b", K3sToken: "K10token", TokenFingerprint: cluster.TokenFingerprint("K10token"),
@@ -72,10 +72,10 @@ func TestThreeServerEnrollmentBindsSignedInventory(t *testing.T) {
 	if err := e.Sign(private); err == nil {
 		t.Fatal("v2 enrollment was signed as legacy v1")
 	}
-	if err := e.SignThreeServer(private); err != nil {
+	if err := e.SignEmbeddedEtcd(private); err != nil {
 		t.Fatal(err)
 	}
-	if e.Version != cluster.ThreeServerEnrollmentVersion {
+	if e.Version != cluster.EmbeddedEtcdEnrollmentVersion {
 		t.Fatalf("enrollment version = %d", e.Version)
 	}
 	if err := e.Validate(now, cluster.Fingerprint(public)); err != nil {

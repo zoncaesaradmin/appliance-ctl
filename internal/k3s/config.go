@@ -74,7 +74,7 @@ func (c Config) Validate() error {
 		return errors.New("k3s config: data dir is required")
 	}
 	if c.DeploymentTopology != "" {
-		if c.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+		if c.DeploymentTopology != clustertopology.EmbeddedEtcdV1 {
 			return fmt.Errorf("k3s config: unsupported deployment topology %q", c.DeploymentTopology)
 		}
 		if c.EffectiveMode() != NodeModeServer {
@@ -131,7 +131,7 @@ func (c Config) Render() string {
 	// 10.42.0.0/24 is reserved for the management WiFi AP; do not use the
 	// upstream K3s default cluster-cidr of 10.42.0.0/16 on fresh installs.
 	if c.EffectiveMode() == NodeModeServer {
-		if c.DeploymentTopology == clustertopology.ThreeServerEtcdV1 {
+		if c.DeploymentTopology == clustertopology.EmbeddedEtcdV1 {
 			fmt.Fprintf(&b, "node-ip: %q\n", c.NodeIP)
 			fmt.Fprintf(&b, "advertise-address: %q\n", c.NodeIP)
 		}
@@ -148,7 +148,7 @@ func (c Config) Render() string {
 		// Agent rejects this flag: "flag provided but not defined: -write-kubeconfig-mode".
 		b.WriteString("write-kubeconfig-mode: \"0640\"\n")
 	}
-	if c.EffectiveMode() == NodeModeServer && (strings.TrimSpace(c.ServerURL) == "" || c.DeploymentTopology == clustertopology.ThreeServerEtcdV1) {
+	if c.EffectiveMode() == NodeModeServer && (strings.TrimSpace(c.ServerURL) == "" || c.DeploymentTopology == clustertopology.EmbeddedEtcdV1) {
 		b.WriteString("node-label:\n  - \"svccontroller.k3s.cattle.io/enablelb=true\"\n")
 	}
 	if c.ClusterInit {
@@ -169,11 +169,11 @@ func (c Config) Render() string {
 	return b.String()
 }
 
-// ThreeServerConfig derives the K3s config of one schedulable server from
+// EmbeddedEtcdConfig derives the K3s config of one schedulable server from
 // the same validated inventory used by install preflight. The bootstrap node
 // initializes etcd; both peers join the bootstrap server directly. Once
 // complete, callers retry the inventory's three direct API endpoints.
-func ThreeServerConfig(in clustertopology.Inventory, nodeName, dataDir, tokenFile string) (Config, error) {
+func EmbeddedEtcdConfig(in clustertopology.Inventory, nodeName, dataDir, tokenFile string) (Config, error) {
 	if err := in.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -189,7 +189,7 @@ func ThreeServerConfig(in clustertopology.Inventory, nodeName, dataDir, tokenFil
 	}
 	cfg := Config{
 		Mode: NodeModeServer, NodeName: nodeName, DataDir: dataDir,
-		DeploymentTopology: clustertopology.ThreeServerEtcdV1, NodeIP: nodeIP,
+		DeploymentTopology: clustertopology.EmbeddedEtcdV1, NodeIP: nodeIP,
 		TLSSANs: in.APISANs(), ClusterInit: nodeName == in.BootstrapNode,
 		ClusterCIDR: DefaultClusterCIDR, ServiceCIDR: DefaultServiceCIDR,
 	}

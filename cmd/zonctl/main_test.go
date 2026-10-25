@@ -197,7 +197,7 @@ func TestClusterEnrollmentCreateRejectsFinalizedThreeServerTopology(t *testing.T
 	now := time.Now().UTC()
 	clusterRecord := state.NewSingleServerCluster("cluster-1", "server-a", "10.44.0.0/16", "10.43.0.0/16")
 	clusterRecord.Topology = state.TopologyMultiServer
-	clusterRecord.DeploymentTopology = state.DeploymentTopologyThreeServerEtcdV1
+	clusterRecord.DeploymentTopology = state.DeploymentTopologyEmbeddedEtcdV1
 	clusterRecord.SetPreferredAPI("10.0.0.11")
 	clusterRecord.AddAPIEndpoints("10.0.0.12", "10.0.0.13")
 	installed := &state.InstalledState{
@@ -216,7 +216,7 @@ func TestClusterEnrollmentCreateRejectsFinalizedThreeServerTopology(t *testing.T
 		stateDir: stateDir, nodeName: "server-a", workerName: "worker-1", workerRole: "worker",
 		controlEndpoint: "https://10.0.0.12:6443", enrollmentOut: filepath.Join(stateDir, "worker.enrollment"), enrollmentTTL: "15m",
 	}, slog.Default(), commandResult{Command: "cluster-enrollment-create"})
-	if result.Status == "succeeded" || !strings.Contains(result.Message, "not supported by the finalized three-server topology") {
+	if result.Status == "succeeded" || !strings.Contains(result.Message, "not supported by the finalized embedded-etcd topology") {
 		t.Fatalf("three-server enrollment must be rejected, result = %+v", result)
 	}
 }
@@ -580,7 +580,7 @@ func TestRequireLegacySingleHostLifecycleOnlyRejectsCoordinatedThreeServerReceip
 
 	coordinated := &state.InstalledState{Cluster: &state.Cluster{
 		Topology:           state.TopologyMultiServer,
-		DeploymentTopology: state.DeploymentTopologyThreeServerEtcdV1,
+		DeploymentTopology: state.DeploymentTopologyEmbeddedEtcdV1,
 	}}
 	for _, command := range []string{"backup", "restore", "repair", "upgrade", "uninstall", "factory-reset"} {
 		if err := requireLegacySingleHostLifecycle(opts, coordinated, command); err == nil || !strings.Contains(err.Error(), "cluster-safe coordinated lifecycle") {
@@ -593,7 +593,7 @@ func TestRequireLegacySingleHostLifecycleRejectsStagedPeerWithoutInstalledReceip
 	opts := cliOptions{stateDir: t.TempDir()}
 	now := time.Now().UTC()
 	staged := clustertopology.BootstrapState{
-		SchemaVersion: clustertopology.BootstrapStateVersion, Topology: clustertopology.ThreeServerEtcdV1,
+		SchemaVersion: clustertopology.BootstrapStateVersion, Topology: clustertopology.EmbeddedEtcdV1,
 		InventoryFingerprint: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ClusterID:            "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal",
 		ReleaseID: "release-1", BundleVersion: "2.4.0", K3sVersion: "v1.30.4+k3s1", LocalNode: "server-b",

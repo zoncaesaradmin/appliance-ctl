@@ -85,7 +85,7 @@ func TestSave_AcceptsMultiServerTopology(t *testing.T) {
 	want := sampleState()
 	cluster := sampleCluster()
 	cluster.Topology = state.TopologyMultiServer
-	cluster.DeploymentTopology = state.DeploymentTopologyThreeServerEtcdV1
+	cluster.DeploymentTopology = state.DeploymentTopologyEmbeddedEtcdV1
 	cluster.ControlEndpoint = "https://10.0.0.1:6443"
 	want.Cluster = cluster
 	cluster.ControlEndpoints = []string{"https://10.0.0.2:6443", "https://10.0.0.3:6443"}

@@ -22,14 +22,14 @@ import (
 )
 
 const (
-	EnrollmentVersion            = 1 // legacy worker/prime enrollments
-	ThreeServerEnrollmentVersion = 2
+	EnrollmentVersion             = 1 // legacy worker/prime enrollments
+	EmbeddedEtcdEnrollmentVersion = 2
 )
 
-// Enrollment is a short-lived, single-worker K3s join authorization. The
+// Enrollment is a short-lived, single-node K3s join authorization. The
 // token is intentionally absent from installed-state and command arguments;
-// it is carried only in this protected file and copied into an agent-only
-// token file during the join transaction.
+// it is carried only in this protected file and copied into a protected token
+// file during the join transaction.
 type Enrollment struct {
 	Version              int       `json:"version"`
 	ClusterID            string    `json:"clusterId"`
@@ -70,14 +70,14 @@ func (e *Enrollment) Sign(private ed25519.PrivateKey) error {
 	return e.sign(private)
 }
 
-// SignThreeServer binds a peer-server credential to a signed embedded-etcd
-// inventory. It is used only by three-server inventories; legacy v1
+// SignEmbeddedEtcd binds a peer-server credential to a signed embedded-etcd
+// inventory. It is used only by the embedded-etcd flow; legacy v1
 // enrollment artifacts remain readable for migration.
-func (e *Enrollment) SignThreeServer(private ed25519.PrivateKey) error {
-	if e.DeploymentTopology != "embedded-etcd-v1" || e.InventoryFingerprint == "" || e.NodeRole != "prime" {
+func (e *Enrollment) SignEmbeddedEtcd(private ed25519.PrivateKey) error {
+	if e.DeploymentTopology != "embedded-etcd-v1" || e.InventoryFingerprint == "" || e.NodeRole != "server" {
 		return errors.New("cluster enrollment: embedded-etcd peer signing requires topology, inventory fingerprint, and server role")
 	}
-	e.Version = ThreeServerEnrollmentVersion
+	e.Version = EmbeddedEtcdEnrollmentVersion
 	return e.sign(private)
 }
 
@@ -99,14 +99,14 @@ func (e *Enrollment) sign(private ed25519.PrivateKey) error {
 // accepting the public key embedded in the artifact alone would permit an
 // attacker to replace both it and the signature.
 func (e Enrollment) Validate(now time.Time, expectedKey string) error {
-	if e.Version != EnrollmentVersion && e.Version != ThreeServerEnrollmentVersion {
+	if e.Version != EnrollmentVersion && e.Version != EmbeddedEtcdEnrollmentVersion {
 		return fmt.Errorf("cluster enrollment: unsupported version %d", e.Version)
 	}
 	if e.Version == EnrollmentVersion && (e.DeploymentTopology != "" || e.InventoryFingerprint != "" || e.DNSZone != "") {
 		return errors.New("cluster enrollment: v1 artifact cannot declare deployment topology")
 	}
-	if e.Version == ThreeServerEnrollmentVersion {
-		if e.DeploymentTopology != "embedded-etcd-v1" || e.NodeRole != "prime" || strings.TrimSpace(e.DNSZone) == "" || len(e.InventoryFingerprint) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(e.InventoryFingerprint, "sha256:") {
+	if e.Version == EmbeddedEtcdEnrollmentVersion {
+		if e.DeploymentTopology != "embedded-etcd-v1" || e.NodeRole != "server" || strings.TrimSpace(e.DNSZone) == "" || len(e.InventoryFingerprint) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(e.InventoryFingerprint, "sha256:") {
 			return errors.New("cluster enrollment: invalid embedded-etcd topology binding")
 		}
 		if _, err := hex.DecodeString(strings.TrimPrefix(e.InventoryFingerprint, "sha256:")); err != nil {
@@ -131,8 +131,8 @@ func (e Enrollment) Validate(now time.Time, expectedKey string) error {
 	if e.ExpiresAt.Sub(e.IssuedAt) > 24*time.Hour {
 		return errors.New("cluster enrollment: validity must not exceed 24 hours")
 	}
-	if e.NodeRole != "worker" && e.NodeRole != "inference" && e.NodeRole != "prime" {
-		return errors.New("cluster enrollment: node role must be worker, inference, or prime")
+	if e.Version == EnrollmentVersion && e.NodeRole != "worker" && e.NodeRole != "inference" && e.NodeRole != "prime" {
+		return errors.New("cluster enrollment: legacy node role must be worker, inference, or prime")
 	}
 	if len(e.ClusterCAHash) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(e.ClusterCAHash, "sha256:") {
 		return errors.New("cluster enrollment: invalid cluster CA hash")

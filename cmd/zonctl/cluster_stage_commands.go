@@ -34,7 +34,7 @@ func runClusterServerStage(ctx context.Context, opts cliOptions, logger *slog.Lo
 	if err != nil {
 		return finish(result, "failed", 1, "cluster-server-stage: "+err.Error(), nil)
 	}
-	stageOpts := install.ThreeServerStageOptions{
+	stageOpts := install.EmbeddedEtcdStageOptions{
 		Options: install.Options{
 			ApplianceName:        opts.applianceName,
 			DNSZone:              opts.dnsZone,
@@ -58,7 +58,7 @@ func runClusterServerStage(ctx context.Context, opts cliOptions, logger *slog.Lo
 		SignerFingerprint:   opts.clusterSignerFingerprint,
 		ServerTokenFilePath: "/etc/rancher/k3s/zon-server-token",
 	}
-	staged, checks, err := install.NewOrchestrator().StageThreeServer(ctx, source, stageOpts)
+	staged, checks, err := install.NewOrchestrator().StageEmbeddedEtcd(ctx, source, stageOpts)
 	if err != nil {
 		logger.Error("embedded-etcd substrate stage failed", "error", err, "checks", len(checks))
 		return finish(result, "failed", 1, "cluster-server-stage: "+err.Error(), nil)
@@ -68,7 +68,7 @@ func runClusterServerStage(ctx context.Context, opts cliOptions, logger *slog.Lo
 }
 
 // runClusterFinalize deploys the product only after the signed one- or
-// three-server K3s inventory has been staged. It does not adopt an arbitrary
+// embedded-etcd K3s inventory has been staged. It does not adopt an arbitrary
 // existing cluster.
 func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logger *slog.Logger, result commandResult) commandResult {
 	if strings.TrimSpace(opts.bundleDir) == "" || strings.TrimSpace(opts.clusterInventoryPath) == "" {
@@ -82,7 +82,7 @@ func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logg
 	if err != nil {
 		return finish(result, "failed", 1, "cluster-finalize: "+err.Error(), nil)
 	}
-	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+	if resolved.Compatibility.DeploymentTopology != clustertopology.EmbeddedEtcdV1 {
 		return finish(result, "failed", 1, "cluster-finalize: verified bundle does not declare embedded etcd", nil)
 	}
 	registry, err := resolveImagePullRegistry(opts, nil)
@@ -124,7 +124,7 @@ func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logg
 		BootstrapMode:               install.BootstrapFresh,
 		ImagePullRegistry:           registry,
 	}
-	installed, checks, err := install.NewOrchestrator().FinalizeThreeServer(ctx, source, finalOpts)
+	installed, checks, err := install.NewOrchestrator().FinalizeEmbeddedEtcd(ctx, source, finalOpts)
 	if err != nil {
 		logger.Error("embedded-etcd cluster finalization failed", "error", err, "checks", len(checks))
 		return finish(result, "failed", 1, "cluster-finalize: "+err.Error(), nil)
@@ -165,7 +165,7 @@ func runClusterServerEnrollmentCreate(opts cliOptions, result commandResult) com
 		return finish(result, "failed", 1, command+"bootstrap server is not staged and ready", nil)
 	}
 	fingerprint, _ := inventory.Fingerprint()
-	if staged.LocalNode != opts.nodeName || staged.InventoryFingerprint != fingerprint || staged.Topology != clustertopology.ThreeServerEtcdV1 {
+	if staged.LocalNode != opts.nodeName || staged.InventoryFingerprint != fingerprint || staged.Topology != clustertopology.EmbeddedEtcdV1 {
 		return finish(result, "failed", 1, command+"inventory differs from the staged bootstrap server", nil)
 	}
 	if _, err := os.Stat(opts.enrollmentOut); err == nil {
@@ -201,12 +201,12 @@ func runClusterServerEnrollmentCreate(opts cliOptions, result commandResult) com
 	}
 	enrollment := cluster.Enrollment{
 		ClusterID: staged.ClusterID, ApplianceName: staged.ApplianceName, ApplianceProfile: staged.ApplianceProfile, DNSZone: staged.DNSZone,
-		ControlPlaneNode: inventory.BootstrapNode, NodeRole: "prime", DeploymentTopology: staged.Topology, InventoryFingerprint: fingerprint,
+		ControlPlaneNode: inventory.BootstrapNode, NodeRole: "server", DeploymentTopology: staged.Topology, InventoryFingerprint: fingerprint,
 		ReleaseID: staged.ReleaseID, ReleaseVersion: staged.BundleVersion, ControlEndpoint: inventory.BootstrapAPIEndpoint(),
 		ClusterCAHash: "sha256:" + hex.EncodeToString(caDigest[:]), ExpectedNodeName: opts.serverName,
 		K3sToken: token, TokenFingerprint: cluster.TokenFingerprint(token), IssuedAt: now, ExpiresAt: now.Add(ttl), Nonce: nonce,
 	}
-	if err := enrollment.SignThreeServer(private); err != nil {
+	if err := enrollment.SignEmbeddedEtcd(private); err != nil {
 		return finish(result, "failed", 1, command+err.Error(), nil)
 	}
 	if err := enrollment.Validate(now, signerFingerprint); err != nil {

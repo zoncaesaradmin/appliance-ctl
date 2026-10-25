@@ -7,14 +7,14 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
-func TestRequireNoThreeServerNodeLifecycleRejectsExpandableNodeCommands(t *testing.T) {
-	installed := &state.InstalledState{Cluster: &state.Cluster{DeploymentTopology: state.DeploymentTopologyThreeServerEtcdV1}}
+func TestRequireNoEmbeddedEtcdNodeLifecycleRejectsExpandableNodeCommands(t *testing.T) {
+	installed := &state.InstalledState{Cluster: &state.Cluster{DeploymentTopology: state.DeploymentTopologyEmbeddedEtcdV1}}
 	for _, operation := range []string{"cluster-node-register", "cluster-node-remove", "cluster-inference-deploy"} {
-		if err := requireNoThreeServerNodeLifecycle(installed, operation); err == nil || !strings.Contains(err.Error(), "not supported by the fixed three-server") {
+		if err := requireNoEmbeddedEtcdNodeLifecycle(installed, operation); err == nil || !strings.Contains(err.Error(), "not supported by the fixed embedded-etcd") {
 			t.Fatalf("%s was not rejected: %v", operation, err)
 		}
 	}
-	if err := requireNoThreeServerNodeLifecycle(&state.InstalledState{Cluster: &state.Cluster{}}, "cluster-node-register"); err != nil {
+	if err := requireNoEmbeddedEtcdNodeLifecycle(&state.InstalledState{Cluster: &state.Cluster{}}, "cluster-node-register"); err != nil {
 		t.Fatalf("legacy node command unexpectedly rejected: %v", err)
 	}
 }

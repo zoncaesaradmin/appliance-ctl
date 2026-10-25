@@ -219,7 +219,7 @@ func runClusterHACheck(ctx context.Context, opts cliOptions, result commandResul
 	if err != nil {
 		return finish(result, "failed", 1, "cluster-ha-check: "+err.Error(), nil)
 	}
-	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+	if resolved.Compatibility.DeploymentTopology != clustertopology.EmbeddedEtcdV1 {
 		return finish(result, "failed", 1, "cluster-ha-check: verified bundle does not declare embedded etcd", nil)
 	}
 	inventory, err := clustertopology.Load(opts.clusterInventoryPath)
@@ -244,8 +244,8 @@ func runClusterHACheck(ctx context.Context, opts cliOptions, result commandResul
 			recordedUIDs[node.Name] = node.NodeUID
 		}
 	}
-	nodes := cluster.ValidateThreeServerNodeReadiness(ctx, cli.Exec, defaultKubeconfigPath, inventory, resolved.Compatibility.K3sVersion, recordedUIDs)
-	apiEndpoints := cluster.ValidateThreeServerAPIEndpoints(ctx, cli.Exec, defaultKubeconfigPath, inventory)
+	nodes := cluster.ValidateEmbeddedEtcdNodeReadiness(ctx, cli.Exec, defaultKubeconfigPath, inventory, resolved.Compatibility.K3sVersion, recordedUIDs)
+	apiEndpoints := cluster.ValidateEmbeddedEtcdAPIEndpoints(ctx, cli.Exec, defaultKubeconfigPath, inventory)
 	etcd := cluster.ReadLocalEtcdMembership(ctx, defaultK3sDataDir, inventory)
 	data, _ := json.Marshal(map[string]bool{"kubernetesNodesReady": nodes.Healthy, "directAPIEndpointsReady": apiEndpoints.Healthy, "embeddedEtcdMembership": etcd.Healthy, "applicationHA": false})
 	if !nodes.Healthy || !apiEndpoints.Healthy || !etcd.Healthy {
@@ -260,7 +260,7 @@ func precheckInstallInputs(opts cliOptions) error {
 	if err != nil {
 		return err
 	}
-	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+	if resolved.Compatibility.DeploymentTopology != clustertopology.EmbeddedEtcdV1 {
 		return nil
 	}
 	inventory, err := clustertopology.Load(opts.clusterInventoryPath)

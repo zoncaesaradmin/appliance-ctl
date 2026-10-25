@@ -27,7 +27,7 @@ func (s threeServerSource) Resolve(context.Context, string) (Resolved, []evidenc
 	return s.resolved, nil, nil
 }
 
-func threeServerFixture(t *testing.T, nodeName string) (*Orchestrator, threeServerSource, ThreeServerStageOptions, *bool) {
+func threeServerFixture(t *testing.T, nodeName string) (*Orchestrator, threeServerSource, EmbeddedEtcdStageOptions, *bool) {
 	t.Helper()
 	root := t.TempDir()
 	inventoryPath := filepath.Join(root, "inventory.json")
@@ -80,8 +80,8 @@ func threeServerFixture(t *testing.T, nodeName string) (*Orchestrator, threeServ
 		},
 		ImagesRun: func(context.Context, string, ...string) (string, error) { return "", nil },
 	}
-	source := threeServerSource{Resolved{BundleVersion: "2.4.0", ReleaseID: "release-1", EffectiveProfile: "core", HostBaseline: bundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"}, Compatibility: bundle.Compatibility{K3sVersion: "v1.30.4+k3s1", DeploymentTopology: clustertopology.ThreeServerEtcdV1}, K3sBinaryPath: binaryPath}}
-	opts := ThreeServerStageOptions{Options: Options{
+	source := threeServerSource{Resolved{BundleVersion: "2.4.0", ReleaseID: "release-1", EffectiveProfile: "core", HostBaseline: bundle.HostBaseline{OS: "ubuntu", OSVersion: "24.04", Arch: "amd64"}, Compatibility: bundle.Compatibility{K3sVersion: "v1.30.4+k3s1", DeploymentTopology: clustertopology.EmbeddedEtcdV1}, K3sBinaryPath: binaryPath}}
+	opts := EmbeddedEtcdStageOptions{Options: Options{
 		ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal", ClusterInventoryPath: inventoryPath, NodeName: nodeName,
 		InstalledStatePath: filepath.Join(root, "state", "installed-state.json"), K3sConfigPath: filepath.Join(root, "etc", "config.yaml"),
 		K3sUnitPath: filepath.Join(root, "systemd", "k3s.service"), K3sBinaryDestPath: filepath.Join(root, "bin", "k3s"),
@@ -97,7 +97,7 @@ func optsKubeconfigPath(root string) string {
 
 func TestStageThreeServerBootstrapsWithoutClaimingInstallation(t *testing.T) {
 	orch, source, opts, _ := threeServerFixture(t, "server-a")
-	staged, _, err := orch.StageThreeServer(context.Background(), source, opts)
+	staged, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestStageThreeServerBootstrapsWithoutClaimingInstallation(t *testing.T) {
 	if _, err := os.Stat(opts.InstalledStatePath); !os.IsNotExist(err) {
 		t.Fatalf("partial cluster wrote InstalledState: %v", err)
 	}
-	if _, _, err := orch.StageThreeServer(context.Background(), source, opts); err != nil {
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
 		t.Fatalf("same-input stage rerun failed: %v", err)
 	}
 }
@@ -132,20 +132,20 @@ func TestStageThreeServerJoinsOnlyWithSignedInventoryBoundEnrollment(t *testing.
 	now := time.Now().UTC()
 	caDigest := sha256.Sum256([]byte("test-ca"))
 	enrollment := cluster.Enrollment{
-		ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal", ControlPlaneNode: "server-a", NodeRole: "prime",
-		DeploymentTopology: clustertopology.ThreeServerEtcdV1, InventoryFingerprint: fingerprint,
+		ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal", ControlPlaneNode: "server-a", NodeRole: "server",
+		DeploymentTopology: clustertopology.EmbeddedEtcdV1, InventoryFingerprint: fingerprint,
 		ReleaseID: "release-1", ReleaseVersion: "2.4.0", ControlEndpoint: inventory.BootstrapAPIEndpoint(),
 		ClusterCAHash:    "sha256:" + hex.EncodeToString(caDigest[:]),
 		ExpectedNodeName: "server-b", K3sToken: "K10server-token", TokenFingerprint: cluster.TokenFingerprint("K10server-token"),
 		IssuedAt: now, ExpiresAt: now.Add(time.Hour), Nonce: "nonce",
 	}
-	if err := enrollment.SignThreeServer(private); err != nil {
+	if err := enrollment.SignEmbeddedEtcd(private); err != nil {
 		t.Fatal(err)
 	}
 	if err := cluster.WriteEnrollment(opts.EnrollmentPath, enrollment); err != nil {
 		t.Fatal(err)
 	}
-	staged, _, err := orch.StageThreeServer(context.Background(), source, opts)
+	staged, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,31 +163,31 @@ func TestStageThreeServerJoinsOnlyWithSignedInventoryBoundEnrollment(t *testing.
 		t.Fatalf("join token permissions incorrect: %v, %v", info, err)
 	}
 	enrollment.InventoryFingerprint = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	if err := enrollment.SignThreeServer(private); err != nil {
+	if err := enrollment.SignEmbeddedEtcd(private); err != nil {
 		t.Fatal(err)
 	}
 	if err := cluster.WriteEnrollment(opts.EnrollmentPath, enrollment); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := orch.StageThreeServer(context.Background(), source, opts); err == nil {
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err == nil {
 		t.Fatal("different inventory enrollment accepted on rerun")
 	}
 	enrollment.InventoryFingerprint = fingerprint
 	enrollment.ClusterCAHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if err := enrollment.SignThreeServer(private); err != nil {
+	if err := enrollment.SignEmbeddedEtcd(private); err != nil {
 		t.Fatal(err)
 	}
 	if err := cluster.WriteEnrollment(opts.EnrollmentPath, enrollment); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := orch.StageThreeServer(context.Background(), source, opts); err == nil {
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err == nil {
 		t.Fatal("different joined K3s CA accepted on rerun")
 	}
 }
 
 func TestFinalizeThreeServerRefusesIncompleteSubstrateBeforeInstallation(t *testing.T) {
 	orch, source, stageOpts, _ := threeServerFixture(t, "server-a")
-	if _, _, err := orch.StageThreeServer(context.Background(), source, stageOpts); err != nil {
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, stageOpts); err != nil {
 		t.Fatalf("stage bootstrap: %v", err)
 	}
 
@@ -195,7 +195,7 @@ func TestFinalizeThreeServerRefusesIncompleteSubstrateBeforeInstallation(t *test
 	// list or healthy direct API responses. Finalization must stop at the
 	// substrate gate rather than falling through to Install and writing an
 	// appliance receipt from a one-server bootstrap.
-	installed, _, err := orch.FinalizeThreeServer(context.Background(), source, stageOpts.Options)
+	installed, _, err := orch.FinalizeEmbeddedEtcd(context.Background(), source, stageOpts.Options)
 	if err == nil || !strings.Contains(err.Error(), "substrate not ready") {
 		t.Fatalf("incomplete three-server substrate was accepted: installed=%+v err=%v", installed, err)
 	}

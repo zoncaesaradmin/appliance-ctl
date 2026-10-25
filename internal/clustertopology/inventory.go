@@ -21,18 +21,13 @@ import (
 
 const EmbeddedEtcdV1 = "embedded-etcd-v1"
 
-// ThreeServerEtcdV1 is retained as an internal symbol while the coordinator
-// and its tests are generalized. Its wire value is the one signed embedded
-// etcd contract, valid for either a one- or three-server inventory.
-const ThreeServerEtcdV1 = EmbeddedEtcdV1
-
 const maxInventoryBytes = 64 * 1024
 
 var nodeNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // Inventory is install-time topology input, not a release artifact. Its
 // endpoints are one or three directly reachable server addresses. A
-// three-server client retries another listed endpoint; this topology does not
+// three-server clients retry another listed endpoint; this topology does not
 // introduce a virtual address, load balancer, or other failover front end.
 type Inventory struct {
 	Topology      string `json:"topology"`

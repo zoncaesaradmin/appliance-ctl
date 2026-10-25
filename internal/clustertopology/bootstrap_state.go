@@ -47,7 +47,7 @@ type BootstrapState struct {
 }
 
 func (s BootstrapState) Validate() error {
-	if s.SchemaVersion != BootstrapStateVersion || s.Topology != ThreeServerEtcdV1 {
+	if s.SchemaVersion != BootstrapStateVersion || s.Topology != EmbeddedEtcdV1 {
 		return errors.New("cluster bootstrap state: unsupported schema or topology")
 	}
 	if !digestPattern.MatchString(s.InventoryFingerprint) {

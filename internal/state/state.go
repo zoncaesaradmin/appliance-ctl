@@ -99,12 +99,9 @@ const (
 	TopologyServerWorkers            = "server-workers"
 	TopologyMultiServer              = "multi-server"
 	DeploymentTopologyEmbeddedEtcdV1 = "embedded-etcd-v1"
-	// Deprecated internal spelling retained while command implementations are
-	// generalized to a one- or three-server embedded-etcd inventory.
-	DeploymentTopologyThreeServerEtcdV1 = DeploymentTopologyEmbeddedEtcdV1
-	NodeRoleControlPlane                = "control-plane"
-	NodeRoleWorker                      = "worker"
-	NodeRoleInference                   = "inference"
+	NodeRoleControlPlane             = "control-plane"
+	NodeRoleWorker                   = "worker"
+	NodeRoleInference                = "inference"
 )
 
 // NewSingleServerCluster constructs the v1-compatible cluster record. The

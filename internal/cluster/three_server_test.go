@@ -12,7 +12,7 @@ import (
 
 func testThreeServerInventory() clustertopology.Inventory {
 	return clustertopology.Inventory{
-		Topology: clustertopology.ThreeServerEtcdV1, BootstrapNode: "server-a",
+		Topology: clustertopology.EmbeddedEtcdV1, BootstrapNode: "server-a",
 		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}, {Name: "server-b", Address: "10.0.0.12"}, {Name: "server-c", Address: "10.0.0.13"}},
 	}
 }
@@ -45,7 +45,7 @@ func checkThreeServerNodes(t *testing.T, nodes []map[string]any) InventoryHealth
 		}
 		return string(raw), nil
 	}
-	return ValidateThreeServerNodeReadiness(context.Background(), run, "kubeconfig", testThreeServerInventory(), "v1.30.4+k3s1", map[string]string{"server-a": "uid-server-a"})
+	return ValidateEmbeddedEtcdNodeReadiness(context.Background(), run, "kubeconfig", testThreeServerInventory(), "v1.30.4+k3s1", map[string]string{"server-a": "uid-server-a"})
 }
 
 func TestThreeServerNodeReadiness(t *testing.T) {
@@ -113,13 +113,13 @@ func TestThreeServerAPIEndpoints(t *testing.T) {
 		}
 		return "ok\n", nil
 	}
-	if health := ValidateThreeServerAPIEndpoints(context.Background(), run, "kubeconfig", inventory); !health.Healthy {
+	if health := ValidateEmbeddedEtcdAPIEndpoints(context.Background(), run, "kubeconfig", inventory); !health.Healthy {
 		t.Fatalf("valid direct endpoints rejected: %+v", health)
 	}
 	if got, want := strings.Join(seen, ","), strings.Join(inventory.APIEndpoints(), ","); got != want {
 		t.Fatalf("checked endpoints = %q, want %q", got, want)
 	}
-	failure := ValidateThreeServerAPIEndpoints(context.Background(), func(_ context.Context, _ string, args ...string) (string, error) {
+	failure := ValidateEmbeddedEtcdAPIEndpoints(context.Background(), func(_ context.Context, _ string, args ...string) (string, error) {
 		if strings.Contains(strings.Join(args, " "), "10.0.0.12") {
 			return "", fmt.Errorf("connection refused")
 		}
@@ -148,7 +148,7 @@ func TestNodeReadinessAcceptsSingleEmbeddedEtcdServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(_ context.Context, _ string, _ ...string) (string, error) { return string(raw), nil }
-	if health := ValidateThreeServerNodeReadiness(context.Background(), run, "kubeconfig", inventory, "v1.30.4+k3s1", map[string]string{"server-a": "uid-server-a"}); !health.Healthy {
+	if health := ValidateEmbeddedEtcdNodeReadiness(context.Background(), run, "kubeconfig", inventory, "v1.30.4+k3s1", map[string]string{"server-a": "uid-server-a"}); !health.Healthy {
 		t.Fatalf("single embedded-etcd server rejected: %+v", health)
 	}
 }

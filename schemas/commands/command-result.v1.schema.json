@@ -448,7 +448,7 @@
                 },
                 "topologyStage": {
                   "type": ["object", "null"],
-                  "description": "Public three-server staging receipt for a peer before cluster finalization; join credentials are never included."
+                  "description": "Public embedded-etcd staging receipt for a peer before cluster finalization; join credentials are never included."
                 },
                 "k3sHealthy": {
                   "type": "boolean"
@@ -524,7 +524,7 @@
                 },
                 "receiptKind": {
                   "type": "string",
-                  "description": "The verified local receipt: installed-state or three-server-stage."
+                  "description": "The verified local receipt: installed-state or embedded-etcd-stage."
                 }
               }
             }

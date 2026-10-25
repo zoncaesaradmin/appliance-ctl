@@ -71,11 +71,11 @@ func TestEvaluate_CorruptInstalledState(t *testing.T) {
 	}
 }
 
-func TestEvaluate_ThreeServerPeerReceiptIsOperationalButIncompleteBootstrapIsActionable(t *testing.T) {
+func TestEvaluate_EmbeddedEtcdPeerReceiptIsOperationalButIncompleteBootstrapIsActionable(t *testing.T) {
 	now := time.Now().UTC()
 	joined := clustertopology.BootstrapState{
 		SchemaVersion:        clustertopology.BootstrapStateVersion,
-		Topology:             clustertopology.ThreeServerEtcdV1,
+		Topology:             clustertopology.EmbeddedEtcdV1,
 		InventoryFingerprint: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ClusterID:            "cluster-1",
 		ApplianceName:        "zon",
@@ -90,8 +90,8 @@ func TestEvaluate_ThreeServerPeerReceiptIsOperationalButIncompleteBootstrapIsAct
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
-	checks := diagnostics.Evaluate(diagnostics.Signals{ThreeServerStage: &joined, K3sHealth: k3s.HealthStatus{Healthy: true}})
-	if got := statusOf(t, checks, "three-server-stage-present"); got != evidence.StatusPass {
+	checks := diagnostics.Evaluate(diagnostics.Signals{EmbeddedEtcdStage: &joined, K3sHealth: k3s.HealthStatus{Healthy: true}})
+	if got := statusOf(t, checks, "embedded-etcd-stage-present"); got != evidence.StatusPass {
 		t.Fatalf("joined peer receipt status = %s", got)
 	}
 	if got := evidence.OverallStatus(checks); got != evidence.StatusPass {
@@ -101,8 +101,8 @@ func TestEvaluate_ThreeServerPeerReceiptIsOperationalButIncompleteBootstrapIsAct
 	bootstrap := joined
 	bootstrap.Phase = clustertopology.PhaseServerReady
 	bootstrap.NodeUID = ""
-	checks = diagnostics.Evaluate(diagnostics.Signals{ThreeServerStage: &bootstrap, K3sHealth: k3s.HealthStatus{Healthy: true}})
-	if got := statusOf(t, checks, "three-server-stage-present"); got != evidence.StatusOperatorAction {
+	checks = diagnostics.Evaluate(diagnostics.Signals{EmbeddedEtcdStage: &bootstrap, K3sHealth: k3s.HealthStatus{Healthy: true}})
+	if got := statusOf(t, checks, "embedded-etcd-stage-present"); got != evidence.StatusOperatorAction {
 		t.Fatalf("incomplete bootstrap receipt status = %s", got)
 	}
 }

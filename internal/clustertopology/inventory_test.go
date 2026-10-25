@@ -10,7 +10,7 @@ import (
 
 func validInventory() Inventory {
 	return Inventory{
-		Topology:      ThreeServerEtcdV1,
+		Topology:      EmbeddedEtcdV1,
 		BootstrapNode: "server-a",
 		Nodes: []Node{
 			{Name: "server-a", Address: "10.0.0.11"},

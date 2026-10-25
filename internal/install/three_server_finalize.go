@@ -18,16 +18,16 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
-// FinalizeThreeServer is the only path that turns a staged embedded-etcd
+// FinalizeEmbeddedEtcd is the only path that turns a staged embedded-etcd
 // substrate into an installed appliance. It deploys product charts once from
 // the bootstrap server only after Kubernetes, every direct API address, and
 // embedded etcd agree on the planned inventory members.
-func (o *Orchestrator) FinalizeThreeServer(ctx context.Context, source Source, opts Options) (*state.InstalledState, []evidence.Check, error) {
+func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, opts Options) (*state.InstalledState, []evidence.Check, error) {
 	resolved, checks, err := source.Resolve(ctx, opts.ApplianceProfile)
 	if err != nil {
 		return nil, checks, err
 	}
-	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+	if resolved.Compatibility.DeploymentTopology != clustertopology.EmbeddedEtcdV1 {
 		return nil, checks, errors.New("cluster finalize: signed bundle does not require embedded etcd")
 	}
 	inventory, err := clustertopology.Load(opts.ClusterInventoryPath)
@@ -73,8 +73,8 @@ func (o *Orchestrator) FinalizeThreeServer(ctx context.Context, source Source, o
 	if current, err := o.K3s.Version(opts.K3sBinaryDestPath); err != nil || current != resolved.Compatibility.K3sVersion {
 		return nil, checks, errors.New("cluster finalize: local K3s binary differs from the signed release")
 	}
-	nodes := cluster.ValidateThreeServerNodeReadiness(ctx, o.HelmRun, opts.KubeconfigPath, inventory, resolved.Compatibility.K3sVersion, nil)
-	apis := cluster.ValidateThreeServerAPIEndpoints(ctx, o.HelmRun, opts.KubeconfigPath, inventory)
+	nodes := cluster.ValidateEmbeddedEtcdNodeReadiness(ctx, o.HelmRun, opts.KubeconfigPath, inventory, resolved.Compatibility.K3sVersion, nil)
+	apis := cluster.ValidateEmbeddedEtcdAPIEndpoints(ctx, o.HelmRun, opts.KubeconfigPath, inventory)
 	etcd := cluster.ReadLocalEtcdMembership(ctx, opts.K3sDataDir, inventory)
 	if !nodes.Healthy || !apis.Healthy || !etcd.Healthy {
 		return nil, checks, fmt.Errorf("cluster finalize: substrate not ready: Kubernetes=%s; direct APIs=%s; etcd=%s", nodes.Message, apis.Message, etcd.Message)
@@ -102,13 +102,13 @@ func (o *Orchestrator) FinalizeThreeServer(ctx context.Context, source Source, o
 	if err != nil {
 		return nil, checks, err
 	}
-	finalization := &ThreeServerFinalization{
+	finalization := &EmbeddedEtcdFinalization{
 		ClusterID: staged.ClusterID, ControlPlaneNode: inventory.BootstrapNode,
 		ControlEndpoint: inventory.BootstrapAPIEndpoint(), ControlEndpoints: inventory.APIEndpoints(),
 		ClusterCAHash: caHash, EnrollmentSignerFingerprint: staged.EnrollmentSignerFingerprint, Nodes: members,
 	}
 	finalOpts := opts
-	finalOpts.ThreeServerFinalization = finalization
+	finalOpts.EmbeddedEtcdFinalization = finalization
 	finalOpts.TLSSANs = appendUniqueStrings(inventory.APISANs(), opts.TLSSANs...)
 	installed, installChecks, err := o.Install(ctx, source, finalOpts)
 	checks = append(checks, installChecks...)

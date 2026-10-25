@@ -64,11 +64,11 @@ type freshReleaseResult struct {
 	err      error
 }
 
-// ThreeServerFinalization is the observed cluster identity recorded only after
-// the three-server substrate gate has passed. It prevents the legacy
+// EmbeddedEtcdFinalization is the observed cluster identity recorded only after
+// the embedded-etcd substrate gate has passed. It prevents the legacy
 // single-host installer from treating one staged server as a completed
 // appliance.
-type ThreeServerFinalization struct {
+type EmbeddedEtcdFinalization struct {
 	ClusterID                   string
 	ControlPlaneNode            string
 	ControlEndpoint             string
@@ -160,9 +160,9 @@ type Options struct {
 	// writing even when ImagePullRegistry is set.
 	K3sRegistriesPath string
 	ClusterInit       bool
-	// ThreeServerFinalization is internal coordinator input, never a user
+	// EmbeddedEtcdFinalization is internal coordinator input, never a user
 	// topology switch or a replacement for the live cluster-health gates.
-	ThreeServerFinalization *ThreeServerFinalization
+	EmbeddedEtcdFinalization *EmbeddedEtcdFinalization
 	// ImagePullRegistry, when Registry is non-empty, configures K3s
 	// containerd to pull from that private registry (auth + TLS). Offline
 	// bundle preload remains the primary image source; this only enables
@@ -298,7 +298,7 @@ type Orchestrator struct {
 	HelmRun    cli.Runner
 	ClusterRun cli.Runner // kubectl calls used to inspect an existing cluster before adopting it
 	DetectHost func(host.Options) (host.Facts, error)
-	// LocalAddresses is a read-only interface probe for the three-server
+	// LocalAddresses is a read-only interface probe for the embedded-etcd
 	// inventory. Tests inject addresses without depending on the CI host.
 	LocalAddresses func() ([]netip.Addr, error)
 	// EnsureOwnedDir prepares a host directory backing a static hostPath
@@ -400,7 +400,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
 		if !inventory.HasNode(opts.NodeName) {
-			return nil, checks, fmt.Errorf("install: node %q is not in the three-server inventory", opts.NodeName)
+			return nil, checks, fmt.Errorf("install: node %q is not in the embedded-etcd inventory", opts.NodeName)
 		}
 		localAddresses := o.LocalAddresses
 		if localAddresses == nil {
@@ -413,12 +413,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		if err := inventory.ValidateLocalAddress(opts.NodeName, addresses); err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
-		if opts.ThreeServerFinalization == nil {
+		if opts.EmbeddedEtcdFinalization == nil {
 			return nil, checks, fmt.Errorf("install: signed embedded-etcd-v1 release requires the staged embedded-etcd coordinator; this legacy installer cannot complete that topology")
 		}
-		finalization := opts.ThreeServerFinalization
+		finalization := opts.EmbeddedEtcdFinalization
 		if opts.NodeName != inventory.BootstrapNode || finalization.ClusterID == "" || finalization.ControlPlaneNode != inventory.BootstrapNode || finalization.ControlEndpoint != inventory.BootstrapAPIEndpoint() || !sameStringSet(finalization.ControlEndpoints, inventory.APIEndpoints()) || len(finalization.Nodes) != len(inventory.Nodes) {
-			return nil, checks, fmt.Errorf("install: three-server finalization does not match the verified inventory")
+			return nil, checks, fmt.Errorf("install: embedded-etcd finalization does not match the verified inventory")
 		}
 	}
 	bootstrapMode := opts.BootstrapMode
@@ -932,7 +932,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 
 	// Publish https://10.42.0.1/ and every configured server LAN IPv4 as
 	// Traefik externalIPs so kube-proxy on each node can forward :443 to the
-	// Traefik pod. The three-server K3s configuration enables ServiceLB on
+	// Traefik pod. The embedded-etcd K3s configuration enables ServiceLB on
 	// every topology server; this still is not an application-HA guarantee.
 	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath, hostdns.LiteralIPv4s(opts.TLSSANs...)...)
 	checks = append(checks, traefikLBCheck)
@@ -1564,12 +1564,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	now := time.Now().UTC()
 	instanceID := newApplianceInstanceID()
 	clusterRecord := state.NewSingleServerCluster(instanceID, opts.NodeName, k3s.DefaultClusterCIDR, k3s.DefaultServiceCIDR)
-	if finalization := opts.ThreeServerFinalization; finalization != nil {
+	if finalization := opts.EmbeddedEtcdFinalization; finalization != nil {
 		instanceID = finalization.ClusterID
 		clusterRecord = state.Cluster{
 			ID:                          finalization.ClusterID,
 			Topology:                    state.TopologyMultiServer,
-			DeploymentTopology:          state.DeploymentTopologyThreeServerEtcdV1,
+			DeploymentTopology:          state.DeploymentTopologyEmbeddedEtcdV1,
 			ControlPlaneNode:            finalization.ControlPlaneNode,
 			IngressNode:                 finalization.ControlPlaneNode,
 			ControlEndpoint:             finalization.ControlEndpoint,
@@ -1587,7 +1587,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		clusterRecord.SetPreferredAPI(ips[0])
 		clusterRecord.AddAPIEndpoints(ips...)
 	}
-	if opts.ThreeServerFinalization == nil {
+	if opts.EmbeddedEtcdFinalization == nil {
 		clusterRecord.Nodes[0].NodeUID = controlPlaneNodeUID
 	}
 	// The control-plane signer is created on the target, never bundled. Its

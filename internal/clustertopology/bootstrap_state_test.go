@@ -17,7 +17,7 @@ func testBootstrapState(t *testing.T) BootstrapState {
 	}
 	now := time.Now().UTC()
 	return BootstrapState{
-		SchemaVersion: BootstrapStateVersion, Topology: ThreeServerEtcdV1,
+		SchemaVersion: BootstrapStateVersion, Topology: EmbeddedEtcdV1,
 		InventoryFingerprint: fingerprint, ClusterID: "cluster-1", ReleaseID: "release-1",
 		ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal",
 		BundleVersion: "2.4.0", K3sVersion: "v1.30.4+k3s1", LocalNode: "server-a",

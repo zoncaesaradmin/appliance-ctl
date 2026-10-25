@@ -22,27 +22,27 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
-// ThreeServerStageOptions adds protected server enrollment inputs to the
+// EmbeddedEtcdStageOptions adds protected server enrollment inputs to the
 // ordinary host paths. The bootstrap server has no enrollment artifact;
 // joining servers require a signed, inventory-bound v2 artifact.
-type ThreeServerStageOptions struct {
+type EmbeddedEtcdStageOptions struct {
 	Options
 	EnrollmentPath      string
 	SignerFingerprint   string
 	ServerTokenFilePath string
 }
 
-// StageThreeServer installs only K3s and preloads the verified release on a
+// StageEmbeddedEtcd installs only K3s and preloads the verified release on a
 // server. It never deploys product charts or writes InstalledState. Its
 // separate bootstrap receipt makes interrupted staging rerunnable without
 // treating the appliance as complete.
-func (o *Orchestrator) StageThreeServer(ctx context.Context, source Source, opts ThreeServerStageOptions) (*clustertopology.BootstrapState, []evidence.Check, error) {
+func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opts EmbeddedEtcdStageOptions) (*clustertopology.BootstrapState, []evidence.Check, error) {
 	base := opts.Options
 	resolved, checks, err := source.Resolve(ctx, base.ApplianceProfile)
 	if err != nil {
 		return nil, checks, err
 	}
-	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
+	if resolved.Compatibility.DeploymentTopology != clustertopology.EmbeddedEtcdV1 {
 		return nil, checks, errors.New("cluster server stage: signed bundle does not require embedded etcd")
 	}
 	identity, err := productconfig.ResolveApplianceIdentity(base.ApplianceName, base.DNSZone)
@@ -98,7 +98,7 @@ func (o *Orchestrator) StageThreeServer(ctx context.Context, source Source, opts
 		if err != nil {
 			return nil, checks, err
 		}
-		if enrollment.Version != cluster.ThreeServerEnrollmentVersion || enrollment.DeploymentTopology != clustertopology.ThreeServerEtcdV1 || enrollment.InventoryFingerprint != fingerprint || enrollment.ExpectedNodeName != base.NodeName || enrollment.ControlPlaneNode != inventory.BootstrapNode || enrollment.ControlEndpoint != inventory.BootstrapAPIEndpoint() || enrollment.ReleaseID != resolved.ReleaseID || enrollment.ReleaseVersion != resolved.BundleVersion || enrollment.ApplianceProfile != resolved.EffectiveProfile || enrollment.ApplianceName != identity.Name || enrollment.DNSZone != identity.Zone {
+		if enrollment.Version != cluster.EmbeddedEtcdEnrollmentVersion || enrollment.DeploymentTopology != clustertopology.EmbeddedEtcdV1 || enrollment.InventoryFingerprint != fingerprint || enrollment.ExpectedNodeName != base.NodeName || enrollment.ControlPlaneNode != inventory.BootstrapNode || enrollment.ControlEndpoint != inventory.BootstrapAPIEndpoint() || enrollment.ReleaseID != resolved.ReleaseID || enrollment.ReleaseVersion != resolved.BundleVersion || enrollment.ApplianceProfile != resolved.EffectiveProfile || enrollment.ApplianceName != identity.Name || enrollment.DNSZone != identity.Zone {
 			return nil, checks, errors.New("cluster server stage: signed enrollment does not match release, inventory, or target node")
 		}
 	}
@@ -143,7 +143,7 @@ func (o *Orchestrator) StageThreeServer(ctx context.Context, source Source, opts
 			}
 		}
 	}
-	config, err := k3s.ThreeServerConfig(inventory, base.NodeName, base.K3sDataDir, opts.ServerTokenFilePath)
+	config, err := k3s.EmbeddedEtcdConfig(inventory, base.NodeName, base.K3sDataDir, opts.ServerTokenFilePath)
 	if err != nil {
 		return nil, checks, err
 	}
@@ -188,7 +188,7 @@ func (o *Orchestrator) StageThreeServer(ctx context.Context, source Source, opts
 			clusterID = enrollment.ClusterID
 		}
 		now := time.Now().UTC()
-		staged = &clustertopology.BootstrapState{SchemaVersion: clustertopology.BootstrapStateVersion, Topology: clustertopology.ThreeServerEtcdV1, InventoryFingerprint: fingerprint, ClusterID: clusterID, ApplianceName: identity.Name, ApplianceProfile: resolved.EffectiveProfile, DNSZone: identity.Zone, ReleaseID: resolved.ReleaseID, BundleVersion: resolved.BundleVersion, K3sVersion: resolved.Compatibility.K3sVersion, LocalNode: base.NodeName, Phase: clustertopology.PhasePrepared, CreatedAt: now, UpdatedAt: now}
+		staged = &clustertopology.BootstrapState{SchemaVersion: clustertopology.BootstrapStateVersion, Topology: clustertopology.EmbeddedEtcdV1, InventoryFingerprint: fingerprint, ClusterID: clusterID, ApplianceName: identity.Name, ApplianceProfile: resolved.EffectiveProfile, DNSZone: identity.Zone, ReleaseID: resolved.ReleaseID, BundleVersion: resolved.BundleVersion, K3sVersion: resolved.Compatibility.K3sVersion, LocalNode: base.NodeName, Phase: clustertopology.PhasePrepared, CreatedAt: now, UpdatedAt: now}
 		if !bootstrap {
 			staged.EnrollmentSignerFingerprint = opts.SignerFingerprint
 		}
@@ -260,7 +260,7 @@ func (o *Orchestrator) StageThreeServer(ctx context.Context, source Source, opts
 		// Kubernetes UID only after the joining server has actually registered.
 		// This lets diagnostics distinguish an operational member from the
 		// bootstrap server that still awaits the other two stages/finalization.
-		nodeUID, err := waitForThreeServerNodeUID(ctx, o.HelmRun, base.KubeconfigPath, base.NodeName)
+		nodeUID, err := waitForEmbeddedEtcdNodeUID(ctx, o.HelmRun, base.KubeconfigPath, base.NodeName)
 		if err != nil {
 			return nil, checks, err
 		}
@@ -274,7 +274,7 @@ func (o *Orchestrator) StageThreeServer(ctx context.Context, source Source, opts
 	return staged, checks, nil
 }
 
-func waitForThreeServerNodeUID(ctx context.Context, run func(context.Context, string, ...string) (string, error), kubeconfig, nodeName string) (string, error) {
+func waitForEmbeddedEtcdNodeUID(ctx context.Context, run func(context.Context, string, ...string) (string, error), kubeconfig, nodeName string) (string, error) {
 	const timeout = 2 * time.Minute
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()

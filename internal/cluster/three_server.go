@@ -10,11 +10,11 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 )
 
-// ValidateThreeServerAPIEndpoints proves that each directly addressed API
+// ValidateEmbeddedEtcdAPIEndpoints proves that each directly addressed API
 // server accepts the locally trusted credential. Its one- or three-address
 // contract leaves endpoint retry to the caller rather than introducing a
 // floating address or load balancer.
-func ValidateThreeServerAPIEndpoints(ctx context.Context, run cli.Runner, kubeconfig string, inventory clustertopology.Inventory) InventoryHealth {
+func ValidateEmbeddedEtcdAPIEndpoints(ctx context.Context, run cli.Runner, kubeconfig string, inventory clustertopology.Inventory) InventoryHealth {
 	if err := inventory.Validate(); err != nil {
 		return InventoryHealth{Checked: true, Message: err.Error()}
 	}
@@ -33,10 +33,10 @@ func ValidateThreeServerAPIEndpoints(ctx context.Context, run cli.Runner, kubeco
 	return InventoryHealth{Checked: true, Healthy: true, Message: fmt.Sprintf("all %d direct Kubernetes API endpoints accept the trusted cluster credential", len(inventory.Nodes))}
 }
 
-// ValidateThreeServerNodeReadiness checks the live Kubernetes half of the
+// ValidateEmbeddedEtcdNodeReadiness checks the live Kubernetes half of the
 // embedded-etcd gate. It does not claim etcd quorum: a separate authenticated
 // member-list check is required before chart deployment or HA status.
-func ValidateThreeServerNodeReadiness(ctx context.Context, run cli.Runner, kubeconfig string, inventory clustertopology.Inventory, k3sVersion string, recordedUIDs map[string]string) InventoryHealth {
+func ValidateEmbeddedEtcdNodeReadiness(ctx context.Context, run cli.Runner, kubeconfig string, inventory clustertopology.Inventory, k3sVersion string, recordedUIDs map[string]string) InventoryHealth {
 	if err := inventory.Validate(); err != nil {
 		return InventoryHealth{Checked: true, Message: err.Error()}
 	}

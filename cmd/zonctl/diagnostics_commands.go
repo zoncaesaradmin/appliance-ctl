@@ -51,8 +51,8 @@ func dependencySignals(ctx context.Context, run cli.Runner, stateDir, nodeName, 
 	sig := diagnostics.Signals{InstalledState: installed, InstalledStateErr: stateErr, K3sHealth: health}
 	if installed == nil && stateErr == nil {
 		staged, stageErr := clustertopology.LoadBootstrapState(filepath.Join(stateDir, "cluster-bootstrap-state.json"))
-		sig.ThreeServerStage = staged
-		sig.ThreeServerStageErr = stageErr
+		sig.EmbeddedEtcdStage = staged
+		sig.EmbeddedEtcdStageErr = stageErr
 	}
 
 	if installed == nil || !signal.Active {
@@ -140,8 +140,8 @@ func runStatus(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 		clusterState = &copied
 	}
 	var topologyStage any
-	if sig.ThreeServerStage != nil {
-		topologyStage = sig.ThreeServerStage
+	if sig.EmbeddedEtcdStage != nil {
+		topologyStage = sig.EmbeddedEtcdStage
 	}
 	componentHealth := []map[string]any{{"name": "k3s", "healthy": sig.K3sHealth.Healthy}}
 	if !sig.K3sHealth.Healthy {
@@ -232,7 +232,7 @@ func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 	// retaining that manifest post-install, which is not yet wired up
 	// (a gap worth closing in a future pass, not silently pretended away
 	// here).
-	manifestValid := sig.InstalledStateErr == nil && (sig.InstalledState != nil || (sig.ThreeServerStageErr == nil && sig.ThreeServerStage != nil))
+	manifestValid := sig.InstalledStateErr == nil && (sig.InstalledState != nil || (sig.EmbeddedEtcdStageErr == nil && sig.EmbeddedEtcdStage != nil))
 	entriesVerified := 0
 	entriesFailed := []string{}
 	metadataVersion := ""
@@ -245,7 +245,7 @@ func runVerify(ctx context.Context, opts cliOptions, logger *slog.Logger, result
 			metadataVersion = sig.InstalledState.Components.MetadataVersion
 			metadataDigest = sig.InstalledState.Components.MetadataDigest
 		} else {
-			receiptKind = "three-server-stage"
+			receiptKind = "embedded-etcd-stage"
 		}
 	} else {
 		entriesFailed = append(entriesFailed, "installed-state.json")

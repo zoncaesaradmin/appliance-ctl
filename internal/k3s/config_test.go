@@ -176,9 +176,9 @@ func TestConfig_Render_ClusterInitAndJoiningPrime(t *testing.T) {
 	}
 }
 
-func TestThreeServerConfigRendersAllActiveServers(t *testing.T) {
+func TestEmbeddedEtcdConfigRendersAllActiveServers(t *testing.T) {
 	inventory := clustertopology.Inventory{
-		Topology: clustertopology.ThreeServerEtcdV1, BootstrapNode: "server-a",
+		Topology: clustertopology.EmbeddedEtcdV1, BootstrapNode: "server-a",
 		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}, {Name: "server-b", Address: "10.0.0.12"}, {Name: "server-c", Address: "10.0.0.13"}},
 	}
 	for i, node := range inventory.Nodes {
@@ -186,7 +186,7 @@ func TestThreeServerConfigRendersAllActiveServers(t *testing.T) {
 		if i > 0 {
 			tokenFile = "/etc/rancher/k3s/zon-server-token"
 		}
-		cfg, err := k3s.ThreeServerConfig(inventory, node.Name, "/var/lib/rancher/k3s", tokenFile)
+		cfg, err := k3s.EmbeddedEtcdConfig(inventory, node.Name, "/var/lib/rancher/k3s", tokenFile)
 		if err != nil {
 			t.Fatalf("server %s config rejected: %v", node.Name, err)
 		}
@@ -206,24 +206,24 @@ func TestThreeServerConfigRendersAllActiveServers(t *testing.T) {
 			}
 		}
 	}
-	if _, err := k3s.ThreeServerConfig(inventory, "server-d", "/var/lib/rancher/k3s", "token"); err == nil {
+	if _, err := k3s.EmbeddedEtcdConfig(inventory, "server-d", "/var/lib/rancher/k3s", "token"); err == nil {
 		t.Fatal("unknown server was accepted")
 	}
-	if _, err := k3s.ThreeServerConfig(inventory, "server-b", "/var/lib/rancher/k3s", ""); err == nil {
+	if _, err := k3s.EmbeddedEtcdConfig(inventory, "server-b", "/var/lib/rancher/k3s", ""); err == nil {
 		t.Fatal("joining server without protected token file was accepted")
 	}
-	agent := k3s.Config{DeploymentTopology: clustertopology.ThreeServerEtcdV1, Mode: k3s.NodeModeAgent, NodeName: "server-b", DataDir: "/d", NodeIP: "10.0.0.12", ServerURL: inventory.BootstrapAPIEndpoint(), TokenFile: "token", TLSSANs: inventory.APISANs()}
+	agent := k3s.Config{DeploymentTopology: clustertopology.EmbeddedEtcdV1, Mode: k3s.NodeModeAgent, NodeName: "server-b", DataDir: "/d", NodeIP: "10.0.0.12", ServerURL: inventory.BootstrapAPIEndpoint(), TokenFile: "token", TLSSANs: inventory.APISANs()}
 	if err := agent.Validate(); err == nil {
 		t.Fatal("agent mode was accepted for three-server topology")
 	}
 }
 
-func TestThreeServerConfigRendersSingleEmbeddedEtcdServer(t *testing.T) {
+func TestEmbeddedEtcdConfigRendersSingleServer(t *testing.T) {
 	inventory := clustertopology.Inventory{
 		Topology: clustertopology.EmbeddedEtcdV1, BootstrapNode: "server-a",
 		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}},
 	}
-	cfg, err := k3s.ThreeServerConfig(inventory, "server-a", "/var/lib/rancher/k3s", "")
+	cfg, err := k3s.EmbeddedEtcdConfig(inventory, "server-a", "/var/lib/rancher/k3s", "")
 	if err != nil {
 		t.Fatalf("single embedded-etcd server config rejected: %v", err)
 	}

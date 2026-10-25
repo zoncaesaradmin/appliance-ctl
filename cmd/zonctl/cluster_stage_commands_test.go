@@ -28,7 +28,7 @@ func TestClusterServerEnrollmentUsesStagedInventoryAndProtectedArtifact(t *testi
 	}
 	now := time.Now().UTC()
 	staged := clustertopology.BootstrapState{
-		SchemaVersion: clustertopology.BootstrapStateVersion, Topology: clustertopology.ThreeServerEtcdV1,
+		SchemaVersion: clustertopology.BootstrapStateVersion, Topology: clustertopology.EmbeddedEtcdV1,
 		InventoryFingerprint: fingerprint, ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal",
 		ReleaseID: "release-1", BundleVersion: "2.4.0", K3sVersion: "v1.30.4+k3s1", LocalNode: "server-a",
 		Phase: clustertopology.PhaseServerReady, EnrollmentSignerFingerprint: signerFingerprint, CreatedAt: now, UpdatedAt: now,

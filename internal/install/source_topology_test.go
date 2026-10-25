@@ -25,7 +25,7 @@ func TestLegacyInstallRejectsThreeServerReleaseBeforeMutation(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "installed-state.json")
 	inventoryPath := filepath.Join(t.TempDir(), "inventory.json")
 	inventory := clustertopology.Inventory{
-		Topology: clustertopology.ThreeServerEtcdV1, BootstrapNode: "server-a",
+		Topology: clustertopology.EmbeddedEtcdV1, BootstrapNode: "server-a",
 		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}, {Name: "server-b", Address: "10.0.0.12"}, {Name: "server-c", Address: "10.0.0.13"}},
 	}
 	data, err := json.Marshal(inventory)
@@ -62,7 +62,7 @@ func TestThreeServerFinalizationCannotBypassBootstrapAndInventoryFence(t *testin
 	statePath := filepath.Join(t.TempDir(), "installed-state.json")
 	inventoryPath := filepath.Join(t.TempDir(), "inventory.json")
 	inventory := clustertopology.Inventory{
-		Topology: clustertopology.ThreeServerEtcdV1, BootstrapNode: "server-a",
+		Topology: clustertopology.EmbeddedEtcdV1, BootstrapNode: "server-a",
 		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}, {Name: "server-b", Address: "10.0.0.12"}, {Name: "server-c", Address: "10.0.0.13"}},
 	}
 	data, err := json.Marshal(inventory)
@@ -75,7 +75,7 @@ func TestThreeServerFinalizationCannotBypassBootstrapAndInventoryFence(t *testin
 	orch := &Orchestrator{LocalAddresses: func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr("10.0.0.12")}, nil }}
 	_, _, err = orch.Install(context.Background(), topologyOnlySource{}, Options{
 		InstalledStatePath: statePath, ClusterInventoryPath: inventoryPath, NodeName: "server-b",
-		ThreeServerFinalization: &ThreeServerFinalization{ClusterID: "cluster-1", ControlPlaneNode: "server-a", ControlEndpoint: inventory.BootstrapAPIEndpoint(), ControlEndpoints: inventory.APIEndpoints(), Nodes: []state.ClusterNode{{Name: "server-a"}, {Name: "server-b"}, {Name: "server-c"}}},
+		EmbeddedEtcdFinalization: &EmbeddedEtcdFinalization{ClusterID: "cluster-1", ControlPlaneNode: "server-a", ControlEndpoint: inventory.BootstrapAPIEndpoint(), ControlEndpoints: inventory.APIEndpoints(), Nodes: []state.ClusterNode{{Name: "server-a"}, {Name: "server-b"}, {Name: "server-c"}}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "finalization does not match") {
 		t.Fatalf("non-bootstrap finalization bypassed fence: %v", err)
