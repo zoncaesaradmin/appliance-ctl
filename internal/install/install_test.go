@@ -1786,6 +1786,58 @@ func TestInstall_ForceAdoptRequiredForForeignWorkloads(t *testing.T) {
 // Rollback: a chart apply failure must roll back the images it just
 // imported and stop the K3s service it just started, and must never
 // persist installed-state.
+func TestInstall_RefusesFreshInstallOverExistingControlPlaneDatabase(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ControlPlaneDatabaseDataDir = filepath.Join(t.TempDir(), "controlplane-database")
+	if err := os.MkdirAll(opts.ControlPlaneDatabaseDataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(opts.ControlPlaneDatabaseDataDir, "PG_VERSION")
+	if err := os.WriteFile(marker, []byte("17\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil || !strings.Contains(err.Error(), "already contains data") || !strings.Contains(err.Error(), "factory-reset") {
+		t.Fatalf("expected fresh install to keep pre-existing PostgreSQL data, got: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("pre-existing database marker was removed: %v", err)
+	}
+	if len(fcli.calls) != 0 {
+		t.Fatalf("expected no cluster mutations after the database guard, got %v", fcli.calls)
+	}
+}
+
+func TestInstall_FreshChartFailureRemovesControlPlaneDatabaseItCreated(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+	opts.ControlPlaneDatabaseDataDir = filepath.Join(t.TempDir(), "controlplane-database")
+	if err := os.MkdirAll(opts.ControlPlaneDatabaseDataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{
+		failOn:       map[string]bool{"upgrade --install": true},
+		kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n",
+	}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	_, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
+	if err == nil || strings.Contains(err.Error(), "already contains data") {
+		t.Fatalf("expected chart failure after an empty database directory, got: %v", err)
+	}
+	if _, err := os.Stat(opts.ControlPlaneDatabaseDataDir); !os.IsNotExist(err) {
+		t.Fatalf("failed fresh install left the control-plane database directory: %v", err)
+	}
+}
+
 func TestInstall_RollsBackOnChartFailure(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)

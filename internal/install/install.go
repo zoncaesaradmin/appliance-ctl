@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -653,12 +654,46 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		if databaseDir == "" {
 			databaseDir = hostdirs.ControlPlaneDatabaseDataDir
 		}
+		// A failed finalize can leave PostgreSQL data without an installed-state
+		// receipt. factory-reset is refused while the staging receipt exists, so
+		// retry would be stuck. Drop only data created after the stage began.
+		// Anything older predates this uncommitted install and stays put.
+		embeddedFinalize := opts.EmbeddedEtcdFinalization != nil && resolved.Compatibility.DeploymentTopology == clustertopology.EmbeddedEtcdV1
+		if embeddedFinalize && bootstrapMode == BootstrapFresh {
+			staged, err := clustertopology.LoadBootstrapState(filepath.Join(filepath.Dir(opts.InstalledStatePath), "cluster-bootstrap-state.json"))
+			if err != nil {
+				return nil, checks, fmt.Errorf("install: load embedded-etcd bootstrap receipt: %w", err)
+			}
+			discarded, err := discardUncommittedEmbeddedEtcdDatabase(databaseDir, staged)
+			if err != nil {
+				return nil, checks, fmt.Errorf("install: discard uncommitted control-plane database: %w", err)
+			}
+			if discarded {
+				checks = append(checks, evidence.Check{
+					ID: "controlplane-database-uncommitted-removed", Category: "backup-restore", Status: evidence.StatusPass,
+					Message:   "removed control-plane database data left by a failed finalize that never wrote installed-state",
+					Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+				})
+				if err := o.EnsureOwnedDir(databaseDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.PrivateServiceDirMode); err != nil {
+					return nil, checks, fmt.Errorf("install: prepare control-plane database directory: %w", err)
+				}
+			}
+		}
 		nonEmpty, err := nonEmptyDirectory(databaseDir)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: inspect control-plane database directory: %w", err)
 		}
 		if nonEmpty {
+			if embeddedFinalize {
+				return nil, checks, fmt.Errorf("install: control-plane database directory %s already contains data from before this embedded-etcd stage; preserve it through --bootstrap-mode restore-recovery-set, or remove that directory explicitly before a fresh finalize. factory-reset is unavailable while the staging receipt exists", databaseDir)
+			}
 			return nil, checks, fmt.Errorf("install: control-plane database directory %s already contains data; preserve it only through --bootstrap-mode restore-recovery-set, or run factory-reset with an explicit data-loss acknowledgement before a fresh install", databaseDir)
+		}
+		if bootstrapMode == BootstrapFresh {
+			dir := databaseDir
+			rollbacks = append(rollbacks, func() error {
+				return removeInstallOwnedDirectory(dir)
+			})
 		}
 	}
 	if existing == nil && signal.Detected && signal.Active {
@@ -1654,6 +1689,74 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	return installed, checks, nil
+}
+
+// discardUncommittedEmbeddedEtcdDatabase removes PostgreSQL files created
+// after the embedded-etcd substrate was staged and before installed-state
+// was written. A failed finalize leaves that hostPath behind, and Helm
+// rollback does not delete it. Data older than the stage was not created by
+// this uncommitted install.
+func discardUncommittedEmbeddedEtcdDatabase(databaseDir string, staged *clustertopology.BootstrapState) (bool, error) {
+	if staged == nil || staged.CreatedAt.IsZero() {
+		return false, nil
+	}
+	switch staged.Phase {
+	case clustertopology.PhaseServerReady, clustertopology.PhaseJoined:
+	default:
+		return false, nil
+	}
+	occupied, err := nonEmptyDirectory(databaseDir)
+	if err != nil || !occupied {
+		return false, err
+	}
+	predates, err := directoryHasEntryBefore(databaseDir, staged.CreatedAt)
+	if err != nil || predates {
+		return false, err
+	}
+	if err := removeInstallOwnedDirectory(databaseDir); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// directoryHasEntryBefore reports whether any entry under root, excluding the
+// root directory itself, has a modification time before cutoff.
+func directoryHasEntryBefore(root string, cutoff time.Time) (bool, error) {
+	predates := false
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == root {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.ModTime().Before(cutoff) {
+			predates = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return predates, nil
+}
+
+// removeInstallOwnedDirectory deletes a directory this fresh install created.
+// It refuses roots and relative paths so a bad option cannot wipe the host.
+func removeInstallOwnedDirectory(path string) error {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" || path == "." || path == string(filepath.Separator) || !filepath.IsAbs(path) {
+		return fmt.Errorf("install: refusing to remove invalid directory %q", path)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("install: remove uncommitted directory %s: %w", path, err)
+	}
+	return nil
 }
 
 // nonEmptyDirectory reports whether a durable directory already holds state.

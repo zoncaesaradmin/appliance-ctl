@@ -233,6 +233,86 @@ func TestEmbeddedEtcdClusterMembersSatisfyInstalledStateSchema(t *testing.T) {
 	}
 }
 
+func TestStageThreeServerRefusesPreExistingControlPlaneDatabase(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	databaseDir := filepath.Join(t.TempDir(), "controlplane-database")
+	if err := os.MkdirAll(databaseDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(databaseDir, "PG_VERSION"), []byte("17\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts.ControlPlaneDatabaseDataDir = databaseDir
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err == nil || !strings.Contains(err.Error(), "control-plane database directory is not empty") {
+		t.Fatalf("stage accepted a pre-existing control-plane database: %v", err)
+	}
+}
+
+func TestStageThreeServerResumeAllowsDatabaseLeftByFailedFinalize(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	databaseDir := filepath.Join(t.TempDir(), "controlplane-database")
+	if err := os.MkdirAll(databaseDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opts.ControlPlaneDatabaseDataDir = databaseDir
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatalf("stage with empty database dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(databaseDir, "PG_VERSION"), []byte("17\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatalf("resume rejected database data left after staging: %v", err)
+	}
+}
+
+func TestDiscardUncommittedEmbeddedEtcdDatabase(t *testing.T) {
+	databaseDir := filepath.Join(t.TempDir(), "controlplane-database")
+	if err := os.MkdirAll(databaseDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(databaseDir, "PG_VERSION")
+	if err := os.WriteFile(marker, []byte("17\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staged := &clustertopology.BootstrapState{Phase: clustertopology.PhaseServerReady, CreatedAt: time.Now().Add(-time.Hour)}
+	discarded, err := discardUncommittedEmbeddedEtcdDatabase(databaseDir, staged)
+	if err != nil || !discarded {
+		t.Fatalf("expected post-stage database to be removed, discarded=%v err=%v", discarded, err)
+	}
+	if _, err := os.Stat(databaseDir); !os.IsNotExist(err) {
+		t.Fatalf("uncommitted database directory still present: %v", err)
+	}
+
+	if err := os.MkdirAll(databaseDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("17\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(marker, old, old); err != nil {
+		t.Fatal(err)
+	}
+	discarded, err = discardUncommittedEmbeddedEtcdDatabase(databaseDir, staged)
+	if err != nil || discarded {
+		t.Fatalf("pre-stage database was discarded, discarded=%v err=%v", discarded, err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("pre-stage database marker missing: %v", err)
+	}
+
+	finalized := *staged
+	finalized.Phase = clustertopology.PhaseFinalized
+	if err := os.Chtimes(marker, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	discarded, err = discardUncommittedEmbeddedEtcdDatabase(databaseDir, &finalized)
+	if err != nil || discarded {
+		t.Fatalf("finalized stage discarded database data, discarded=%v err=%v", discarded, err)
+	}
+}
+
 func TestFinalizeThreeServerRefusesIncompleteSubstrateBeforeInstallation(t *testing.T) {
 	orch, source, stageOpts, _ := threeServerFixture(t, "server-a")
 	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, stageOpts); err != nil {

@@ -137,6 +137,15 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 		if occupied {
 			return nil, checks, errors.New("cluster server stage: K3s data directory is not empty; preserve it for explicit recovery")
 		}
+		if databaseDir := strings.TrimSpace(base.ControlPlaneDatabaseDataDir); databaseDir != "" {
+			occupied, err := nonEmptyDirectory(databaseDir)
+			if err != nil {
+				return nil, checks, err
+			}
+			if occupied {
+				return nil, checks, errors.New("cluster server stage: control-plane database directory is not empty; preserve it for explicit recovery")
+			}
+		}
 		if !bootstrap {
 			if _, err := os.Stat(opts.ServerTokenFilePath); err == nil {
 				return nil, checks, errors.New("cluster server stage: protected token path already exists without a bootstrap receipt")
