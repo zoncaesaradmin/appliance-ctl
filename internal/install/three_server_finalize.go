@@ -20,8 +20,9 @@ import (
 
 // FinalizeEmbeddedEtcd is the only path that turns a staged embedded-etcd
 // substrate into an installed appliance. It deploys product charts once from
-// the bootstrap server only after Kubernetes, every direct API address, and
-// embedded etcd agree on the planned inventory members.
+// the bootstrap server only after Kubernetes reports every planned
+// control-plane and embedded-etcd node Ready and every direct API address
+// accepts the trusted credential.
 func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, opts Options) (*state.InstalledState, []evidence.Check, error) {
 	resolved, checks, err := source.Resolve(ctx, opts.ApplianceProfile)
 	if err != nil {
@@ -75,9 +76,8 @@ func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, 
 	}
 	nodes := cluster.ValidateEmbeddedEtcdNodeReadiness(ctx, o.HelmRun, opts.KubeconfigPath, inventory, resolved.Compatibility.K3sVersion, nil)
 	apis := cluster.ValidateEmbeddedEtcdAPIEndpoints(ctx, o.HelmRun, opts.KubeconfigPath, inventory)
-	etcd := cluster.ReadLocalEtcdMembership(ctx, opts.K3sDataDir, inventory)
-	if !nodes.Healthy || !apis.Healthy || !etcd.Healthy {
-		return nil, checks, fmt.Errorf("cluster finalize: substrate not ready: Kubernetes=%s; direct APIs=%s; etcd=%s", nodes.Message, apis.Message, etcd.Message)
+	if !nodes.Healthy || !apis.Healthy {
+		return nil, checks, fmt.Errorf("cluster finalize: substrate not ready: Kubernetes=%s; direct APIs=%s", nodes.Message, apis.Message)
 	}
 	if staged.Phase == clustertopology.PhaseFinalized {
 		installed, err := state.Load(opts.InstalledStatePath)

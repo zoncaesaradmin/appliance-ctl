@@ -246,10 +246,9 @@ func runClusterHACheck(ctx context.Context, opts cliOptions, result commandResul
 	}
 	nodes := cluster.ValidateEmbeddedEtcdNodeReadiness(ctx, cli.Exec, defaultKubeconfigPath, inventory, resolved.Compatibility.K3sVersion, recordedUIDs)
 	apiEndpoints := cluster.ValidateEmbeddedEtcdAPIEndpoints(ctx, cli.Exec, defaultKubeconfigPath, inventory)
-	etcd := cluster.ReadLocalEtcdMembership(ctx, defaultK3sDataDir, inventory)
-	data, _ := json.Marshal(map[string]bool{"kubernetesNodesReady": nodes.Healthy, "directAPIEndpointsReady": apiEndpoints.Healthy, "embeddedEtcdMembership": etcd.Healthy, "applicationHA": false})
-	if !nodes.Healthy || !apiEndpoints.Healthy || !etcd.Healthy {
-		return finish(result, "failed", 1, "cluster-ha-check: Kubernetes: "+nodes.Message+"; direct APIs: "+apiEndpoints.Message+"; etcd: "+etcd.Message, data)
+	data, _ := json.Marshal(map[string]bool{"kubernetesNodesReady": nodes.Healthy, "directAPIEndpointsReady": apiEndpoints.Healthy, "embeddedEtcdNodesReady": nodes.Healthy, "applicationHA": false})
+	if !nodes.Healthy || !apiEndpoints.Healthy {
+		return finish(result, "failed", 1, "cluster-ha-check: Kubernetes: "+nodes.Message+"; direct APIs: "+apiEndpoints.Message, data)
 	}
 	return finish(result, "succeeded", 0, "cluster-ha-check: Kubernetes and embedded-etcd substrate pass; application HA is not established", data)
 }

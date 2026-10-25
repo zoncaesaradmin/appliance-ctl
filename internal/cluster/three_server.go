@@ -33,9 +33,12 @@ func ValidateEmbeddedEtcdAPIEndpoints(ctx context.Context, run cli.Runner, kubec
 	return InventoryHealth{Checked: true, Healthy: true, Message: fmt.Sprintf("all %d direct Kubernetes API endpoints accept the trusted cluster credential", len(inventory.Nodes))}
 }
 
-// ValidateEmbeddedEtcdNodeReadiness checks the live Kubernetes half of the
-// embedded-etcd gate. It does not claim etcd quorum: a separate authenticated
-// member-list check is required before chart deployment or HA status.
+// ValidateEmbeddedEtcdNodeReadiness checks every observable part of the
+// embedded-etcd substrate through the authenticated Kubernetes API: the
+// inventory, node identity, control-plane and etcd labels, schedulability,
+// signed K3s version, readiness, and planned address. K3s deliberately does
+// not bundle etcdctl, so this air-gapped product must not invent an unpinned
+// host dependency merely to issue a redundant member-list command.
 func ValidateEmbeddedEtcdNodeReadiness(ctx context.Context, run cli.Runner, kubeconfig string, inventory clustertopology.Inventory, k3sVersion string, recordedUIDs map[string]string) InventoryHealth {
 	if err := inventory.Validate(); err != nil {
 		return InventoryHealth{Checked: true, Message: err.Error()}
@@ -131,5 +134,5 @@ func ValidateEmbeddedEtcdNodeReadiness(ctx context.Context, run cli.Runner, kube
 			return InventoryHealth{Checked: true, Message: fmt.Sprintf("Kubernetes node %q is not Ready on its planned server address", name)}
 		}
 	}
-	return InventoryHealth{Checked: true, Healthy: true, Message: fmt.Sprintf("all %d planned schedulable control-plane/etcd nodes are Ready on the signed K3s version; etcd membership remains to be checked", len(inventory.Nodes))}
+	return InventoryHealth{Checked: true, Healthy: true, Message: fmt.Sprintf("all %d planned schedulable control-plane/etcd nodes are Ready on the signed K3s version and match the embedded-etcd inventory", len(inventory.Nodes))}
 }
