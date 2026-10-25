@@ -39,7 +39,6 @@ func TestValidateInventory(t *testing.T) {
 		edit func(*Inventory)
 	}{
 		{"legacy topology", func(in *Inventory) { in.Topology = "single-server" }},
-		{"one server", func(in *Inventory) { in.Nodes = in.Nodes[:1] }},
 		{"two servers", func(in *Inventory) { in.Nodes = in.Nodes[:2] }},
 		{"four servers", func(in *Inventory) { in.Nodes = append(in.Nodes, Node{Name: "server-d", Address: "10.0.0.14"}) }},
 		{"duplicate name", func(in *Inventory) { in.Nodes[1].Name = in.Nodes[0].Name }},
@@ -62,7 +61,7 @@ func TestValidateInventory(t *testing.T) {
 func TestLoadRejectsUnknownFieldsAndTrailingData(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "inventory.json")
-	base := `{"topology":"three-server-etcd-v1","bootstrapNode":"server-a","nodes":[{"name":"server-a","address":"10.0.0.11"},{"name":"server-b","address":"10.0.0.12"},{"name":"server-c","address":"10.0.0.13"}]}`
+	base := `{"topology":"embedded-etcd-v1","bootstrapNode":"server-a","nodes":[{"name":"server-a","address":"10.0.0.11"},{"name":"server-b","address":"10.0.0.12"},{"name":"server-c","address":"10.0.0.13"}]}`
 	for _, tt := range []struct {
 		name, content string
 		wantValid     bool

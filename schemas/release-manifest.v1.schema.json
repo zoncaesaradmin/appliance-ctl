@@ -66,7 +66,7 @@
       "properties": {
         "k3sVersion": { "type": "string", "minLength": 1 },
         "chartVersion": { "type": "string", "minLength": 1 },
-        "deploymentTopology": { "const": "three-server-etcd-v1", "description": "Signed product topology for new three-server bundles; absent on legacy bundles." },
+        "deploymentTopology": { "const": "embedded-etcd-v1", "description": "Signed product topology for new one- or three-server embedded-etcd bundles; absent on legacy bundles." },
         "artifactServerVersion": { "type": "string", "minLength": 1 },
         "dnsVersion": { "type": "string", "minLength": 1 },
         "inferenceVersion": { "type": "string", "minLength": 1 },

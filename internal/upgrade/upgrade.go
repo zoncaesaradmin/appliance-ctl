@@ -174,8 +174,8 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
-	if resolved.Compatibility.DeploymentTopology == "three-server-etcd-v1" {
-		return nil, checks, fmt.Errorf("upgrade: signed three-server-etcd-v1 release requires a cluster-wide recovery and rolling-upgrade coordinator")
+	if resolved.Compatibility.DeploymentTopology == state.DeploymentTopologyEmbeddedEtcdV1 {
+		return nil, checks, fmt.Errorf("upgrade: signed embedded-etcd-v1 release requires a coordinated recovery and rolling-upgrade coordinator")
 	}
 	effectiveProfile := resolved.EffectiveProfile
 	targetVersion := strings.TrimSpace(resolved.BundleVersion)

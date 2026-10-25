@@ -40,18 +40,18 @@ type Config struct {
 	NodeName string
 	DataDir  string
 	TLSSANs  []string
-	// DeploymentTopology and NodeIP are set by the three-server inventory
+	// DeploymentTopology and NodeIP are set by the embedded-etcd inventory
 	// path. Legacy receipts leave both empty and retain their original render.
 	DeploymentTopology string
 	NodeIP             string
 	// ServerURL and TokenFile join an existing cluster. Agents always set
-	// both. Additional primes (k3s server etcd peers) set both without
+	// both. Additional K3s server etcd peers set both without
 	// ClusterInit. TokenFile avoids putting a join credential in a unit
 	// argument or state receipt.
 	ServerURL string
 	TokenFile string
-	// ClusterInit enables embedded etcd on the first prime of a three-prime
-	// cluster. Must not be set on members or joining primes.
+	// ClusterInit enables embedded etcd on the bootstrap server. It must not
+	// be set on joining servers.
 	ClusterInit bool
 	// ClusterCIDR overrides the pod CIDR; empty uses DefaultClusterCIDR.
 	ClusterCIDR string
@@ -78,26 +78,26 @@ func (c Config) Validate() error {
 			return fmt.Errorf("k3s config: unsupported deployment topology %q", c.DeploymentTopology)
 		}
 		if c.EffectiveMode() != NodeModeServer {
-			return errors.New("k3s config: three-server topology cannot run an agent")
+			return errors.New("k3s config: embedded-etcd topology cannot run an agent")
 		}
 		address, err := netip.ParseAddr(c.NodeIP)
 		if err != nil || !address.Is4() {
-			return errors.New("k3s config: three-server topology requires an explicit IPv4 node IP")
+			return errors.New("k3s config: embedded-etcd topology requires an explicit IPv4 node IP")
 		}
 		if c.ClusterInit == (strings.TrimSpace(c.ServerURL) != "") {
-			return errors.New("k3s config: three-server topology requires exactly one of cluster-init or server URL")
+			return errors.New("k3s config: embedded-etcd topology requires exactly one of cluster-init or server URL")
 		}
 		if len(c.TLSSANs) == 0 {
-			return errors.New("k3s config: three-server topology requires direct API TLS SANs")
+			return errors.New("k3s config: embedded-etcd topology requires direct API TLS SANs")
 		}
 	}
 	switch c.EffectiveMode() {
 	case NodeModeServer:
 		if c.ClusterInit && strings.TrimSpace(c.ServerURL) != "" {
-			return errors.New("k3s config: cluster-init is only for the first prime")
+			return errors.New("k3s config: cluster-init is only for the bootstrap server")
 		}
 		if strings.TrimSpace(c.ServerURL) != "" && strings.TrimSpace(c.TokenFile) == "" {
-			return errors.New("k3s config: joining prime token file is required")
+			return errors.New("k3s config: joining server token file is required")
 		}
 		return nil
 	case NodeModeAgent:

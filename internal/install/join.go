@@ -117,8 +117,8 @@ func (o *Orchestrator) UpgradeWorker(ctx context.Context, source Source, opts Up
 	if err != nil {
 		return nil, err
 	}
-	if resolved.Compatibility.DeploymentTopology == "three-server-etcd-v1" {
-		return nil, errors.New("cluster worker upgrade: agents are not supported by the signed three-server topology")
+	if resolved.Compatibility.DeploymentTopology == state.DeploymentTopologyEmbeddedEtcdV1 {
+		return nil, errors.New("cluster worker upgrade: agents are not supported by the signed embedded-etcd topology")
 	}
 	if resolved.EffectiveProfile != installed.ApplianceProfile {
 		return nil, errors.New("cluster worker upgrade: signed bundle profile differs from worker receipt")
@@ -254,8 +254,8 @@ func (o *Orchestrator) JoinWorker(ctx context.Context, source Source, opts JoinW
 	if err != nil {
 		return nil, err
 	}
-	if resolved.Compatibility.DeploymentTopology == "three-server-etcd-v1" {
-		return nil, errors.New("cluster join: agent mode is not supported by the signed three-server topology")
+	if resolved.Compatibility.DeploymentTopology == state.DeploymentTopologyEmbeddedEtcdV1 {
+		return nil, errors.New("cluster join: agent mode is not supported by the signed embedded-etcd topology")
 	}
 	if resolved.ReleaseID != enrollment.ReleaseID || resolved.BundleVersion != enrollment.ReleaseVersion {
 		return nil, errors.New("cluster join: signed bundle release does not match enrollment")
@@ -399,8 +399,8 @@ func (o *Orchestrator) JoinServer(ctx context.Context, source Source, opts JoinW
 	if err != nil {
 		return nil, err
 	}
-	if resolved.Compatibility.DeploymentTopology == "three-server-etcd-v1" {
-		return nil, errors.New("cluster join: signed three-server-etcd-v1 release requires the three-server coordinator; this legacy join path cannot complete that topology")
+	if resolved.Compatibility.DeploymentTopology == state.DeploymentTopologyEmbeddedEtcdV1 {
+		return nil, errors.New("cluster join: signed embedded-etcd-v1 release requires the embedded-etcd coordinator; this legacy join path cannot complete that topology")
 	}
 	if resolved.ReleaseID != enrollment.ReleaseID || resolved.BundleVersion != enrollment.ReleaseVersion {
 		return nil, errors.New("cluster join: signed bundle release does not match enrollment")

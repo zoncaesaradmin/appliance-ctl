@@ -70,11 +70,12 @@ func (e *Enrollment) Sign(private ed25519.PrivateKey) error {
 	return e.sign(private)
 }
 
-// SignThreeServer binds a server join credential to one three-server
-// inventory. Legacy v1 enrollment artifacts remain readable for migration.
+// SignThreeServer binds a peer-server credential to a signed embedded-etcd
+// inventory. It is used only by three-server inventories; legacy v1
+// enrollment artifacts remain readable for migration.
 func (e *Enrollment) SignThreeServer(private ed25519.PrivateKey) error {
-	if e.DeploymentTopology != "three-server-etcd-v1" || e.InventoryFingerprint == "" || e.NodeRole != "prime" {
-		return errors.New("cluster enrollment: three-server signing requires topology, inventory fingerprint, and prime role")
+	if e.DeploymentTopology != "embedded-etcd-v1" || e.InventoryFingerprint == "" || e.NodeRole != "prime" {
+		return errors.New("cluster enrollment: embedded-etcd peer signing requires topology, inventory fingerprint, and server role")
 	}
 	e.Version = ThreeServerEnrollmentVersion
 	return e.sign(private)
@@ -105,8 +106,8 @@ func (e Enrollment) Validate(now time.Time, expectedKey string) error {
 		return errors.New("cluster enrollment: v1 artifact cannot declare deployment topology")
 	}
 	if e.Version == ThreeServerEnrollmentVersion {
-		if e.DeploymentTopology != "three-server-etcd-v1" || e.NodeRole != "prime" || strings.TrimSpace(e.DNSZone) == "" || len(e.InventoryFingerprint) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(e.InventoryFingerprint, "sha256:") {
-			return errors.New("cluster enrollment: invalid three-server topology binding")
+		if e.DeploymentTopology != "embedded-etcd-v1" || e.NodeRole != "prime" || strings.TrimSpace(e.DNSZone) == "" || len(e.InventoryFingerprint) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(e.InventoryFingerprint, "sha256:") {
+			return errors.New("cluster enrollment: invalid embedded-etcd topology binding")
 		}
 		if _, err := hex.DecodeString(strings.TrimPrefix(e.InventoryFingerprint, "sha256:")); err != nil {
 			return errors.New("cluster enrollment: invalid inventory fingerprint")

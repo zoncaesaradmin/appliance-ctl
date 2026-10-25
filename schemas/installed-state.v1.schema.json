@@ -57,8 +57,8 @@
         "id": {"type": "string", "minLength": 1},
         "topology": {"enum": ["single-server", "server-workers", "multi-server"]},
         "deploymentTopology": {
-          "const": "three-server-etcd-v1",
-          "description": "Signed coordinated deployment topology. Omitted from receipts written before topology tracking."
+          "const": "embedded-etcd-v1",
+          "description": "Signed embedded-etcd deployment topology for one or three active servers. Omitted from receipts written before topology tracking."
         },
         "controlPlaneNode": {"type": "string", "minLength": 1},
         "ingressNode": {"type": "string", "minLength": 1},

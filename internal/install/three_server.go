@@ -32,10 +32,10 @@ type ThreeServerStageOptions struct {
 	ServerTokenFilePath string
 }
 
-// StageThreeServer installs only K3s and preloads the verified release on
-// one server. It never deploys product charts or writes InstalledState. Its
-// separate bootstrap receipt makes interrupted 1→2→3 transitions rerunnable
-// without treating them as a completed appliance.
+// StageThreeServer installs only K3s and preloads the verified release on a
+// server. It never deploys product charts or writes InstalledState. Its
+// separate bootstrap receipt makes interrupted staging rerunnable without
+// treating the appliance as complete.
 func (o *Orchestrator) StageThreeServer(ctx context.Context, source Source, opts ThreeServerStageOptions) (*clustertopology.BootstrapState, []evidence.Check, error) {
 	base := opts.Options
 	resolved, checks, err := source.Resolve(ctx, base.ApplianceProfile)
@@ -43,7 +43,7 @@ func (o *Orchestrator) StageThreeServer(ctx context.Context, source Source, opts
 		return nil, checks, err
 	}
 	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
-		return nil, checks, errors.New("cluster server stage: signed bundle does not require three-server embedded etcd")
+		return nil, checks, errors.New("cluster server stage: signed bundle does not require embedded etcd")
 	}
 	identity, err := productconfig.ResolveApplianceIdentity(base.ApplianceName, base.DNSZone)
 	if err != nil {

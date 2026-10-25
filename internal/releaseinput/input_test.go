@@ -46,7 +46,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 	writeFile(t, root, "appliance-inference-0.9.0.tgz", "inference-chart")
 	writeFile(t, root, "appliance-metadata-bundle-2.4.0.0.tar.zst", "metadata-bundle-bytes")
 	writeFile(t, root, "configuration.schema.json", `{"type":"object"}`)
-	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1","deploymentTopology":"three-server-etcd-v1"}`)
+	writeFile(t, root, "compatibility.json", `{"k3sVersion":"v1.30.4+k3s1","deploymentTopology":"embedded-etcd-v1"}`)
 	writeFile(t, root, "checksums.txt", "sha256sum entries")
 	writeFile(t, root, "sbom/appliance.spdx.json", "{}")
 	writeFile(t, root, "provenance/appliance.provenance.json", "{}")
@@ -90,7 +90,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 			"inferenceChart":        map[string]any{"path": "appliance-inference-0.9.0.tgz", "digest": digestOf("appliance-inference-0.9.0.tgz"), "sizeBytes": len("inference-chart")},
 			"metadataBundle":        map[string]any{"path": "appliance-metadata-bundle-2.4.0.0.tar.zst", "digest": digestOf("appliance-metadata-bundle-2.4.0.0.tar.zst"), "sizeBytes": len("metadata-bundle-bytes")},
 			"configurationSchema":   map[string]any{"path": "configuration.schema.json", "digest": digestOf("configuration.schema.json"), "sizeBytes": len(`{"type":"object"}`)},
-			"compatibility":         map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1","deploymentTopology":"three-server-etcd-v1"}`)},
+			"compatibility":         map[string]any{"path": "compatibility.json", "digest": digestOf("compatibility.json"), "sizeBytes": len(`{"k3sVersion":"v1.30.4+k3s1","deploymentTopology":"embedded-etcd-v1"}`)},
 			"checksums":             map[string]any{"path": "checksums.txt", "digest": digestOf("checksums.txt"), "sizeBytes": len("sha256sum entries")},
 			"sbom":                  map[string]any{"path": "sbom", "manifestDigest": dirDigestOf("sbom")},
 			"provenance":            map[string]any{"path": "provenance", "manifestDigest": dirDigestOf("provenance")},
@@ -99,7 +99,7 @@ func buildReleaseInputWithCodeVersion(t *testing.T, codeVersion string) string {
 		},
 		"compatibility": map[string]any{
 			"k3sVersion":              "v1.30.4+k3s1",
-			"deploymentTopology":      "three-server-etcd-v1",
+			"deploymentTopology":      "embedded-etcd-v1",
 			"chartVersion":            "2.4.0",
 			"artifactServerVersion":   "2.1.7",
 			"dnsVersion":              "1.14.4",
@@ -126,7 +126,7 @@ func TestLoad_ValidReleaseInput(t *testing.T) {
 	if in.CodeVersion != "2.4.0" || in.ReleaseID != "release-2.4.0" {
 		t.Fatalf("unexpected parsed metadata: %+v", in)
 	}
-	if in.Compatibility.DeploymentTopology != "three-server-etcd-v1" {
+	if in.Compatibility.DeploymentTopology != "embedded-etcd-v1" {
 		t.Fatalf("unexpected deployment topology: %q", in.Compatibility.DeploymentTopology)
 	}
 	if in.Artifacts.ControlPlaneImage.ImageReference != "localhost/appliance-control-plane:2.4.0" {

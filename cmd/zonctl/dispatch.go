@@ -220,7 +220,7 @@ func runClusterHACheck(ctx context.Context, opts cliOptions, result commandResul
 		return finish(result, "failed", 1, "cluster-ha-check: "+err.Error(), nil)
 	}
 	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
-		return finish(result, "failed", 1, "cluster-ha-check: verified bundle does not declare three-server embedded etcd", nil)
+		return finish(result, "failed", 1, "cluster-ha-check: verified bundle does not declare embedded etcd", nil)
 	}
 	inventory, err := clustertopology.Load(opts.clusterInventoryPath)
 	if err != nil {

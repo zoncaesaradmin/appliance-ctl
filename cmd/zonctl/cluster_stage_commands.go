@@ -60,16 +60,16 @@ func runClusterServerStage(ctx context.Context, opts cliOptions, logger *slog.Lo
 	}
 	staged, checks, err := install.NewOrchestrator().StageThreeServer(ctx, source, stageOpts)
 	if err != nil {
-		logger.Error("three-server substrate stage failed", "error", err, "checks", len(checks))
+		logger.Error("embedded-etcd substrate stage failed", "error", err, "checks", len(checks))
 		return finish(result, "failed", 1, "cluster-server-stage: "+err.Error(), nil)
 	}
 	data, _ := json.Marshal(map[string]any{"phase": staged.Phase, "clusterComplete": false, "localNode": staged.LocalNode})
 	return finish(result, "succeeded", 0, "cluster-server-stage: local K3s server staged; appliance installation is incomplete", data)
 }
 
-// runClusterFinalize deploys the product only after all three K3s servers
-// have been staged. It deliberately has no mode that completes a one-server
-// installation or adopts an arbitrary existing cluster.
+// runClusterFinalize deploys the product only after the signed one- or
+// three-server K3s inventory has been staged. It does not adopt an arbitrary
+// existing cluster.
 func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logger *slog.Logger, result commandResult) commandResult {
 	if strings.TrimSpace(opts.bundleDir) == "" || strings.TrimSpace(opts.clusterInventoryPath) == "" {
 		return finish(result, "failed", 2, "cluster-finalize: --bundle-dir and --cluster-inventory are required", nil)
@@ -83,7 +83,7 @@ func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logg
 		return finish(result, "failed", 1, "cluster-finalize: "+err.Error(), nil)
 	}
 	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
-		return finish(result, "failed", 1, "cluster-finalize: verified bundle does not declare three-server embedded etcd", nil)
+		return finish(result, "failed", 1, "cluster-finalize: verified bundle does not declare embedded etcd", nil)
 	}
 	registry, err := resolveImagePullRegistry(opts, nil)
 	if err != nil {
@@ -126,11 +126,12 @@ func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logg
 	}
 	installed, checks, err := install.NewOrchestrator().FinalizeThreeServer(ctx, source, finalOpts)
 	if err != nil {
-		logger.Error("three-server cluster finalization failed", "error", err, "checks", len(checks))
+		logger.Error("embedded-etcd cluster finalization failed", "error", err, "checks", len(checks))
 		return finish(result, "failed", 1, "cluster-finalize: "+err.Error(), nil)
 	}
-	data, _ := json.Marshal(map[string]any{"installedVersion": installed.InstalledVersion, "releaseId": installed.InstalledReleaseID, "clusterComplete": true, "kubernetesHA": true, "applicationHA": false, "apiEndpoints": installed.Cluster.ControlEndpoints})
-	return finish(result, "succeeded", 0, "cluster-finalize: product deployed after three-server Kubernetes/etcd gate; application HA is not established", data)
+	kubernetesHA := installed.Cluster != nil && len(installed.Cluster.ControlEndpoints) == 3
+	data, _ := json.Marshal(map[string]any{"installedVersion": installed.InstalledVersion, "releaseId": installed.InstalledReleaseID, "clusterComplete": true, "kubernetesHA": kubernetesHA, "applicationHA": false, "apiEndpoints": installed.Cluster.ControlEndpoints})
+	return finish(result, "succeeded", 0, "cluster-finalize: product deployed after embedded-etcd Kubernetes gate; application HA is not established", data)
 }
 
 // runClusterServerEnrollmentCreate writes a short-lived, signed credential

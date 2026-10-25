@@ -31,7 +31,7 @@ func threeServerFixture(t *testing.T, nodeName string) (*Orchestrator, threeServ
 	t.Helper()
 	root := t.TempDir()
 	inventoryPath := filepath.Join(root, "inventory.json")
-	content := `{"topology":"three-server-etcd-v1","bootstrapNode":"server-a","nodes":[{"name":"server-a","address":"10.0.0.11"},{"name":"server-b","address":"10.0.0.12"},{"name":"server-c","address":"10.0.0.13"}]}`
+	content := `{"topology":"embedded-etcd-v1","bootstrapNode":"server-a","nodes":[{"name":"server-a","address":"10.0.0.11"},{"name":"server-b","address":"10.0.0.12"},{"name":"server-c","address":"10.0.0.13"}]}`
 	if err := os.WriteFile(inventoryPath, []byte(content), 0o640); err != nil {
 		t.Fatal(err)
 	}

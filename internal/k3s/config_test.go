@@ -217,3 +217,28 @@ func TestThreeServerConfigRendersAllActiveServers(t *testing.T) {
 		t.Fatal("agent mode was accepted for three-server topology")
 	}
 }
+
+func TestThreeServerConfigRendersSingleEmbeddedEtcdServer(t *testing.T) {
+	inventory := clustertopology.Inventory{
+		Topology: clustertopology.EmbeddedEtcdV1, BootstrapNode: "server-a",
+		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}},
+	}
+	cfg, err := k3s.ThreeServerConfig(inventory, "server-a", "/var/lib/rancher/k3s", "")
+	if err != nil {
+		t.Fatalf("single embedded-etcd server config rejected: %v", err)
+	}
+	rendered := cfg.Render()
+	for _, want := range []string{
+		`node-ip: "10.0.0.11"`,
+		`advertise-address: "10.0.0.11"`,
+		`- "10.0.0.11"`,
+		"cluster-init: true",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("single server config missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "server: ") || strings.Contains(rendered, "token-file: ") {
+		t.Fatalf("single embedded-etcd server must not join another server:\n%s", rendered)
+	}
+}

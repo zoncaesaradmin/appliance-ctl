@@ -63,7 +63,7 @@ func TestThreeServerEnrollmentBindsSignedInventory(t *testing.T) {
 	now := time.Now().UTC()
 	e := cluster.Enrollment{
 		ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal", ControlPlaneNode: "server-a",
-		NodeRole: "prime", DeploymentTopology: "three-server-etcd-v1", InventoryFingerprint: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		NodeRole: "prime", DeploymentTopology: "embedded-etcd-v1", InventoryFingerprint: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		ReleaseID: "release-1", ReleaseVersion: "1.2.3", ControlEndpoint: "https://api.example.internal:6443",
 		ClusterCAHash:    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ExpectedNodeName: "server-b", K3sToken: "K10token", TokenFingerprint: cluster.TokenFingerprint("K10token"),

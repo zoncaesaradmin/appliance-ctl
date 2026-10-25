@@ -129,3 +129,26 @@ func TestThreeServerAPIEndpoints(t *testing.T) {
 		t.Fatalf("unreachable direct endpoint accepted: %+v", failure)
 	}
 }
+
+func TestNodeReadinessAcceptsSingleEmbeddedEtcdServer(t *testing.T) {
+	inventory := clustertopology.Inventory{
+		Topology: clustertopology.EmbeddedEtcdV1, BootstrapNode: "server-a",
+		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}},
+	}
+	raw, err := json.Marshal(map[string]any{"items": []map[string]any{{
+		"metadata": map[string]any{"name": "server-a", "uid": "uid-server-a", "labels": map[string]string{"node-role.kubernetes.io/control-plane": "true", "node-role.kubernetes.io/etcd": "true"}},
+		"spec":     map[string]any{"unschedulable": false},
+		"status": map[string]any{
+			"addresses":  []map[string]string{{"type": "InternalIP", "address": "10.0.0.11"}},
+			"conditions": []map[string]string{{"type": "Ready", "status": "True"}},
+			"nodeInfo":   map[string]string{"kubeletVersion": "v1.30.4+k3s1"},
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(_ context.Context, _ string, _ ...string) (string, error) { return string(raw), nil }
+	if health := ValidateThreeServerNodeReadiness(context.Background(), run, "kubeconfig", inventory, "v1.30.4+k3s1", map[string]string{"server-a": "uid-server-a"}); !health.Healthy {
+		t.Fatalf("single embedded-etcd server rejected: %+v", health)
+	}
+}

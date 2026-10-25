@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 )
 
 func testEtcdMemberList() map[string]any {
@@ -62,6 +64,27 @@ func TestEtcdMemberListRequiresThreeVotingPlannedPeers(t *testing.T) {
 				t.Fatalf("invalid etcd membership accepted: %+v", health)
 			}
 		})
+	}
+}
+
+func TestEtcdMemberListAcceptsSingleEmbeddedEtcdServer(t *testing.T) {
+	inventory := clustertopology.Inventory{
+		Topology: clustertopology.EmbeddedEtcdV1, BootstrapNode: "server-a",
+		Nodes: []clustertopology.Node{{Name: "server-a", Address: "10.0.0.11"}},
+	}
+	doc := map[string]any{
+		"header": map[string]any{"cluster_id": "12345"},
+		"members": []map[string]any{{
+			"ID": 1, "name": "server-a-abc123", "peerURLs": []string{"https://10.0.0.11:2380"},
+			"clientURLs": []string{"https://10.0.0.11:2379"}, "isLearner": false,
+		}},
+	}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health := ValidateEtcdMemberList(body, inventory); !health.Healthy {
+		t.Fatalf("single embedded-etcd member rejected: %+v", health)
 	}
 }
 

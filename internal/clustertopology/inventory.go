@@ -1,5 +1,6 @@
 // Package clustertopology validates the operator-supplied, host-specific
-// inventory for a three-server embedded-etcd appliance. It contains no
+// inventory for an embedded-etcd appliance with one or three active servers.
+// It contains no
 // credentials and is deliberately separate from the portable release bundle.
 package clustertopology
 
@@ -18,15 +19,20 @@ import (
 	"strings"
 )
 
-const ThreeServerEtcdV1 = "three-server-etcd-v1"
+const EmbeddedEtcdV1 = "embedded-etcd-v1"
+
+// ThreeServerEtcdV1 is retained as an internal symbol while the coordinator
+// and its tests are generalized. Its wire value is the one signed embedded
+// etcd contract, valid for either a one- or three-server inventory.
+const ThreeServerEtcdV1 = EmbeddedEtcdV1
 
 const maxInventoryBytes = 64 * 1024
 
 var nodeNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // Inventory is install-time topology input, not a release artifact. Its
-// endpoints are the three directly reachable server addresses. Clients that
-// need N-1 availability retry another listed endpoint; this topology does not
+// endpoints are one or three directly reachable server addresses. A
+// three-server client retries another listed endpoint; this topology does not
 // introduce a virtual address, load balancer, or other failover front end.
 type Inventory struct {
 	Topology      string `json:"topology"`
@@ -38,7 +44,7 @@ type Node struct {
 	Name string `json:"name"`
 	// Address is the server's reachable IPv4 address for K3s API and etcd
 	// traffic. It may be an RFC1918/LAN address or a directly assigned VPS
-	// address; all three entries are independently usable API endpoints.
+	// address; all configured entries are independently usable API endpoints.
 	Address string `json:"address"`
 }
 
@@ -79,11 +85,11 @@ func Load(path string) (Inventory, error) {
 // network calls. Reachability, TLS, and port checks are later host preflight
 // gates, not claims made by this static check.
 func (in Inventory) Validate() error {
-	if in.Topology != ThreeServerEtcdV1 {
-		return fmt.Errorf("cluster inventory: topology must be %q", ThreeServerEtcdV1)
+	if in.Topology != EmbeddedEtcdV1 {
+		return fmt.Errorf("cluster inventory: topology must be %q", EmbeddedEtcdV1)
 	}
-	if len(in.Nodes) != 3 {
-		return errors.New("cluster inventory: exactly three server nodes are required")
+	if len(in.Nodes) != 1 && len(in.Nodes) != 3 {
+		return errors.New("cluster inventory: exactly one or three server nodes are required")
 	}
 	if !nodeNamePattern.MatchString(in.BootstrapNode) {
 		return errors.New("cluster inventory: bootstrapNode must be a DNS-label node name")
@@ -108,12 +114,12 @@ func (in Inventory) Validate() error {
 		addresses[address.String()] = struct{}{}
 	}
 	if _, exists := names[in.BootstrapNode]; !exists {
-		return errors.New("cluster inventory: bootstrapNode must name one of the three servers")
+		return errors.New("cluster inventory: bootstrapNode must name one of the configured servers")
 	}
 	return nil
 }
 
-// APIEndpoints returns the three direct API URLs. It deliberately does not
+// APIEndpoints returns the direct API URLs. It deliberately does not
 // manufacture a virtual address: clients that need N-1 availability must try
 // these endpoints in order. The bootstrap address is first so peers can join
 // the initial server before any other member exists.

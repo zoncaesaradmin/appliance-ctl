@@ -394,7 +394,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, err
 	}
-	if resolved.Compatibility.DeploymentTopology == "three-server-etcd-v1" {
+	if resolved.Compatibility.DeploymentTopology == clustertopology.EmbeddedEtcdV1 {
 		inventory, err := clustertopology.Load(opts.ClusterInventoryPath)
 		if err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
@@ -414,7 +414,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
 		if opts.ThreeServerFinalization == nil {
-			return nil, checks, fmt.Errorf("install: signed three-server-etcd-v1 release requires the three-server coordinator; this single-host installer cannot complete that topology")
+			return nil, checks, fmt.Errorf("install: signed embedded-etcd-v1 release requires the staged embedded-etcd coordinator; this legacy installer cannot complete that topology")
 		}
 		finalization := opts.ThreeServerFinalization
 		if opts.NodeName != inventory.BootstrapNode || finalization.ClusterID == "" || finalization.ControlPlaneNode != inventory.BootstrapNode || finalization.ControlEndpoint != inventory.BootstrapAPIEndpoint() || !sameStringSet(finalization.ControlEndpoints, inventory.APIEndpoints()) || len(finalization.Nodes) != len(inventory.Nodes) {

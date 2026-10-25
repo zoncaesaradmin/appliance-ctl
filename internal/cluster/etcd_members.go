@@ -72,11 +72,11 @@ func ReadLocalEtcdMembership(ctx context.Context, k3sDataDir string, inventory c
 			return InventoryHealth{Checked: true, Message: fmt.Sprintf("etcd peer %q did not report healthy", endpoint)}
 		}
 	}
-	membership.Message += "; all three peers respond healthy over the planned server network"
+	membership.Message += fmt.Sprintf("; all %d peers respond healthy over the planned server network", len(inventory.Nodes))
 	return membership
 }
 
-// ValidateEtcdMemberList matches exactly three voting etcd peers to the
+// ValidateEtcdMemberList matches the expected voting etcd peers to the
 // inventory's server addresses. A linearizable response means this list was
 // confirmed through quorum; Kubernetes node readiness is checked separately.
 func ValidateEtcdMemberList(body []byte, inventory clustertopology.Inventory) InventoryHealth {
@@ -101,15 +101,15 @@ func ValidateEtcdMemberList(body []byte, inventory clustertopology.Inventory) In
 	if _, err := positiveUint(response.Header.ClusterID); err != nil {
 		return InventoryHealth{Checked: true, Message: "etcd member list has no valid cluster ID"}
 	}
-	if len(response.Members) != 3 {
-		return InventoryHealth{Checked: true, Message: fmt.Sprintf("expected exactly three etcd members, observed %d", len(response.Members))}
+	if len(response.Members) != len(inventory.Nodes) {
+		return InventoryHealth{Checked: true, Message: fmt.Sprintf("expected exactly %d etcd members, observed %d", len(inventory.Nodes), len(response.Members))}
 	}
-	expected := make(map[string]string, 3)
+	expected := make(map[string]string, len(inventory.Nodes))
 	for _, node := range inventory.Nodes {
 		expected[node.Address] = node.Name
 	}
-	seenIDs := make(map[uint64]struct{}, 3)
-	seenAddresses := make(map[string]struct{}, 3)
+	seenIDs := make(map[uint64]struct{}, len(inventory.Nodes))
+	seenAddresses := make(map[string]struct{}, len(inventory.Nodes))
 	for _, member := range response.Members {
 		id, err := positiveUint(member.ID)
 		if err != nil {
@@ -134,7 +134,7 @@ func ValidateEtcdMemberList(body []byte, inventory clustertopology.Inventory) In
 		}
 		seenAddresses[peer.Hostname()] = struct{}{}
 	}
-	return InventoryHealth{Checked: true, Healthy: true, Message: "three voting embedded-etcd members match the planned server addresses through a linearizable member-list response"}
+	return InventoryHealth{Checked: true, Healthy: true, Message: fmt.Sprintf("%d voting embedded-etcd members match the planned server addresses through a linearizable member-list response", len(inventory.Nodes))}
 }
 
 func positiveUint(raw json.RawMessage) (uint64, error) {

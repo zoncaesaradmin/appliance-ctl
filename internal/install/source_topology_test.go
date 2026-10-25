@@ -18,7 +18,7 @@ import (
 type topologyOnlySource struct{}
 
 func (topologyOnlySource) Resolve(context.Context, string) (Resolved, []evidence.Check, error) {
-	return Resolved{Compatibility: bundle.Compatibility{DeploymentTopology: "three-server-etcd-v1"}}, nil, nil
+	return Resolved{Compatibility: bundle.Compatibility{DeploymentTopology: clustertopology.EmbeddedEtcdV1}}, nil, nil
 }
 
 func TestLegacyInstallRejectsThreeServerReleaseBeforeMutation(t *testing.T) {
@@ -39,7 +39,7 @@ func TestLegacyInstallRejectsThreeServerReleaseBeforeMutation(t *testing.T) {
 		return []netip.Addr{netip.MustParseAddr("10.0.0.11")}, nil
 	}}
 	_, _, err = orch.Install(context.Background(), topologyOnlySource{}, Options{InstalledStatePath: statePath, ClusterInventoryPath: inventoryPath, NodeName: "server-a"})
-	if err == nil || !strings.Contains(err.Error(), "three-server coordinator") {
+	if err == nil || !strings.Contains(err.Error(), "embedded-etcd coordinator") {
 		t.Fatalf("expected safe topology rejection, got %v", err)
 	}
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
@@ -95,8 +95,8 @@ func TestThreeServerFinalizationSetComparison(t *testing.T) {
 }
 
 func TestValidatePackTopologies(t *testing.T) {
-	foundation := &bundle.Bundle{Compatibility: bundle.Compatibility{DeploymentTopology: "three-server-etcd-v1"}}
-	matching := &bundle.Bundle{Compatibility: bundle.Compatibility{DeploymentTopology: "three-server-etcd-v1"}}
+	foundation := &bundle.Bundle{Compatibility: bundle.Compatibility{DeploymentTopology: clustertopology.EmbeddedEtcdV1}}
+	matching := &bundle.Bundle{Compatibility: bundle.Compatibility{DeploymentTopology: clustertopology.EmbeddedEtcdV1}}
 	legacy := &bundle.Bundle{}
 	if err := validatePackTopologies(foundation, []*bundle.Bundle{matching}); err != nil {
 		t.Fatalf("matching pack rejected: %v", err)

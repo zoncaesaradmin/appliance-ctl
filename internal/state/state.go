@@ -95,10 +95,13 @@ type ClusterNode struct {
 }
 
 const (
-	TopologySingleServer                = "single-server"
-	TopologyServerWorkers               = "server-workers"
-	TopologyMultiServer                 = "multi-server"
-	DeploymentTopologyThreeServerEtcdV1 = "three-server-etcd-v1"
+	TopologySingleServer             = "single-server"
+	TopologyServerWorkers            = "server-workers"
+	TopologyMultiServer              = "multi-server"
+	DeploymentTopologyEmbeddedEtcdV1 = "embedded-etcd-v1"
+	// Deprecated internal spelling retained while command implementations are
+	// generalized to a one- or three-server embedded-etcd inventory.
+	DeploymentTopologyThreeServerEtcdV1 = DeploymentTopologyEmbeddedEtcdV1
 	NodeRoleControlPlane                = "control-plane"
 	NodeRoleWorker                      = "worker"
 	NodeRoleInference                   = "inference"

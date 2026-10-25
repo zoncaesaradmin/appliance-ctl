@@ -18,17 +18,17 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
-// FinalizeThreeServer is the only path that turns a staged three-server
+// FinalizeThreeServer is the only path that turns a staged embedded-etcd
 // substrate into an installed appliance. It deploys product charts once from
 // the bootstrap server only after Kubernetes, every direct API address, and
-// embedded etcd agree on exactly the planned three members.
+// embedded etcd agree on the planned inventory members.
 func (o *Orchestrator) FinalizeThreeServer(ctx context.Context, source Source, opts Options) (*state.InstalledState, []evidence.Check, error) {
 	resolved, checks, err := source.Resolve(ctx, opts.ApplianceProfile)
 	if err != nil {
 		return nil, checks, err
 	}
 	if resolved.Compatibility.DeploymentTopology != clustertopology.ThreeServerEtcdV1 {
-		return nil, checks, errors.New("cluster finalize: signed bundle does not require three-server embedded etcd")
+		return nil, checks, errors.New("cluster finalize: signed bundle does not require embedded etcd")
 	}
 	inventory, err := clustertopology.Load(opts.ClusterInventoryPath)
 	if err != nil {
