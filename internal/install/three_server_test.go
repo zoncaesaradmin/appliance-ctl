@@ -19,6 +19,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
 type threeServerSource struct{ resolved Resolved }
@@ -192,6 +193,43 @@ func TestStageThreeServerJoinsOnlyWithSignedInventoryBoundEnrollment(t *testing.
 	}
 	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err == nil {
 		t.Fatal("different joined K3s CA accepted on rerun")
+	}
+}
+
+func TestEmbeddedEtcdClusterMembersSatisfyInstalledStateSchema(t *testing.T) {
+	now := time.Now().UTC()
+	installed := &state.InstalledState{
+		SchemaVersion:       1,
+		ApplianceInstanceID: "cluster-1",
+		InstalledVersion:    "2.4.0",
+		InstalledReleaseID:  "01J8QK3F9G7XA6P0V6ZC9N6R4T",
+		ApplianceProfile:    "core",
+		Components:          state.Components{K3sVersion: "v1.30.4+k3s1", ChartVersion: "2.4.0"},
+		K3sOwnership:        state.K3sOwnership{Owned: true, OwnerApplianceVersion: "2.4.0"},
+		LastOperation: state.Operation{
+			Type: "install", Status: "completed", TransactionID: "txn-01J8QK4G8H9YB7Q1W7ZD0P7S5U",
+			StartedAt: now, CompletedAt: &now,
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+		Cluster: &state.Cluster{
+			ID: "cluster-1", Topology: state.TopologyMultiServer, DeploymentTopology: state.DeploymentTopologyEmbeddedEtcdV1,
+			ControlPlaneNode: "server-a", IngressNode: "server-a",
+			ControlEndpoint: "https://10.0.0.11:6443",
+			Nodes: []state.ClusterNode{
+				embeddedEtcdClusterNode("server-a", "uid-server-a"),
+				embeddedEtcdClusterNode("server-b", "uid-server-b"),
+				embeddedEtcdClusterNode("server-c", "uid-server-c"),
+			},
+		},
+	}
+	for _, node := range installed.Cluster.Nodes {
+		if node.Role != state.NodeRoleControlPlane || len(node.Roles) != 1 || node.Roles[0] != state.NodeRoleControlPlane {
+			t.Fatalf("embedded-etcd member %q has non-schema role: %+v", node.Name, node)
+		}
+	}
+	if err := state.Save(filepath.Join(t.TempDir(), "installed-state.json"), installed); err != nil {
+		t.Fatal(err)
 	}
 }
 

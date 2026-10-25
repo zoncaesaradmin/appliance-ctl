@@ -96,7 +96,7 @@ func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, 
 		if node.Name == inventory.BootstrapNode {
 			bootstrapUID = uid
 		}
-		members = append(members, state.ClusterNode{ID: node.Name, Name: node.Name, NodeUID: uid, Role: state.NodeRoleControlPlane, Roles: []string{state.NodeRoleControlPlane, "etcd"}})
+		members = append(members, embeddedEtcdClusterNode(node.Name, uid))
 	}
 	caHash, err := serverCAHash(opts.K3sDataDir)
 	if err != nil {
@@ -122,6 +122,19 @@ func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, 
 		return nil, checks, fmt.Errorf("cluster finalize: record completion: %w", err)
 	}
 	return installed, checks, nil
+}
+
+// embeddedEtcdClusterNode records one planned server on the installed-state
+// receipt. Product roles are control-plane, worker, and inference. Etcd
+// membership is not one of those roles: deploymentTopology embedded-etcd-v1
+// already means every inventory server runs etcd, and the substrate gate
+// checks the Kubernetes etcd label before this receipt is written.
+func embeddedEtcdClusterNode(name, uid string) state.ClusterNode {
+	return state.ClusterNode{
+		ID: name, Name: name, NodeUID: uid,
+		Role:  state.NodeRoleControlPlane,
+		Roles: []string{state.NodeRoleControlPlane},
+	}
 }
 
 func serverCAHash(k3sDataDir string) (string, error) {
