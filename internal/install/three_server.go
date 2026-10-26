@@ -131,21 +131,35 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 		if signal.Active {
 			return nil, checks, errors.New("cluster server stage: existing K3s service has no matching bootstrap receipt")
 		}
-		// A unit that never became active, with an empty data directory, is a
-		// start that was killed before the bootstrap receipt could matter.
-		// An active service or a data directory with cluster state stays put.
+		// No receipt and the service never became active. An empty data
+		// directory is a start that died before it recorded membership. A
+		// release-owned unit in the same state is a previous install whose
+		// receipt is gone and whose etcd can no longer form a cluster; its
+		// data directory is removed so this stage can start clean. An active
+		// service, or any unit this release did not write, stays put.
 		occupied, err := nonEmptyDirectory(base.K3sDataDir)
 		if err != nil {
 			return nil, checks, err
 		}
 		if occupied {
-			return nil, checks, errors.New("cluster server stage: K3s data directory is not empty; preserve it for explicit recovery")
+			owned, err := releaseOwnedK3sUnit(base.K3sUnitPath)
+			if err != nil {
+				return nil, checks, err
+			}
+			if !owned {
+				return nil, checks, errors.New("cluster server stage: K3s data directory is not empty; preserve it for explicit recovery")
+			}
 		}
 		if o.K3s.Stop == nil {
 			return nil, checks, errors.New("cluster server stage: existing K3s service has no matching bootstrap receipt")
 		}
 		if err := o.K3s.Stop(base.K3sUnitName); err != nil {
 			return nil, checks, err
+		}
+		if occupied {
+			if err := os.RemoveAll(base.K3sDataDir); err != nil {
+				return nil, checks, err
+			}
 		}
 	}
 	if staged != nil && signal.Detected {
@@ -328,6 +342,17 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 		return nil, checks, err
 	}
 	return staged, checks, nil
+}
+
+func releaseOwnedK3sUnit(path string) (bool, error) {
+	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(string(body), "Description="+k3s.ReleaseOwnedUnitDescription), nil
 }
 
 func waitForEmbeddedEtcdNodeUID(ctx context.Context, run func(context.Context, string, ...string) (string, error), kubeconfig, nodeName string) (string, error) {

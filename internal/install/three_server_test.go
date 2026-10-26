@@ -115,6 +115,64 @@ func TestStageReclaimsInactiveK3sWhenDataDirIsEmpty(t *testing.T) {
 	}
 }
 
+func TestStageReclaimsInactiveReleaseOwnedK3sData(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	if err := os.MkdirAll(filepath.Dir(opts.K3sUnitPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(opts.K3sUnitPath, []byte("Description="+k3s.ReleaseOwnedUnitDescription+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(opts.K3sDataDir, "server", "db", "etcd")
+	if err := os.MkdirAll(marker, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stopped := false
+	orch.K3s.DetectService = func(string) (k3s.ServiceSignal, error) {
+		return k3s.ServiceSignal{Detected: true, Active: false}, nil
+	}
+	orch.K3s.Stop = func(string) error {
+		stopped = true
+		return nil
+	}
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatalf("inactive release-owned K3s data was not reclaimed: %v", err)
+	}
+	if !stopped {
+		t.Fatal("inactive release-owned K3s was not stopped")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("release-owned K3s data directory survived staging: %v", err)
+	}
+}
+
+func TestStagePreservesForeignK3sDataWithoutReceipt(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	if err := os.MkdirAll(filepath.Dir(opts.K3sUnitPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(opts.K3sUnitPath, []byte("Description=Upstream K3s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(opts.K3sDataDir, "server", "db")
+	if err := os.MkdirAll(marker, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	orch.K3s.DetectService = func(string) (k3s.ServiceSignal, error) {
+		return k3s.ServiceSignal{Detected: true, Active: false}, nil
+	}
+	orch.K3s.Stop = func(string) error {
+		t.Fatal("foreign K3s was stopped")
+		return nil
+	}
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err == nil || !strings.Contains(err.Error(), "K3s data directory is not empty") {
+		t.Fatalf("foreign K3s data was not preserved: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("foreign K3s data directory was removed: %v", err)
+	}
+}
+
 func TestStageRefusesActiveK3sWithoutBootstrapReceipt(t *testing.T) {
 	orch, source, opts, _ := threeServerFixture(t, "server-a")
 	orch.K3s.DetectService = func(string) (k3s.ServiceSignal, error) {

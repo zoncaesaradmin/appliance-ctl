@@ -2,6 +2,10 @@ package k3s
 
 import "fmt"
 
+// ReleaseOwnedUnitDescription is the systemd Description of the unit this
+// release writes. Staging uses it to recognize its own leftover unit.
+const ReleaseOwnedUnitDescription = "Appliance-managed K3s server (release-owned; do not edit)"
+
 // UnitConfig describes the release-owned systemd unit for the K3s
 // server. There is deliberately no ExecStartPre download step and no
 // auto-upgrade hook: the binary and config are already staged from the
@@ -14,7 +18,7 @@ type UnitConfig struct {
 }
 
 const unitTemplate = `[Unit]
-Description=Appliance-managed K3s server (release-owned; do not edit)
+Description=` + ReleaseOwnedUnitDescription + `
 After=network-online.target
 Wants=network-online.target
 
