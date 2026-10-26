@@ -1259,8 +1259,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			productconfig.InfrastructureNamespace, opts.ChartNamespace, "controlplane-database-connection")
 		checks = append(checks, databaseReplica.Checks...)
 		if databaseReplicaErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: %w", databaseReplicaErr), cleanupOnFailure())
+			return nil, checks, failInstall(fmt.Errorf("install: %w", databaseReplicaErr), cleanupOnFailure(databaseReplica.Cleanup))
 		}
+		rollbacks = append(rollbacks, databaseReplica.Cleanup)
 		if bootstrapMode == BootstrapRestoreRecoverySet {
 			if err := restoreBootstrapPostgres(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, opts.BootstrapDatabaseRestorePath); err != nil {
 				return nil, checks, failInstall(err, cleanupOnFailure())
@@ -1272,8 +1273,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		productconfig.InfrastructureNamespace, opts.ChartNamespace, "blob-storage-credentials")
 	checks = append(checks, blobReplica.Checks...)
 	if blobReplicaErr != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: %w", blobReplicaErr), cleanupOnFailure())
+		return nil, checks, failInstall(fmt.Errorf("install: %w", blobReplicaErr), cleanupOnFailure(blobReplica.Cleanup))
 	}
+	rollbacks = append(rollbacks, blobReplica.Cleanup)
 
 	// Control-plane pods mount appliance-ca (public ca.crt) and IngressRoutes
 	// reference appliance-tls. Create both before the ace-system release so the

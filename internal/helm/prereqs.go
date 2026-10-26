@@ -626,11 +626,35 @@ func ensureSecretDataReplica(ctx context.Context, run cli.Runner, kubeconfig, so
 		if err := json.Unmarshal(targetPayload, &target); err != nil {
 			return prepared, err
 		}
+		// The infrastructure secret is authoritative. A failed install leaves
+		// the namespace replica behind after Helm recreates the source with a
+		// new value, so a differing replica is stale and must be replaced.
+		staleKey := ""
 		for _, key := range keys {
-			if strings.TrimSpace(target.Data[key]) != source.Data[key] {
-				return prepared, fmt.Errorf("helm: %s conflict for %s in %s", description, key, targetNamespace)
+			if strings.TrimSpace(target.Data[key]) != strings.TrimSpace(source.Data[key]) {
+				staleKey = key
+				break
 			}
 		}
+		if staleKey == "" {
+			prepared.Checks = append(prepared.Checks, evidence.Check{ID: checkID, Category: "chart", Status: evidence.StatusPass, Message: fmt.Sprintf("%s replica already matches in %s", description, targetNamespace), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+			return prepared, nil
+		}
+		patchData := make(map[string]string, len(keys))
+		for _, key := range keys {
+			patchData[key] = source.Data[key]
+		}
+		body, err := json.Marshal(map[string]any{"data": patchData})
+		if err != nil {
+			return prepared, fmt.Errorf("helm: marshal %s replica patch: %w", description, err)
+		}
+		if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace, "patch", "secret", secretName, "--type", "merge", "-p", string(body)); err != nil {
+			return prepared, fmt.Errorf("helm: update %s replica: %w", description, err)
+		}
+		prepared.cleanups = append(prepared.cleanups, func() error {
+			return deleteSecret(ctx, run, kubeconfig, targetNamespace, secretName)
+		})
+		prepared.Checks = append(prepared.Checks, evidence.Check{ID: checkID, Category: "chart", Status: evidence.StatusPass, Message: fmt.Sprintf("replaced stale %s replica in %s because %s differed", description, targetNamespace, staleKey), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 		return prepared, nil
 	}
 	if !secretNotFound(targetErr) {
@@ -656,6 +680,9 @@ func ensureSecretDataReplica(ctx context.Context, run cli.Runner, kubeconfig, so
 	if _, err := run(ctx, "kubectl", args...); err != nil && !secretAlreadyExists(err) {
 		return prepared, fmt.Errorf("helm: create %s replica: %w", description, err)
 	}
+	prepared.cleanups = append(prepared.cleanups, func() error {
+		return deleteSecret(ctx, run, kubeconfig, targetNamespace, secretName)
+	})
 	prepared.Checks = append(prepared.Checks, evidence.Check{ID: checkID, Category: "chart", Status: evidence.StatusPass, Message: fmt.Sprintf("replicated %s into %s", description, targetNamespace), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 	return prepared, nil
 }
