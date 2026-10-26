@@ -216,6 +216,14 @@
         "properties": {
           "data": {
             "type": "object",
+            "properties": {
+              "apiEndpoints": {
+                "type": "array",
+                "description": "Direct Kubernetes API URLs recorded by cluster-finalize. Other cluster-lifecycle fields stay scalars.",
+                "items": {"type": "string", "pattern": "^https://.+"},
+                "uniqueItems": true
+              }
+            },
             "additionalProperties": {
               "type": ["string", "number", "boolean"]
             }

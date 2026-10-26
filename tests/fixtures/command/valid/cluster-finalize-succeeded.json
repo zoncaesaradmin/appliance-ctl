@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "command": "cluster-finalize",
+  "applianceVersion": "0.1.0",
+  "startedAt": "2026-10-26T16:27:08Z",
+  "completedAt": "2026-10-26T16:32:40Z",
+  "status": "succeeded",
+  "exitCode": 0,
+  "message": "cluster-finalize: product deployed after embedded-etcd Kubernetes gate; application HA is not established",
+  "data": {
+    "installedVersion": "0.1.0",
+    "releaseId": "release-1",
+    "clusterComplete": true,
+    "kubernetesHA": false,
+    "applicationHA": false,
+    "apiEndpoints": ["https://192.168.1.153:6443"]
+  }
+}

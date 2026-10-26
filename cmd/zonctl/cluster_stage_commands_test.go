@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/manifest"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
 func TestClusterServerEnrollmentUsesStagedInventoryAndProtectedArtifact(t *testing.T) {
@@ -70,5 +73,29 @@ func TestClusterServerEnrollmentUsesStagedInventoryAndProtectedArtifact(t *testi
 	opts.enrollmentOut = filepath.Join(root, "invalid.enrollment")
 	if invalid := runClusterServerEnrollmentCreate(opts, commandResult{}); invalid.Status != "failed" {
 		t.Fatal("unlisted server was enrolled")
+	}
+}
+
+func TestClusterFinalizeResultAcceptsAPIEndpointList(t *testing.T) {
+	data, err := clusterFinalizeResultData(&state.InstalledState{
+		InstalledVersion:   "0.1.0",
+		InstalledReleaseID: "release-1",
+		Cluster:            &state.Cluster{ControlEndpoints: []string{"https://192.168.1.153:6443"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := finish(commandResult{
+		SchemaVersion:    1,
+		Command:          "cluster-finalize",
+		ApplianceVersion: "0.1.0",
+		StartedAt:        time.Now().UTC().Format(time.RFC3339),
+	}, "succeeded", 0, "cluster-finalize: product deployed after embedded-etcd Kubernetes gate; application HA is not established", data)
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.Validate(manifest.KindCommandResult, raw); err != nil {
+		t.Fatal(err)
 	}
 }

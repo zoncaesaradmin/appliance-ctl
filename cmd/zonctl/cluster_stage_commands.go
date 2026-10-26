@@ -17,6 +17,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/install"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
 func runClusterServerStage(ctx context.Context, opts cliOptions, logger *slog.Logger, result commandResult) commandResult {
@@ -130,9 +131,31 @@ func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logg
 		logger.Error("embedded-etcd cluster finalization failed", "error", err, "checks", len(checks))
 		return finish(result, "failed", 1, "cluster-finalize: "+err.Error(), nil)
 	}
-	kubernetesHA := installed.Cluster != nil && len(installed.Cluster.ControlEndpoints) == 3
-	data, _ := json.Marshal(map[string]any{"installedVersion": installed.InstalledVersion, "releaseId": installed.InstalledReleaseID, "clusterComplete": true, "kubernetesHA": kubernetesHA, "applicationHA": false, "apiEndpoints": installed.Cluster.ControlEndpoints})
+	data, err := clusterFinalizeResultData(installed)
+	if err != nil {
+		return finish(result, "failed", 1, "cluster-finalize: "+err.Error(), nil)
+	}
 	return finish(result, "succeeded", 0, "cluster-finalize: product deployed after embedded-etcd Kubernetes gate; application HA is not established", data)
+}
+
+func clusterFinalizeResultData(installed *state.InstalledState) (json.RawMessage, error) {
+	endpoints := []string{}
+	version, releaseID := "", ""
+	if installed != nil {
+		version = installed.InstalledVersion
+		releaseID = installed.InstalledReleaseID
+		if installed.Cluster != nil {
+			endpoints = append(endpoints, installed.Cluster.ControlEndpoints...)
+		}
+	}
+	return json.Marshal(map[string]any{
+		"installedVersion": version,
+		"releaseId":        releaseID,
+		"clusterComplete":  true,
+		"kubernetesHA":     len(endpoints) == 3,
+		"applicationHA":    false,
+		"apiEndpoints":     endpoints,
+	})
 }
 
 // runClusterServerEnrollmentCreate writes a short-lived, signed credential
