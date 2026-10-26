@@ -153,9 +153,19 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 			}
 		}
 		if !bootstrap {
-			if _, err := os.Stat(opts.ServerTokenFilePath); err == nil {
+			// K3s is not running and its data directory is empty, so a token
+			// file here is not a live member. Factory reset removes the
+			// bootstrap receipt and K3s data but not this /etc file. Replace
+			// a regular leftover; refuse anything that is not a file.
+			info, err := os.Lstat(opts.ServerTokenFilePath)
+			switch {
+			case err == nil && info.Mode().IsRegular():
+				if err := os.Remove(opts.ServerTokenFilePath); err != nil {
+					return nil, checks, err
+				}
+			case err == nil:
 				return nil, checks, errors.New("cluster server stage: protected token path already exists without a bootstrap receipt")
-			} else if !os.IsNotExist(err) {
+			case !os.IsNotExist(err):
 				return nil, checks, err
 			}
 		}

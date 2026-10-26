@@ -157,6 +157,12 @@ func TestStageThreeServerJoinsOnlyWithSignedInventoryBoundEnrollment(t *testing.
 	if err := cluster.WriteEnrollment(opts.EnrollmentPath, enrollment); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Dir(opts.ServerTokenFilePath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(opts.ServerTokenFilePath, []byte("stale-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	staged, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts)
 	if err != nil {
 		t.Fatal(err)

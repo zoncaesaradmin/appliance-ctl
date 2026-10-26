@@ -298,9 +298,16 @@ func TestFactoryReset_RefusesWithoutBackupOrOverride(t *testing.T) {
 func TestFactoryReset_WipesDataWithVerifiedBackup(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
+	tokenPath := filepath.Join(filepath.Dir(f.configPath), "zon-server-token")
+	if err := os.WriteFile(tokenPath, []byte("stale-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := runFactoryResetForTest(t, f, fake, true, false, false); err != nil {
 		t.Fatalf("expected factory-reset to succeed with a verified backup, got: %v", err)
+	}
+	if _, err := os.Stat(tokenPath); !os.IsNotExist(err) {
+		t.Errorf("expected the peer join token to be removed, stat err=%v", err)
 	}
 	if _, err := os.Stat(f.dataDir); !os.IsNotExist(err) {
 		t.Errorf("expected the data directory to be removed, stat err=%v", err)

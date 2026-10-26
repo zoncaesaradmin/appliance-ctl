@@ -77,7 +77,14 @@ func removeK3s(ops k3s.Ops, unitName, binaryPath, configPath, registriesPath, un
 		return checks, fmt.Errorf("teardown: remove kubectl symlink: %w", err)
 	}
 
-	for _, path := range []string{unitPath, binaryPath, configPath, registriesPath} {
+	// The peer join secret sits beside the K3s config and is not part of the
+	// K3s data directory. Leaving it behind makes the next fresh stage look
+	// like an unrecorded cluster.
+	tokenPath := ""
+	if dir := filepath.Dir(strings.TrimSpace(configPath)); dir != "." && dir != string(filepath.Separator) {
+		tokenPath = filepath.Join(dir, "zon-server-token")
+	}
+	for _, path := range []string{unitPath, binaryPath, configPath, registriesPath, tokenPath} {
 		if strings.TrimSpace(path) == "" {
 			continue
 		}
