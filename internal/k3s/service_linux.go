@@ -59,10 +59,10 @@ func DaemonReload() error { return runSystemctl("daemon-reload") }
 
 func runSystemctl(args ...string) error {
 	timeout := 30 * time.Second
-	// systemctl start blocks until the unit is active. A joining embedded-etcd
-	// server does not notify ready within 30s, and cancelling that wait kills
-	// systemctl with SIGKILL while K3s is still coming up.
-	if len(args) > 0 && (args[0] == "start" || args[0] == "restart") {
+	// systemctl start and stop block until the unit changes state. A joining
+	// embedded-etcd server does not finish within 30s, and cancelling that
+	// wait kills systemctl with SIGKILL while K3s is still coming up.
+	if len(args) > 0 && (args[0] == "start" || args[0] == "restart" || args[0] == "stop") {
 		timeout = 3 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

@@ -97,6 +97,34 @@ func optsKubeconfigPath(root string) string {
 	return filepath.Join(root, "etc", "k3s.yaml")
 }
 
+func TestStageReclaimsInactiveK3sWhenDataDirIsEmpty(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	stopped := false
+	orch.K3s.DetectService = func(string) (k3s.ServiceSignal, error) {
+		return k3s.ServiceSignal{Detected: true, Active: false}, nil
+	}
+	orch.K3s.Stop = func(string) error {
+		stopped = true
+		return nil
+	}
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatalf("inactive leftover K3s was not reclaimed: %v", err)
+	}
+	if !stopped {
+		t.Fatal("inactive leftover K3s was not stopped")
+	}
+}
+
+func TestStageRefusesActiveK3sWithoutBootstrapReceipt(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	orch.K3s.DetectService = func(string) (k3s.ServiceSignal, error) {
+		return k3s.ServiceSignal{Detected: true, Active: true}, nil
+	}
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err == nil || !strings.Contains(err.Error(), "no matching bootstrap receipt") {
+		t.Fatalf("active K3s without a receipt was accepted: %v", err)
+	}
+}
+
 func TestStageThreeServerBootstrapsWithoutClaimingInstallation(t *testing.T) {
 	orch, source, opts, _ := threeServerFixture(t, "server-a")
 	staged, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts)

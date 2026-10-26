@@ -128,7 +128,25 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 		return nil, checks, err
 	}
 	if staged == nil && signal.Detected {
-		return nil, checks, errors.New("cluster server stage: existing K3s service has no matching bootstrap receipt")
+		if signal.Active {
+			return nil, checks, errors.New("cluster server stage: existing K3s service has no matching bootstrap receipt")
+		}
+		// A unit that never became active, with an empty data directory, is a
+		// start that was killed before the bootstrap receipt could matter.
+		// An active service or a data directory with cluster state stays put.
+		occupied, err := nonEmptyDirectory(base.K3sDataDir)
+		if err != nil {
+			return nil, checks, err
+		}
+		if occupied {
+			return nil, checks, errors.New("cluster server stage: K3s data directory is not empty; preserve it for explicit recovery")
+		}
+		if o.K3s.Stop == nil {
+			return nil, checks, errors.New("cluster server stage: existing K3s service has no matching bootstrap receipt")
+		}
+		if err := o.K3s.Stop(base.K3sUnitName); err != nil {
+			return nil, checks, err
+		}
 	}
 	if staged != nil && signal.Detected {
 		if currentVersion, err := o.K3s.Version(base.K3sBinaryDestPath); err != nil || currentVersion != resolved.Compatibility.K3sVersion {
