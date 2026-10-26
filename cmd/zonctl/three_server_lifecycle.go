@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
@@ -15,6 +16,12 @@ import (
 // replace this gate with quorum-aware backup, restore, repair, and teardown.
 func requireLegacySingleHostLifecycle(opts cliOptions, installed *state.InstalledState, operation string) error {
 	if installed != nil && installed.Cluster != nil && installed.Cluster.DeploymentTopology == state.DeploymentTopologyEmbeddedEtcdV1 {
+		// A finalized one-server inventory has no other etcd member. Resetting
+		// this host is the whole cluster. Three-server receipts stay on the
+		// coordinated path so one node cannot be wiped out from under the others.
+		if operation == "factory-reset" && singleNodeEmbeddedEtcd(installed) {
+			return nil
+		}
 		return coordinatedLifecycleError(operation)
 	}
 
@@ -31,6 +38,18 @@ func requireLegacySingleHostLifecycle(opts cliOptions, installed *state.Installe
 		return coordinatedLifecycleError(operation)
 	}
 	return nil
+}
+
+func singleNodeEmbeddedEtcd(installed *state.InstalledState) bool {
+	if installed == nil || installed.Cluster == nil || installed.Cluster.DeploymentTopology != state.DeploymentTopologyEmbeddedEtcdV1 {
+		return false
+	}
+	nodes := installed.Cluster.Nodes
+	if len(nodes) != 1 {
+		return false
+	}
+	name := strings.TrimSpace(nodes[0].Name)
+	return name != "" && name == strings.TrimSpace(installed.Cluster.ControlPlaneNode)
 }
 
 func coordinatedLifecycleError(operation string) error {

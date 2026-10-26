@@ -7,6 +7,30 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
+func TestFactoryResetAllowsOnlySingleNodeEmbeddedEtcd(t *testing.T) {
+	single := &state.InstalledState{Cluster: &state.Cluster{
+		DeploymentTopology: state.DeploymentTopologyEmbeddedEtcdV1,
+		ControlPlaneNode:   "192-168-1-153",
+		Nodes:              []state.ClusterNode{{ID: "192-168-1-153", Name: "192-168-1-153", Role: state.NodeRoleControlPlane}},
+	}}
+	if err := requireLegacySingleHostLifecycle(cliOptions{}, single, "factory-reset"); err != nil {
+		t.Fatalf("single-node factory-reset rejected: %v", err)
+	}
+	if err := requireLegacySingleHostLifecycle(cliOptions{}, single, "uninstall"); err == nil || !strings.Contains(err.Error(), "cluster-safe coordinated lifecycle") {
+		t.Fatalf("single-node uninstall was allowed: %v", err)
+	}
+	multi := &state.InstalledState{Cluster: &state.Cluster{
+		DeploymentTopology: state.DeploymentTopologyEmbeddedEtcdV1,
+		ControlPlaneNode:   "server-a",
+		Nodes: []state.ClusterNode{
+			{Name: "server-a"}, {Name: "server-b"}, {Name: "server-c"},
+		},
+	}}
+	if err := requireLegacySingleHostLifecycle(cliOptions{}, multi, "factory-reset"); err == nil || !strings.Contains(err.Error(), "cluster-safe coordinated lifecycle") {
+		t.Fatalf("three-server factory-reset was allowed: %v", err)
+	}
+}
+
 func TestRequireNoEmbeddedEtcdNodeLifecycleRejectsExpandableNodeCommands(t *testing.T) {
 	installed := &state.InstalledState{Cluster: &state.Cluster{DeploymentTopology: state.DeploymentTopologyEmbeddedEtcdV1}}
 	for _, operation := range []string{"cluster-node-register", "cluster-node-remove", "cluster-inference-deploy"} {
