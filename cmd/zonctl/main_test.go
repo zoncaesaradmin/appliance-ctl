@@ -367,6 +367,19 @@ func TestRun_InstallRequiresBundleDir(t *testing.T) {
 	}
 }
 
+func TestInstalledBundleVersionMismatchIgnoresRebuiltReleaseID(t *testing.T) {
+	installed := &state.InstalledState{InstalledVersion: "0.1.0", InstalledReleaseID: "local-0.1.0-old", Cluster: &state.Cluster{ID: "cluster-1"}}
+	if err := installedBundleVersionMismatch(installed, "0.1.0"); err != nil {
+		t.Fatalf("same version was rejected: %v", err)
+	}
+	if err := installedBundleVersionMismatch(installed, "0.2.0"); err == nil || !strings.Contains(err.Error(), "0.1.0") {
+		t.Fatalf("different version was accepted: %v", err)
+	}
+	if err := installedBundleVersionMismatch(nil, "0.1.0"); err != nil {
+		t.Fatalf("missing receipt was rejected: %v", err)
+	}
+}
+
 func TestRun_ClusterHACheckRequiresVerifiedInputsWithoutHostMutation(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "not-created")
 	out, code := captureStdout(t, func() int {

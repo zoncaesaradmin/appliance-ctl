@@ -236,10 +236,11 @@ func runClusterHACheck(ctx context.Context, opts cliOptions, result commandResul
 	recordedUIDs := map[string]string{}
 	if installed, err := state.Load(filepath.Join(opts.stateDir, "installed-state.json")); err != nil {
 		return finish(result, "failed", 1, "cluster-ha-check: "+err.Error(), nil)
+	} else if err := installedBundleVersionMismatch(installed, resolved.BundleVersion); err != nil {
+		return finish(result, "failed", 1, err.Error(), nil)
 	} else if installed != nil && installed.Cluster != nil {
-		if installed.InstalledReleaseID != resolved.ReleaseID {
-			return finish(result, "failed", 1, "cluster-ha-check: installed receipt release differs from verified bundle", nil)
-		}
+		// A rebuilt bundle of the same version mints a new release ID. The
+		// substrate gate below still has to match the signed K3s version.
 		for _, node := range installed.Cluster.Nodes {
 			recordedUIDs[node.Name] = node.NodeUID
 		}
@@ -251,6 +252,19 @@ func runClusterHACheck(ctx context.Context, opts cliOptions, result commandResul
 		return finish(result, "failed", 1, "cluster-ha-check: Kubernetes: "+nodes.Message+"; direct APIs: "+apiEndpoints.Message, data)
 	}
 	return finish(result, "succeeded", 0, "cluster-ha-check: Kubernetes and embedded-etcd substrate pass; application HA is not established", data)
+}
+
+// installedBundleVersionMismatch rejects an HA check of a different product
+// version. Release ID is not compared: a rebuilt bundle of the same version
+// carries a new release ID and still describes this installed appliance.
+func installedBundleVersionMismatch(installed *state.InstalledState, bundleVersion string) error {
+	if installed == nil || installed.Cluster == nil {
+		return nil
+	}
+	if strings.TrimSpace(installed.InstalledVersion) != strings.TrimSpace(bundleVersion) {
+		return fmt.Errorf("cluster-ha-check: installed appliance version %q differs from verified bundle %q", installed.InstalledVersion, bundleVersion)
+	}
+	return nil
 }
 
 func precheckInstallInputs(opts cliOptions) error {
