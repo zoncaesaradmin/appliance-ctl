@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -336,5 +337,131 @@ func TestFinalizeThreeServerRefusesIncompleteSubstrateBeforeInstallation(t *test
 	staged, err := clustertopology.LoadBootstrapState(filepath.Join(filepath.Dir(stageOpts.InstalledStatePath), "cluster-bootstrap-state.json"))
 	if err != nil || staged == nil || staged.Phase != clustertopology.PhaseServerReady {
 		t.Fatalf("failed finalization changed bootstrap staging state: staged=%+v err=%v", staged, err)
+	}
+}
+
+func TestStageRefusesInstalledReceiptBeforeFinalization(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatal(err)
+	}
+	saveEmbeddedEtcdInstalledReceipt(t, opts, "2.4.0", "release-1")
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err == nil || !strings.Contains(err.Error(), "qualified migration path") {
+		t.Fatalf("unfinalized install was restaged: %v", err)
+	}
+}
+
+func TestStageAndFinalizeResumeFinalizedSameVersionWithNewReleaseID(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatal(err)
+	}
+	markBootstrapFinalized(t, opts)
+	saveEmbeddedEtcdInstalledReceipt(t, opts, "2.4.0", "release-1")
+	successor := source
+	successor.resolved.ReleaseID = "release-2"
+	resumed, _, err := orch.StageEmbeddedEtcd(context.Background(), successor, opts)
+	if err != nil {
+		t.Fatalf("same-version finalized stage resume failed: %v", err)
+	}
+	if resumed.Phase != clustertopology.PhaseFinalized || resumed.ReleaseID != "release-1" || resumed.BundleVersion != "2.4.0" {
+		t.Fatalf("finalized receipt was rewritten: %+v", resumed)
+	}
+	orch.HelmRun = healthyEmbeddedEtcdRunner(opts.KubeconfigPath)
+	installed, _, err := orch.FinalizeEmbeddedEtcd(context.Background(), successor, opts.Options)
+	if err != nil {
+		t.Fatalf("same-version finalize resume failed: %v", err)
+	}
+	if installed.InstalledReleaseID != "release-1" || installed.InstalledVersion != "2.4.0" || installed.ApplianceInstanceID != resumed.ClusterID {
+		t.Fatalf("finalize replaced the installed receipt: %+v", installed)
+	}
+	reloaded, err := clustertopology.LoadBootstrapState(filepath.Join(filepath.Dir(opts.InstalledStatePath), "cluster-bootstrap-state.json"))
+	if err != nil || reloaded.ReleaseID != "release-1" || reloaded.Phase != clustertopology.PhaseFinalized {
+		t.Fatalf("finalize rewrote the bootstrap receipt: %+v %v", reloaded, err)
+	}
+}
+
+func TestStageRefusesFinalizedApplianceWhenBundleVersionDiffers(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatal(err)
+	}
+	markBootstrapFinalized(t, opts)
+	saveEmbeddedEtcdInstalledReceipt(t, opts, "2.4.0", "release-1")
+	successor := source
+	successor.resolved.ReleaseID = "release-2"
+	successor.resolved.BundleVersion = "2.4.1"
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), successor, opts); err == nil || !strings.Contains(err.Error(), "qualified migration path") {
+		t.Fatalf("different bundle version was restaged: %v", err)
+	}
+	reloaded, err := clustertopology.LoadBootstrapState(filepath.Join(filepath.Dir(opts.InstalledStatePath), "cluster-bootstrap-state.json"))
+	if err != nil || reloaded.ReleaseID != "release-1" || reloaded.BundleVersion != "2.4.0" {
+		t.Fatalf("refused stage rewrote the bootstrap receipt: %+v %v", reloaded, err)
+	}
+}
+
+func markBootstrapFinalized(t *testing.T, opts EmbeddedEtcdStageOptions) {
+	t.Helper()
+	path := filepath.Join(filepath.Dir(opts.InstalledStatePath), "cluster-bootstrap-state.json")
+	staged, err := clustertopology.LoadBootstrapState(path)
+	if err != nil || staged == nil {
+		t.Fatalf("bootstrap receipt: %+v %v", staged, err)
+	}
+	staged.Phase = clustertopology.PhaseFinalized
+	staged.NodeUID = "uid-" + staged.LocalNode
+	staged.UpdatedAt = time.Now().UTC()
+	if err := clustertopology.SaveBootstrapState(path, *staged); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func saveEmbeddedEtcdInstalledReceipt(t *testing.T, opts EmbeddedEtcdStageOptions, bundleVersion, releaseID string) {
+	t.Helper()
+	staged, err := clustertopology.LoadBootstrapState(filepath.Join(filepath.Dir(opts.InstalledStatePath), "cluster-bootstrap-state.json"))
+	if err != nil || staged == nil {
+		t.Fatalf("bootstrap receipt: %+v %v", staged, err)
+	}
+	now := time.Now().UTC()
+	installed := &state.InstalledState{
+		SchemaVersion: 1, ApplianceInstanceID: staged.ClusterID, InstalledVersion: bundleVersion, InstalledReleaseID: releaseID,
+		ApplianceProfile: staged.ApplianceProfile, ApplianceName: staged.ApplianceName, DNSZone: staged.DNSZone,
+		Components:   state.Components{K3sVersion: staged.K3sVersion, ChartVersion: bundleVersion},
+		K3sOwnership: state.K3sOwnership{Owned: true, OwnerApplianceVersion: bundleVersion},
+		LastOperation: state.Operation{
+			Type: "install", Status: "completed", TransactionID: "txn-01J8QK4G8H9YB7Q1W7ZD0P7S5U",
+			StartedAt: now, CompletedAt: &now,
+		},
+		CreatedAt: now, UpdatedAt: now,
+		Cluster: &state.Cluster{
+			ID: staged.ClusterID, Topology: state.TopologyMultiServer, DeploymentTopology: state.DeploymentTopologyEmbeddedEtcdV1,
+			ControlPlaneNode: "server-a", IngressNode: "server-a", ControlEndpoint: "https://10.0.0.11:6443",
+			Nodes: []state.ClusterNode{
+				embeddedEtcdClusterNode("server-a", "uid-server-a"),
+				embeddedEtcdClusterNode("server-b", "uid-server-b"),
+				embeddedEtcdClusterNode("server-c", "uid-server-c"),
+			},
+		},
+	}
+	if err := state.Save(opts.InstalledStatePath, installed); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func healthyEmbeddedEtcdRunner(kubeconfig string) func(context.Context, string, ...string) (string, error) {
+	const nodes = `{"items":[` +
+		`{"metadata":{"name":"server-a","uid":"uid-server-a","labels":{"node-role.kubernetes.io/control-plane":"true","node-role.kubernetes.io/etcd":"true"}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.11"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.4+k3s1"}}},` +
+		`{"metadata":{"name":"server-b","uid":"uid-server-b","labels":{"node-role.kubernetes.io/control-plane":"true","node-role.kubernetes.io/etcd":"true"}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.12"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.4+k3s1"}}},` +
+		`{"metadata":{"name":"server-c","uid":"uid-server-c","labels":{"node-role.kubernetes.io/control-plane":"true","node-role.kubernetes.io/etcd":"true"}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.13"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.4+k3s1"}}}` +
+		`]}`
+	return func(_ context.Context, _ string, args ...string) (string, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "--kubeconfig "+kubeconfig+" get nodes -o json"):
+			return nodes, nil
+		case strings.Contains(joined, "--raw=/readyz"):
+			return "ok", nil
+		default:
+			return "", fmt.Errorf("unexpected kubectl %s", joined)
+		}
 	}
 }

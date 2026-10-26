@@ -72,9 +72,20 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 			return nil, checks, errors.New("cluster server stage: all host paths must be absolute")
 		}
 	}
-	if installed, err := state.Load(base.InstalledStatePath); err != nil {
+	stagePath := filepath.Join(filepath.Dir(base.InstalledStatePath), "cluster-bootstrap-state.json")
+	staged, err := clustertopology.LoadBootstrapState(stagePath)
+	if err != nil {
 		return nil, checks, err
-	} else if installed != nil {
+	}
+	installed, err := state.Load(base.InstalledStatePath)
+	if err != nil {
+		return nil, checks, err
+	}
+	// A finalized receipt is the appliance this coordinator already deployed.
+	// Rebuilt bundles of the same version mint a new release ID, so that ID
+	// alone is not a migration. Every other installed receipt stays on the
+	// qualified migration path and must not be restaged.
+	if installed != nil && !resumeFinalizedEmbeddedEtcdStage(installed, staged, inventory, resolved.Compatibility.K3sVersion, base.NodeName, identity.Name, resolved.EffectiveProfile, identity.Zone, resolved.BundleVersion) {
 		return nil, checks, errors.New("cluster server stage: an installed appliance receipt exists; use the qualified migration path")
 	}
 	bootstrap := base.NodeName == inventory.BootstrapNode
@@ -101,11 +112,6 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 		if enrollment.Version != cluster.EmbeddedEtcdEnrollmentVersion || enrollment.DeploymentTopology != clustertopology.EmbeddedEtcdV1 || enrollment.InventoryFingerprint != fingerprint || enrollment.ExpectedNodeName != base.NodeName || enrollment.ControlPlaneNode != inventory.BootstrapNode || enrollment.ControlEndpoint != inventory.BootstrapAPIEndpoint() || enrollment.ReleaseID != resolved.ReleaseID || enrollment.ReleaseVersion != resolved.BundleVersion || enrollment.ApplianceProfile != resolved.EffectiveProfile || enrollment.ApplianceName != identity.Name || enrollment.DNSZone != identity.Zone {
 			return nil, checks, errors.New("cluster server stage: signed enrollment does not match release, inventory, or target node")
 		}
-	}
-	stagePath := filepath.Join(filepath.Dir(base.InstalledStatePath), "cluster-bootstrap-state.json")
-	staged, err := clustertopology.LoadBootstrapState(stagePath)
-	if err != nil {
-		return nil, checks, err
 	}
 	renewRelease := false
 	if staged != nil {
@@ -207,7 +213,10 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 			return nil, checks, err
 		}
 	}
-	if renewRelease {
+	// A finalized substrate records the release that deployed the product.
+	// A same-version coordinator rerun may carry a new release ID; rewriting
+	// the receipt would claim that release is installed.
+	if renewRelease && staged.Phase != clustertopology.PhaseFinalized {
 		staged.ReleaseID = resolved.ReleaseID
 		staged.BundleVersion = resolved.BundleVersion
 		staged.UpdatedAt = time.Now().UTC()

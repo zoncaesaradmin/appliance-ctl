@@ -61,7 +61,11 @@ func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, 
 	if staged == nil || (staged.Phase != clustertopology.PhaseServerReady && staged.Phase != clustertopology.PhaseFinalized) {
 		return nil, checks, errors.New("cluster finalize: bootstrap server has not completed the staged K3s phase")
 	}
-	if err := staged.Matches(inventory, resolved.ReleaseID, resolved.BundleVersion, resolved.Compatibility.K3sVersion, opts.NodeName, identity.Name, resolved.EffectiveProfile, identity.Zone); err != nil {
+	if staged.Phase == clustertopology.PhaseFinalized {
+		if err := staged.MatchesSubstrate(inventory, resolved.Compatibility.K3sVersion, opts.NodeName, identity.Name, resolved.EffectiveProfile, identity.Zone); err != nil {
+			return nil, checks, err
+		}
+	} else if err := staged.Matches(inventory, resolved.ReleaseID, resolved.BundleVersion, resolved.Compatibility.K3sVersion, opts.NodeName, identity.Name, resolved.EffectiveProfile, identity.Zone); err != nil {
 		return nil, checks, err
 	}
 	if strings.TrimSpace(staged.EnrollmentSignerFingerprint) == "" {
@@ -81,7 +85,10 @@ func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, 
 	}
 	if staged.Phase == clustertopology.PhaseFinalized {
 		installed, err := state.Load(opts.InstalledStatePath)
-		if err != nil || installed == nil || installed.Cluster == nil || installed.ApplianceInstanceID != staged.ClusterID || installed.InstalledReleaseID != resolved.ReleaseID {
+		if err != nil {
+			return nil, checks, err
+		}
+		if !embeddedEtcdInstallMatchesFinalizedStage(installed, staged, resolved.BundleVersion) {
 			return nil, checks, errors.New("cluster finalize: finalized bootstrap receipt does not match the installed appliance")
 		}
 		return installed, checks, nil
@@ -129,6 +136,38 @@ func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, 
 // membership is not one of those roles: deploymentTopology embedded-etcd-v1
 // already means every inventory server runs etcd, and the substrate gate
 // checks the Kubernetes etcd label before this receipt is written.
+// resumeFinalizedEmbeddedEtcdStage is the only installed-receipt case stage
+// may rerun. The bootstrap must already be finalized for this inventory, and
+// the installed receipt must be that same deployment at this bundle version.
+func resumeFinalizedEmbeddedEtcdStage(installed *state.InstalledState, staged *clustertopology.BootstrapState, inventory clustertopology.Inventory, k3sVersion, nodeName, applianceName, applianceProfile, dnsZone, bundleVersion string) bool {
+	if installed == nil || staged == nil {
+		return false
+	}
+	if err := staged.MatchesSubstrate(inventory, k3sVersion, nodeName, applianceName, applianceProfile, dnsZone); err != nil {
+		return false
+	}
+	return embeddedEtcdInstallMatchesFinalizedStage(installed, staged, bundleVersion)
+}
+
+// embeddedEtcdInstallMatchesFinalizedStage proves the installed receipt is the
+// product recorded by a finalized bootstrap. Release ID is compared to the
+// staged receipt, not to the bundle being rerun: a rebuilt bundle of the same
+// version carries a new release ID and must not be treated as a new install.
+func embeddedEtcdInstallMatchesFinalizedStage(installed *state.InstalledState, staged *clustertopology.BootstrapState, bundleVersion string) bool {
+	if installed == nil || staged == nil || staged.Phase != clustertopology.PhaseFinalized || installed.Cluster == nil {
+		return false
+	}
+	if installed.Cluster.DeploymentTopology != state.DeploymentTopologyEmbeddedEtcdV1 {
+		return false
+	}
+	return installed.ApplianceInstanceID == staged.ClusterID &&
+		installed.InstalledReleaseID == staged.ReleaseID &&
+		installed.InstalledVersion == bundleVersion &&
+		installed.ApplianceName == staged.ApplianceName &&
+		installed.ApplianceProfile == staged.ApplianceProfile &&
+		installed.DNSZone == staged.DNSZone
+}
+
 func embeddedEtcdClusterNode(name, uid string) state.ClusterNode {
 	return state.ClusterNode{
 		ID: name, Name: name, NodeUID: uid,

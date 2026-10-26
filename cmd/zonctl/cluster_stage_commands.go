@@ -65,7 +65,11 @@ func runClusterServerStage(ctx context.Context, opts cliOptions, logger *slog.Lo
 		logger.Error("embedded-etcd substrate stage failed", "error", err, "checks", len(checks))
 		return finish(result, "failed", 1, "cluster-server-stage: "+err.Error(), nil)
 	}
-	data, _ := json.Marshal(map[string]any{"phase": staged.Phase, "clusterComplete": false, "localNode": staged.LocalNode})
+	complete := staged.Phase == clustertopology.PhaseFinalized
+	data, _ := json.Marshal(map[string]any{"phase": staged.Phase, "clusterComplete": complete, "localNode": staged.LocalNode})
+	if complete {
+		return finish(result, "succeeded", 0, "cluster-server-stage: embedded-etcd server is already finalized for this product version", data)
+	}
 	return finish(result, "succeeded", 0, "cluster-server-stage: local K3s server staged; appliance installation is incomplete", data)
 }
 
