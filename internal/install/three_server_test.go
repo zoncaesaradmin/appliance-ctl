@@ -214,6 +214,49 @@ func TestStageThreeServerBootstrapsWithoutClaimingInstallation(t *testing.T) {
 	}
 }
 
+func TestStageJoinedPeerKeepsRecordedReleaseOnSameVersionRebuild(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-b")
+	inventory, err := clustertopology.Load(opts.ClusterInventoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, _ := inventory.Fingerprint()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.SignerFingerprint = cluster.Fingerprint(public)
+	opts.EnrollmentPath = filepath.Join(t.TempDir(), "server-b.enrollment")
+	now := time.Now().UTC()
+	caDigest := sha256.Sum256([]byte("test-ca"))
+	enrollment := cluster.Enrollment{
+		ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal", ControlPlaneNode: "server-a", NodeRole: "server",
+		DeploymentTopology: clustertopology.EmbeddedEtcdV1, InventoryFingerprint: fingerprint,
+		ReleaseID: "release-1", ReleaseVersion: "2.4.0", ControlEndpoint: inventory.BootstrapAPIEndpoint(),
+		ClusterCAHash:    "sha256:" + hex.EncodeToString(caDigest[:]),
+		ExpectedNodeName: "server-b", K3sToken: "K10server-token", TokenFingerprint: cluster.TokenFingerprint("K10server-token"),
+		IssuedAt: now, ExpiresAt: now.Add(time.Hour), Nonce: "nonce",
+	}
+	if err := enrollment.SignEmbeddedEtcd(private); err != nil {
+		t.Fatal(err)
+	}
+	if err := cluster.WriteEnrollment(opts.EnrollmentPath, enrollment); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatal(err)
+	}
+	rebuild := source
+	rebuild.resolved.ReleaseID = "release-2"
+	resumed, _, err := orch.StageEmbeddedEtcd(context.Background(), rebuild, opts)
+	if err != nil {
+		t.Fatalf("joined peer rejected the recorded release: %v", err)
+	}
+	if resumed.ReleaseID != "release-1" || resumed.BundleVersion != "2.4.0" || resumed.Phase != clustertopology.PhaseJoined {
+		t.Fatalf("joined receipt was rewritten: %+v", resumed)
+	}
+}
+
 func TestStageThreeServerJoinsOnlyWithSignedInventoryBoundEnrollment(t *testing.T) {
 	orch, source, opts, _ := threeServerFixture(t, "server-b")
 	inventory, err := clustertopology.Load(opts.ClusterInventoryPath)

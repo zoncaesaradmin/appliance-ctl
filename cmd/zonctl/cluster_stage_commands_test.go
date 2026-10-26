@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,6 +74,55 @@ func TestClusterServerEnrollmentUsesStagedInventoryAndProtectedArtifact(t *testi
 	opts.enrollmentOut = filepath.Join(root, "invalid.enrollment")
 	if invalid := runClusterServerEnrollmentCreate(opts, commandResult{}); invalid.Status != "failed" {
 		t.Fatal("unlisted server was enrolled")
+	}
+}
+
+func TestClusterServerEnrollmentAllowsFinalizedBootstrap(t *testing.T) {
+	root := t.TempDir()
+	inventoryPath := filepath.Join(root, "inventory.json")
+	content := `{"topology":"embedded-etcd-v1","bootstrapNode":"server-a","nodes":[{"name":"server-a","address":"10.0.0.11"},{"name":"server-b","address":"10.0.0.12"},{"name":"server-c","address":"10.0.0.13"}]}`
+	if err := os.WriteFile(inventoryPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := clustertopology.Load(inventoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, _ := inventory.Fingerprint()
+	_, signerFingerprint, err := cluster.LoadOrCreateSigner(filepath.Join(root, "cluster-enrollment-ed25519.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	staged := clustertopology.BootstrapState{
+		SchemaVersion: clustertopology.BootstrapStateVersion, Topology: clustertopology.EmbeddedEtcdV1,
+		InventoryFingerprint: fingerprint, ClusterID: "cluster-1", ApplianceName: "zon", ApplianceProfile: "core", DNSZone: "appliance.internal",
+		ReleaseID: "release-1", BundleVersion: "2.4.0", K3sVersion: "v1.30.4+k3s1", LocalNode: "server-a",
+		Phase: clustertopology.PhaseFinalized, NodeUID: "uid-server-a", EnrollmentSignerFingerprint: signerFingerprint, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := clustertopology.SaveBootstrapState(filepath.Join(root, "cluster-bootstrap-state.json"), staged); err != nil {
+		t.Fatal(err)
+	}
+	caPath := filepath.Join(root, "server-ca.crt")
+	if err := os.WriteFile(caPath, []byte("test-ca"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldCAPath, oldTokenRead := clusterServerCAPath, clusterServerTokenRead
+	clusterServerCAPath = caPath
+	clusterServerTokenRead = func() (string, error) { return "K10test-server-token", nil }
+	t.Cleanup(func() { clusterServerCAPath, clusterServerTokenRead = oldCAPath, oldTokenRead })
+	opts := cliOptions{stateDir: root, nodeName: "server-a", clusterInventoryPath: inventoryPath, serverName: "server-b", enrollmentOut: filepath.Join(root, "server-b.enrollment"), enrollmentTTL: "15m"}
+	if result := runClusterServerEnrollmentCreate(opts, commandResult{Command: "cluster-server-enrollment-create"}); result.Status != "succeeded" {
+		t.Fatalf("finalized bootstrap refused enrollment: %+v", result)
+	}
+	staged.Phase = clustertopology.PhasePrepared
+	staged.NodeUID = ""
+	if err := clustertopology.SaveBootstrapState(filepath.Join(root, "cluster-bootstrap-state.json"), staged); err != nil {
+		t.Fatal(err)
+	}
+	opts.enrollmentOut = filepath.Join(root, "prepared.enrollment")
+	if result := runClusterServerEnrollmentCreate(opts, commandResult{}); result.Status != "failed" || !strings.Contains(result.Message, "not staged and ready") {
+		t.Fatalf("prepared bootstrap issued an enrollment: %+v", result)
 	}
 }
 

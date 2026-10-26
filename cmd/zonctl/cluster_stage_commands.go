@@ -189,7 +189,7 @@ func runClusterServerEnrollmentCreate(opts cliOptions, result commandResult) com
 	if err != nil {
 		return finish(result, "failed", 1, command+err.Error(), nil)
 	}
-	if staged == nil || (staged.Phase != clustertopology.PhaseServerReady && staged.Phase != clustertopology.PhaseJoined) {
+	if staged == nil || (staged.Phase != clustertopology.PhaseServerReady && staged.Phase != clustertopology.PhaseJoined && staged.Phase != clustertopology.PhaseFinalized) {
 		return finish(result, "failed", 1, command+"bootstrap server is not staged and ready", nil)
 	}
 	fingerprint, _ := inventory.Fingerprint()

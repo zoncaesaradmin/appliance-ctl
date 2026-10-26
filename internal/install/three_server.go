@@ -109,7 +109,15 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 		if err != nil {
 			return nil, checks, err
 		}
-		if enrollment.Version != cluster.EmbeddedEtcdEnrollmentVersion || enrollment.DeploymentTopology != clustertopology.EmbeddedEtcdV1 || enrollment.InventoryFingerprint != fingerprint || enrollment.ExpectedNodeName != base.NodeName || enrollment.ControlPlaneNode != inventory.BootstrapNode || enrollment.ControlEndpoint != inventory.BootstrapAPIEndpoint() || enrollment.ReleaseID != resolved.ReleaseID || enrollment.ReleaseVersion != resolved.BundleVersion || enrollment.ApplianceProfile != resolved.EffectiveProfile || enrollment.ApplianceName != identity.Name || enrollment.DNSZone != identity.Zone {
+		releaseMatches := enrollment.ReleaseID == resolved.ReleaseID && enrollment.ReleaseVersion == resolved.BundleVersion
+		// A finalized cluster keeps the release ID that deployed it. A later
+		// same-version bundle mints a new ID, and the bootstrap signs
+		// enrollments with the recorded one. An already joined peer accepts
+		// that enrollment. A different bundle version still has to match.
+		if staged != nil && (staged.Phase == clustertopology.PhaseJoined || staged.Phase == clustertopology.PhaseFinalized) && enrollment.ReleaseID == staged.ReleaseID && enrollment.ReleaseVersion == staged.BundleVersion && staged.BundleVersion == resolved.BundleVersion {
+			releaseMatches = true
+		}
+		if enrollment.Version != cluster.EmbeddedEtcdEnrollmentVersion || enrollment.DeploymentTopology != clustertopology.EmbeddedEtcdV1 || enrollment.InventoryFingerprint != fingerprint || enrollment.ExpectedNodeName != base.NodeName || enrollment.ControlPlaneNode != inventory.BootstrapNode || enrollment.ControlEndpoint != inventory.BootstrapAPIEndpoint() || !releaseMatches || enrollment.ApplianceProfile != resolved.EffectiveProfile || enrollment.ApplianceName != identity.Name || enrollment.DNSZone != identity.Zone {
 			return nil, checks, errors.New("cluster server stage: signed enrollment does not match release, inventory, or target node")
 		}
 	}
@@ -255,10 +263,11 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 			return nil, checks, err
 		}
 	}
-	// A finalized substrate records the release that deployed the product.
+	// A joined or finalized member records the release that deployed it.
 	// A same-version coordinator rerun may carry a new release ID; rewriting
-	// the receipt would claim that release is installed.
-	if renewRelease && staged.Phase != clustertopology.PhaseFinalized {
+	// the receipt would claim that release is installed. A server-ready
+	// bootstrap still adopts the new ID so the first finalization can match it.
+	if renewRelease && staged.Phase != clustertopology.PhaseFinalized && staged.Phase != clustertopology.PhaseJoined {
 		staged.ReleaseID = resolved.ReleaseID
 		staged.BundleVersion = resolved.BundleVersion
 		staged.UpdatedAt = time.Now().UTC()
