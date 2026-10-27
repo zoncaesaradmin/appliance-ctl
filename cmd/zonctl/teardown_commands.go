@@ -149,5 +149,6 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	if opts.wipeWorkspaces {
 		message = "factory-reset complete; platform control data, inference models, and builder workspaces removed"
 	}
+	message += embeddedEtcdFactoryResetScope(opts, installed)
 	return finish(result, "succeeded", 0, message, data)
 }

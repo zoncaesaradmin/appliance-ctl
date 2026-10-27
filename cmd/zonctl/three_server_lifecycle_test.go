@@ -26,8 +26,14 @@ func TestFactoryResetAllowsOnlySingleNodeEmbeddedEtcd(t *testing.T) {
 			{Name: "server-a"}, {Name: "server-b"}, {Name: "server-c"},
 		},
 	}}
-	if err := requireLegacySingleHostLifecycle(cliOptions{}, multi, "factory-reset"); err == nil || !strings.Contains(err.Error(), "cluster-safe coordinated lifecycle") {
-		t.Fatalf("three-server factory-reset was allowed: %v", err)
+	if err := requireLegacySingleHostLifecycle(cliOptions{}, multi, "factory-reset"); err != nil {
+		t.Fatalf("three-server factory-reset rejected: %v", err)
+	}
+	if note := embeddedEtcdFactoryResetScope(cliOptions{}, multi); note != " This host only. Repeat factory-reset on server-b, server-c." {
+		t.Fatalf("three-server reset scope = %q", note)
+	}
+	if note := embeddedEtcdFactoryResetScope(cliOptions{}, single); note != "" {
+		t.Fatalf("single-node reset scope = %q", note)
 	}
 }
 

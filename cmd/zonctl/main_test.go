@@ -595,7 +595,10 @@ func TestRequireLegacySingleHostLifecycleOnlyRejectsCoordinatedThreeServerReceip
 		Topology:           state.TopologyMultiServer,
 		DeploymentTopology: state.DeploymentTopologyEmbeddedEtcdV1,
 	}}
-	for _, command := range []string{"backup", "restore", "repair", "upgrade", "uninstall", "factory-reset"} {
+	if err := requireLegacySingleHostLifecycle(opts, coordinated, "factory-reset"); err != nil {
+		t.Fatalf("embedded-etcd factory-reset rejected: %v", err)
+	}
+	for _, command := range []string{"backup", "restore", "repair", "upgrade", "uninstall"} {
 		if err := requireLegacySingleHostLifecycle(opts, coordinated, command); err == nil || !strings.Contains(err.Error(), "cluster-safe coordinated lifecycle") {
 			t.Errorf("%s accepted coordinated receipt or gave unclear error: %v", command, err)
 		}
@@ -616,7 +619,13 @@ func TestRequireLegacySingleHostLifecycleRejectsStagedPeerWithoutInstalledReceip
 		t.Fatal(err)
 	}
 	if err := requireLegacySingleHostLifecycle(opts, nil, "uninstall"); err == nil || !strings.Contains(err.Error(), "cluster-safe coordinated lifecycle") {
-		t.Fatalf("staged peer was allowed to run local teardown: %v", err)
+		t.Fatalf("staged peer was allowed to uninstall: %v", err)
+	}
+	if err := requireLegacySingleHostLifecycle(opts, nil, "factory-reset"); err != nil {
+		t.Fatalf("staged peer factory-reset rejected: %v", err)
+	}
+	if note := embeddedEtcdFactoryResetScope(opts, nil); !strings.Contains(note, "every other embedded-etcd server") {
+		t.Fatalf("staged peer reset scope = %q", note)
 	}
 }
 
