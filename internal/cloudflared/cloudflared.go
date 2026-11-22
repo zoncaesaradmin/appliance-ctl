@@ -52,7 +52,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/bin/sh -c 'set -eu; chain=ZON-CLOUDFLARED-ORIGIN; iptables=/usr/sbin/iptables; kubectl=/usr/local/bin/kubectl; "$iptables" -t nat -N "$chain" 2>/dev/null || true; while :; do pod_ip=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml "$kubectl" -n kube-system get pods -l svccontroller.k3s.cattle.io/svcname=traefik --field-selector=status.phase=Running -o jsonpath="{.items[0].status.podIP}" 2>/dev/null || true); case "$pod_ip" in *.*.*.*) ;; *) pod_ip="" ;; esac; if [ -n "$pod_ip" ] && { [ "$pod_ip" != "${last_pod_ip:-}" ] || ! "$iptables" -t nat -C OUTPUT -j "$chain" 2>/dev/null; }; then "$iptables" -t nat -F "$chain"; while "$iptables" -t nat -D OUTPUT -j "$chain" 2>/dev/null; do :; done; "$iptables" -t nat -A "$chain" -p tcp -d 127.0.0.1 --dport 80 -m owner --uid-owner cloudflared -j DNAT --to-destination "$pod_ip:80"; "$iptables" -t nat -I OUTPUT 1 -j "$chain"; last_pod_ip="$pod_ip"; fi; sleep 5; done'
+ExecStart=/bin/sh -c 'set -eu; chain=ZON-CLOUDFLARED-ORIGIN; iptables=/usr/sbin/iptables; kubectl=/usr/local/bin/kubectl; "$iptables" -t nat -N "$chain" 2>/dev/null || true; while :; do pod_ip=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml "$kubectl" -n kube-system get pods -l svccontroller.k3s.cattle.io/svcname=traefik --field-selector=status.phase=Running -o jsonpath="{.items[0].status.podIP}" 2>/dev/null || true); case "$pod_ip" in *.*.*.*) ;; *) pod_ip="" ;; esac; if [ -n "$pod_ip" ] && { [ "$pod_ip" != "${last_pod_ip:-}" ] || ! "$iptables" -t nat -C OUTPUT -j "$chain" 2>/dev/null; }; then "$iptables" -t nat -F "$chain"; while "$iptables" -t nat -D OUTPUT -j "$chain" 2>/dev/null; do :; done; "$iptables" -t nat -A "$chain" -p tcp -d 127.0.0.1 --dport 80 -m owner --uid-owner cloudflared -j DNAT --to-destination "$pod_ip:80"; "$iptables" -t nat -A "$chain" -p tcp -m owner --uid-owner cloudflared -j MASQUERADE; "$iptables" -t nat -I OUTPUT 1 -j "$chain"; last_pod_ip="$pod_ip"; fi; sleep 5; done'
 ExecStop=/bin/sh -c 'set +e; chain=ZON-CLOUDFLARED-ORIGIN; iptables=/usr/sbin/iptables; while "$iptables" -t nat -D OUTPUT -j "$chain" 2>/dev/null; do :; done; "$iptables" -t nat -F "$chain" 2>/dev/null; "$iptables" -t nat -X "$chain" 2>/dev/null; exit 0'
 
 [Install]
@@ -79,8 +79,9 @@ func RenderUnit(binaryPath, tokenPath string) string {
 // Cloudflare Tunnel. K3s ServiceLB owns the node's LAN address, but its
 // host-port rules intercept 127.0.0.1:80 before a normal socket listener can
 // receive it. This narrowly redirects only cloudflared's loopback request to
-// the current Traefik ServiceLB pod, refreshing the pod IP across restarts;
-// the public tunnel configuration remains unchanged.
+// the current Traefik ServiceLB pod, refreshing the pod IP across restarts and
+// masquerading the loopback source for the pod network; the public tunnel
+// configuration remains unchanged.
 func RenderOriginUnit() string {
 	return originUnitTemplate
 }
