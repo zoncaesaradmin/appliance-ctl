@@ -786,6 +786,93 @@ func InjectImagePullSecrets(valuesPath, secretName string) error {
 	return nil
 }
 
+// InjectTLSSecretName rewrites the prepared control-plane values so every
+// Traefik ingress uses the same installer-provided TLS Secret. Empty names
+// retain the chart default (appliance-tls).
+func InjectTLSSecretName(valuesPath, secretName string) error {
+	secretName = strings.TrimSpace(secretName)
+	if secretName == "" {
+		return nil
+	}
+	if len(secretName) > 253 || !regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`).MatchString(secretName) {
+		return fmt.Errorf("product config: invalid TLS Secret name %q", secretName)
+	}
+	data, err := os.ReadFile(valuesPath)
+	if err != nil {
+		return fmt.Errorf("product config: read values for TLS Secret: %w", err)
+	}
+	var values map[string]any
+	if err := yaml.Unmarshal(data, &values); err != nil {
+		return fmt.Errorf("product config: parse values for TLS Secret: %w", err)
+	}
+	if values == nil {
+		values = map[string]any{}
+	}
+	ingress, _ := values["ingress"].(map[string]any)
+	if ingress == nil {
+		ingress = map[string]any{}
+	}
+	ingress["tlsSecretName"] = secretName
+	values["ingress"] = ingress
+	channel, _ := values["channelIntegration"].(map[string]any)
+	if channel == nil {
+		channel = map[string]any{}
+	}
+	channelIngress, _ := channel["ingress"].(map[string]any)
+	if channelIngress == nil {
+		channelIngress = map[string]any{}
+	}
+	channelIngress["tlsSecretName"] = secretName
+	channel["ingress"] = channelIngress
+	values["channelIntegration"] = channel
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return fmt.Errorf("product config: render TLS Secret values: %w", err)
+	}
+	if err := os.WriteFile(valuesPath, rendered, 0o600); err != nil {
+		return fmt.Errorf("product config: write TLS Secret values: %w", err)
+	}
+	return nil
+}
+
+// InjectRegistryTLSSecretName rewrites the artifact-server values overlay. The
+// registry chart has its own values document and does not accept the
+// control-plane channelIntegration subtree.
+func InjectRegistryTLSSecretName(valuesPath, secretName string) error {
+	secretName = strings.TrimSpace(secretName)
+	if secretName == "" {
+		return nil
+	}
+	if len(secretName) > 253 || !regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`).MatchString(secretName) {
+		return fmt.Errorf("product config: invalid TLS Secret name %q", secretName)
+	}
+	data, err := os.ReadFile(valuesPath)
+	if err != nil {
+		return fmt.Errorf("product config: read registry values for TLS Secret: %w", err)
+	}
+	var values map[string]any
+	if err := yaml.Unmarshal(data, &values); err != nil {
+		return fmt.Errorf("product config: parse registry values for TLS Secret: %w", err)
+	}
+	if values == nil {
+		values = map[string]any{}
+	}
+	ingress, _ := values["ingress"].(map[string]any)
+	if ingress == nil {
+		ingress = map[string]any{}
+	}
+	ingress["tlsSecretName"] = secretName
+	values["ingress"] = ingress
+	rendered, err := yaml.Marshal(values)
+	if err != nil {
+		return fmt.Errorf("product config: render registry TLS Secret values: %w", err)
+	}
+	if err := os.WriteFile(valuesPath, rendered, 0o600); err != nil {
+		return fmt.Errorf("product config: write registry TLS Secret values: %w", err)
+	}
+	return nil
+}
+
 // InjectBootstrapConfigurationSecret enables the one-shot control-plane
 // payload mount used only by a restore-config install.
 func InjectBootstrapConfigurationSecret(valuesPath, secretName string) error {

@@ -70,6 +70,9 @@ type cliOptions struct {
 	publicOrigin        string
 	tlsTermination      string
 	tlsSANs             []string
+	tlsCertificateFile  string
+	tlsKeyFile          string
+	tlsSecretName       string
 	preserveFailedState bool
 	backupID            string
 	confirm             string
@@ -206,6 +209,9 @@ func run(args []string) int {
 	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")
 	publicOrigin := fs.String("public-origin", "", "external HTTPS origin for application callbacks (required with channel-integrations; independent of appliance-name/dns-zone)")
 	tlsTermination := fs.String("tls-termination", "", "public TLS termination for channel integrations: traefik or cloudflare (default traefik)")
+	tlsCertificateFile := fs.String("tls-cert-file", "", "protected public TLS certificate PEM for Traefik ingress (cloud/direct-TLS installs)")
+	tlsKeyFile := fs.String("tls-key-file", "", "protected public TLS private key PEM for Traefik ingress (cloud/direct-TLS installs)")
+	tlsSecretName := fs.String("tls-secret-name", "", "Kubernetes TLS Secret name for Traefik ingress (default appliance-tls)")
 	var tlsSANs stringListFlag
 	fs.Var(&tlsSANs, "tls-san", "additional TLS subjectAltName to include on the appliance certificate; repeatable (for example a raw IP)")
 	preserveFailedState := fs.Bool("preserve-failed-state", false, "debug mode: do not roll back a failed install or upgrade; preserve the partial target state for investigation")
@@ -269,6 +275,9 @@ func run(args []string) int {
 		publicOrigin:                  *publicOrigin,
 		tlsTermination:                *tlsTermination,
 		tlsSANs:                       append([]string(nil), tlsSANs...),
+		tlsCertificateFile:            *tlsCertificateFile,
+		tlsKeyFile:                    *tlsKeyFile,
+		tlsSecretName:                 *tlsSecretName,
 		preserveFailedState:           *preserveFailedState,
 		backupID:                      *backupID,
 		confirm:                       *confirm,

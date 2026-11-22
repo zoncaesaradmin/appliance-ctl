@@ -19,11 +19,16 @@ import (
 )
 
 const (
-	serviceUser  = "cloudflared"
-	unitTemplate = `[Unit]
+	serviceUser           = "cloudflared"
+	localOriginUnitName   = "zon-traefik-local-origin.service"
+	localOriginUnitPath   = "/etc/systemd/system/zon-traefik-local-origin.service"
+	localOriginKubectl    = "/usr/local/bin/kubectl"
+	localOriginKubeconfig = "/etc/rancher/k3s/k3s.yaml"
+	unitTemplate          = `[Unit]
 Description=Zon appliance Cloudflare Tunnel connector (release-owned; do not edit)
-After=network-online.target
+After=network-online.target zon-traefik-local-origin.service
 Wants=network-online.target
+Requires=zon-traefik-local-origin.service
 
 [Service]
 Type=simple
@@ -37,6 +42,27 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=%s
+
+[Install]
+WantedBy=multi-user.target
+`
+	localOriginUnitTemplate = `[Unit]
+Description=Zon appliance localhost Traefik origin (release-owned; do not edit)
+Requires=k3s.service
+After=k3s.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s --kubeconfig %s -n kube-system port-forward --address=127.0.0.1 service/traefik 80:80
+Restart=always
+RestartSec=2s
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
@@ -56,6 +82,14 @@ type InstallSpec struct {
 
 func RenderUnit(binaryPath, tokenPath string) string {
 	return fmt.Sprintf(unitTemplate, binaryPath, tokenPath, tokenPath)
+}
+
+// RenderLocalOriginUnit returns the host-native forwarder used by the local
+// Cloudflare Tunnel. Kubernetes rejects loopback addresses in Service
+// externalIPs, so kubectl port-forward provides the stable 127.0.0.1:80
+// origin without depending on the node's changing LAN address.
+func RenderLocalOriginUnit() string {
+	return fmt.Sprintf(localOriginUnitTemplate, localOriginKubectl, localOriginKubeconfig)
 }
 
 // InstallOrUpdate installs the verified connector and protected token, then
@@ -84,6 +118,10 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 	if err != nil {
 		return nil, err
 	}
+	originUnitPrev, err := backupFile(localOriginUnitPath)
+	if err != nil {
+		return nil, err
+	}
 
 	rollback := func() error {
 		var errs []error
@@ -96,7 +134,20 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 		if err := restoreFile(spec.TokenDestPath, tokenPrev); err != nil {
 			errs = append(errs, err)
 		}
+		if err := restoreFile(localOriginUnitPath, originUnitPrev); err != nil {
+			errs = append(errs, err)
+		}
 		if err := runSystemctl("daemon-reload"); err != nil {
+			errs = append(errs, err)
+		}
+		if originUnitPrev.exists {
+			if err := runSystemctl("enable", localOriginUnitName); err != nil {
+				errs = append(errs, err)
+			}
+			if err := runSystemctl("restart", localOriginUnitName); err != nil {
+				errs = append(errs, err)
+			}
+		} else if err := disableAndStop(localOriginUnitName); err != nil {
 			errs = append(errs, err)
 		}
 		if unitPrev.exists {
@@ -114,6 +165,10 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 
 	if err := hostagent.InstallBinary(spec.SourceBinaryPath, spec.BinaryDestPath); err != nil {
 		return nil, err
+	}
+	if err := lifecycle.WriteFileAtomic(localOriginUnitPath, []byte(RenderLocalOriginUnit()), 0o644); err != nil {
+		_ = rollback()
+		return nil, fmt.Errorf("cloudflared: write local origin unit: %w", err)
 	}
 	if err := lifecycle.WriteFileAtomic(spec.UnitPath, []byte(RenderUnit(spec.BinaryDestPath, spec.TokenDestPath)), 0o644); err != nil {
 		_ = rollback()
@@ -140,6 +195,18 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 		_ = rollback()
 		return nil, err
 	}
+	if err := runSystemctl("enable", localOriginUnitName); err != nil {
+		_ = rollback()
+		return nil, err
+	}
+	if err := runSystemctl("restart", localOriginUnitName); err != nil {
+		_ = rollback()
+		return nil, err
+	}
+	if err := waitForActive(localOriginUnitName); err != nil {
+		_ = rollback()
+		return nil, err
+	}
 	if err := runSystemctl("enable", spec.UnitName); err != nil {
 		_ = rollback()
 		return nil, err
@@ -163,7 +230,10 @@ func Uninstall(spec InstallSpec) error {
 	if err := disableAndStop(spec.UnitName); err != nil {
 		errs = append(errs, err)
 	}
-	for _, path := range []string{spec.UnitPath, spec.BinaryDestPath, spec.TokenDestPath} {
+	if err := disableAndStop(localOriginUnitName); err != nil {
+		errs = append(errs, err)
+	}
+	for _, path := range []string{spec.UnitPath, spec.BinaryDestPath, spec.TokenDestPath, localOriginUnitPath} {
 		if path == "" {
 			continue
 		}

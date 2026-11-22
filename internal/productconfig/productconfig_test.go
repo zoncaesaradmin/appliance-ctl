@@ -219,6 +219,50 @@ func TestPrepareValuesFileForRuntimeWithPublicOrigin_CloudflareUsesHTTPChannelRo
 	}
 }
 
+func TestInjectTLSSecretNames(t *testing.T) {
+	dir := t.TempDir()
+	controlPath := filepath.Join(dir, "control.yaml")
+	if err := os.WriteFile(controlPath, []byte("ingress:\n  enabled: true\nchannelIntegration:\n  ingress:\n    enabled: true\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := productconfig.InjectTLSSecretName(controlPath, "capp-tls"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(controlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "tlsSecretName: capp-tls") || strings.Count(text, "tlsSecretName: capp-tls") != 2 {
+		t.Fatalf("control-plane values must configure both ingress routes:\n%s", text)
+	}
+
+	registryPath := filepath.Join(dir, "registry.yaml")
+	if err := os.WriteFile(registryPath, []byte("ingress:\n  enabled: true\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := productconfig.InjectRegistryTLSSecretName(registryPath, "capp-tls"); err != nil {
+		t.Fatal(err)
+	}
+	registryData, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(registryData), "tlsSecretName: capp-tls") {
+		t.Fatalf("registry values must configure ingress TLS Secret:\n%s", registryData)
+	}
+}
+
+func TestInjectTLSSecretNameRejectsInvalidName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := productconfig.InjectTLSSecretName(path, "CAPP_TLS"); err == nil {
+		t.Fatal("expected invalid TLS Secret name to fail")
+	}
+}
+
 func TestPrepareDNSValuesFile_DigestPinAndLocalZone(t *testing.T) {
 	path, cleanup, err := productconfig.PrepareDNSValuesFile(t.TempDir(), corednsImage, "appliance.internal", "192.0.2.10", "1.1.1.1")
 	if err != nil {

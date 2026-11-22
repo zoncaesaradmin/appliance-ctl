@@ -58,6 +58,9 @@ type Options struct {
 	ApplianceProfile              string
 	PublicOrigin                  string
 	TLSTermination                string
+	TLSCertificatePath            string
+	TLSKeyPath                    string
+	TLSSecretName                 string
 	ChannelIntegrationRuntimePath string
 	// WorkspaceRootDir is the host directory backing the workspace
 	// storage hostPath PersistentVolume (builder profile only). See
@@ -240,6 +243,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if tlsTermination == "" {
 		tlsTermination = "traefik"
 	}
+	if (strings.TrimSpace(opts.TLSCertificatePath) == "") != (strings.TrimSpace(opts.TLSKeyPath) == "") {
+		return nil, checks, fmt.Errorf("upgrade: public TLS certificate and key must be supplied together")
+	}
+	if tlsTermination == "cloudflare" && (strings.TrimSpace(opts.TLSCertificatePath) != "" || strings.TrimSpace(opts.TLSKeyPath) != "") {
+		return nil, checks, fmt.Errorf("upgrade: public TLS certificate/key are for direct Traefik TLS; omit them with cloudflare termination")
+	}
 	if resolved.ChannelIntegrationsEnabled {
 		if strings.TrimSpace(opts.PublicOrigin) == "" {
 			return nil, checks, fmt.Errorf("upgrade: channel-integrations capability requires --public-origin")
@@ -301,6 +310,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
 	defer cleanupPreparedValues()
+	if err := productconfig.InjectTLSSecretName(preparedValuesPath, opts.TLSSecretName); err != nil {
+		return nil, checks, fmt.Errorf("upgrade: configure TLS Secret name: %w", err)
+	}
 	if err := productconfig.InjectPlacementNodeName(preparedValuesPath, opts.NodeName); err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
@@ -312,6 +324,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
 		defer cleanupRegistryValues()
+		if err := productconfig.InjectRegistryTLSSecretName(registryValuesPath, opts.TLSSecretName); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: configure registry TLS Secret: %w", err)
+		}
 		if err := productconfig.InjectPlacementNodeName(registryValuesPath, opts.NodeName); err != nil {
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
@@ -717,6 +732,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		FQDN:              identity.FQDN,
 		NodeIPv4:          nodeIPv4,
 		ExtraSANs:         tlsSANs,
+		TLSSecretName:     opts.TLSSecretName,
+		CertificatePath:   opts.TLSCertificatePath,
+		KeyPath:           opts.TLSKeyPath,
 	})
 	checks = append(checks, tlsPrepared.Checks...)
 	if tlsErr != nil {
@@ -937,7 +955,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
-		checks = append(checks, evidence.Check{ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass, Message: "local Cloudflare Tunnel connector installed and running; tunnel token remains redacted", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+		checks = append(checks, evidence.Check{ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass, Message: "local Cloudflare Tunnel connector and stable 127.0.0.1:80 Traefik origin forwarder installed and running; tunnel token remains redacted", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 	}
 	if targetArtifact {
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,

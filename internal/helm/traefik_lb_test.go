@@ -38,9 +38,6 @@ func TestEnsureTraefikManagementExternalIPs_AddsMissingIP(t *testing.T) {
 	if !strings.Contains(patched, hostagent.WifiAPManagementAddress) {
 		t.Fatalf("patch did not include management IP: %q", patched)
 	}
-	if !strings.Contains(patched, "127.0.0.1") {
-		t.Fatalf("patch did not include loopback IP: %q", patched)
-	}
 	if !strings.Contains(patched, `"externalIPs"`) {
 		t.Fatalf("patch missing externalIPs field: %q", patched)
 	}
@@ -71,9 +68,6 @@ func TestEnsureTraefikManagementExternalIPs_AddsPrimeLANIPs(t *testing.T) {
 	if !strings.Contains(patched, hostagent.WifiAPManagementAddress) {
 		t.Fatalf("patch dropped management IP: %q", patched)
 	}
-	if !strings.Contains(patched, "127.0.0.1") {
-		t.Fatalf("patch missing loopback IP: %q", patched)
-	}
 }
 
 func TestEnsureTraefikManagementExternalIPs_IdempotentWhenPresent(t *testing.T) {
@@ -84,7 +78,7 @@ func TestEnsureTraefikManagementExternalIPs_IdempotentWhenPresent(t *testing.T) 
 		}
 		joined := strings.Join(args, " ")
 		if strings.Contains(joined, "get svc traefik") {
-			return `{"spec":{"externalIPs":["127.0.0.1","` + hostagent.WifiAPManagementAddress + `"]}}`, nil
+			return `{"spec":{"externalIPs":["` + hostagent.WifiAPManagementAddress + `"]}}`, nil
 		}
 		if strings.Contains(joined, "patch svc traefik") {
 			patchCount++

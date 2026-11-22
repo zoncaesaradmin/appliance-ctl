@@ -2,6 +2,8 @@ package helm
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +41,12 @@ type ApplianceTLSOptions struct {
 	ExtraSANs         []string
 	TLSSecretName     string
 	CASecretName      string
+	// CertificatePath and KeyPath optionally provide operator-owned public TLS
+	// material for the Traefik ingress. When omitted, zonctl issues a leaf from
+	// the appliance CA as before. The files are read only on the target and are
+	// never persisted in the bundle or installed state.
+	CertificatePath string
+	KeyPath         string
 }
 
 // EnsureApplianceTLSSecrets ensures an appliance CA exists in the control
@@ -67,11 +75,21 @@ func EnsureApplianceTLSSecrets(ctx context.Context, run cli.Runner, kubeconfig s
 		caSecret = DefaultApplianceCASecret
 	}
 
-	sans := appliancetls.BuildSANs(opts.FQDN, opts.NodeIPv4, opts.ExtraSANs)
-	if len(sans.DNSNames) == 0 && len(sans.IPAddresses) == 0 {
-		check.Status, check.Message = evidence.StatusFail, "appliance TLS requires FQDN or IP SANs"
+	certificatePath := strings.TrimSpace(opts.CertificatePath)
+	keyPath := strings.TrimSpace(opts.KeyPath)
+	if (certificatePath == "") != (keyPath == "") {
+		check.Status, check.Message = evidence.StatusFail, "public TLS certificate and key must be supplied together"
 		prepared.Checks = append(prepared.Checks, check)
-		return prepared, fmt.Errorf("helm: appliance TLS SAN list is empty")
+		return prepared, fmt.Errorf("helm: public TLS certificate and key must be supplied together")
+	}
+	var sans appliancetls.SANs
+	if certificatePath == "" {
+		sans = appliancetls.BuildSANs(opts.FQDN, opts.NodeIPv4, opts.ExtraSANs)
+		if len(sans.DNSNames) == 0 && len(sans.IPAddresses) == 0 {
+			check.Status, check.Message = evidence.StatusFail, "appliance TLS requires FQDN or IP SANs"
+			prepared.Checks = append(prepared.Checks, check)
+			return prepared, fmt.Errorf("helm: appliance TLS SAN list is empty")
+		}
 	}
 
 	if err := EnsureNamespace(ctx, run, kubeconfig, controlNS, nil); err != nil {
@@ -118,7 +136,12 @@ func EnsureApplianceTLSSecrets(ctx context.Context, run cli.Runner, kubeconfig s
 		})
 	}
 
-	leafCertPEM, leafKeyPEM, err := appliancetls.IssueLeaf(caCertPEM, caKeyPEM, sans)
+	var leafCertPEM, leafKeyPEM []byte
+	if certificatePath != "" {
+		leafCertPEM, leafKeyPEM, err = readPublicTLSMaterial(certificatePath, keyPath)
+	} else {
+		leafCertPEM, leafKeyPEM, err = appliancetls.IssueLeaf(caCertPEM, caKeyPEM, sans)
+	}
 	if err != nil {
 		check.Status, check.Message = evidence.StatusFail, err.Error()
 		prepared.Checks = append(prepared.Checks, check)
@@ -144,12 +167,47 @@ func EnsureApplianceTLSSecrets(ctx context.Context, run cli.Runner, kubeconfig s
 
 	check.Status = evidence.StatusPass
 	if updated == 0 {
-		check.Message = fmt.Sprintf("%s already covers required SANs in %s", tlsSecret, strings.Join(namespaces, ","))
+		if certificatePath != "" {
+			check.Message = fmt.Sprintf("%s already contains the supplied public certificate in %s", tlsSecret, strings.Join(namespaces, ","))
+		} else {
+			check.Message = fmt.Sprintf("%s already covers required SANs in %s", tlsSecret, strings.Join(namespaces, ","))
+		}
 	} else {
-		check.Message = fmt.Sprintf("ensured %s with appliance FQDN/IP SANs in %s", tlsSecret, strings.Join(namespaces, ","))
+		if certificatePath != "" {
+			check.Message = fmt.Sprintf("ensured %s from supplied public certificate in %s", tlsSecret, strings.Join(namespaces, ","))
+		} else {
+			check.Message = fmt.Sprintf("ensured %s with appliance FQDN/IP SANs in %s", tlsSecret, strings.Join(namespaces, ","))
+		}
 	}
 	prepared.Checks = append(prepared.Checks, check)
 	return prepared, nil
+}
+
+func readPublicTLSMaterial(certPath, keyPath string) ([]byte, []byte, error) {
+	certPEM, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("helm: read public TLS certificate: %w", err)
+	}
+	keyPEM, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("helm: read public TLS key: %w", err)
+	}
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("helm: parse public TLS certificate/key: %w", err)
+	}
+	if len(pair.Certificate) == 0 {
+		return nil, nil, fmt.Errorf("helm: public TLS certificate chain is empty")
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return nil, nil, fmt.Errorf("helm: parse public TLS leaf certificate: %w", err)
+	}
+	now := time.Now()
+	if now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
+		return nil, nil, fmt.Errorf("helm: public TLS certificate is not currently valid")
+	}
+	return certPEM, keyPEM, nil
 }
 
 func ensureApplianceCA(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName string) (certPEM, keyPEM []byte, created bool, err error) {

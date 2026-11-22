@@ -125,6 +125,12 @@ type Options struct {
 	// TLSTermination selects the public edge for channel integrations:
 	// traefik (default) or cloudflare.
 	TLSTermination string
+	// TLSCertificatePath and TLSKeyPath are optional operator-provided public
+	// Traefik certificate/key files. TLSSecretName selects the Kubernetes Secret
+	// referenced by the ingress routes; empty uses appliance-tls.
+	TLSCertificatePath string
+	TLSKeyPath         string
+	TLSSecretName      string
 	// ChannelIntegrationRuntimePath is an operator-provided protected JSON
 	// descriptor mounted into the optional channel integration pod.
 	ChannelIntegrationRuntimePath string
@@ -483,6 +489,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if tlsTermination == "" {
 		tlsTermination = "traefik"
 	}
+	if (strings.TrimSpace(opts.TLSCertificatePath) == "") != (strings.TrimSpace(opts.TLSKeyPath) == "") {
+		return nil, checks, fmt.Errorf("install: public TLS certificate and key must be supplied together")
+	}
+	if tlsTermination == "cloudflare" && (strings.TrimSpace(opts.TLSCertificatePath) != "" || strings.TrimSpace(opts.TLSKeyPath) != "") {
+		return nil, checks, fmt.Errorf("install: public TLS certificate/key are for direct Traefik TLS; omit them with cloudflare termination")
+	}
 	if resolved.ChannelIntegrationsEnabled {
 		if strings.TrimSpace(opts.PublicOrigin) == "" {
 			return nil, checks, fmt.Errorf("install: channel-integrations capability requires --public-origin")
@@ -515,6 +527,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
 	defer cleanupPreparedValues()
+	if err := productconfig.InjectTLSSecretName(preparedValuesPath, opts.TLSSecretName); err != nil {
+		return nil, checks, fmt.Errorf("install: configure TLS Secret name: %w", err)
+	}
 	if err := productconfig.InjectPlacementNodeName(preparedValuesPath, opts.NodeName); err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -526,6 +541,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
 		defer cleanupRegistryValues()
+		if err := productconfig.InjectRegistryTLSSecretName(registryValuesPath, opts.TLSSecretName); err != nil {
+			return nil, checks, fmt.Errorf("install: configure registry TLS Secret: %w", err)
+		}
 		if err := productconfig.InjectPlacementNodeName(registryValuesPath, opts.NodeName); err != nil {
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
@@ -1000,11 +1018,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	// Publish loopback, https://10.42.0.1/, and every configured server LAN IPv4
-	// as Traefik externalIPs so host-native connectors can use the stable
-	// 127.0.0.1:80 origin while kube-proxy forwards management traffic to the
+	// Publish https://10.42.0.1/ and every configured server LAN IPv4 as
+	// Traefik externalIPs so kube-proxy forwards management traffic to the
 	// Traefik pod. The embedded-etcd K3s configuration enables ServiceLB on every
-	// topology server; this still is not an application-HA guarantee.
+	// topology server; this still is not an application-HA guarantee. Loopback
+	// is provided separately by the host-native Cloudflare origin forwarder;
+	// Kubernetes rejects loopback values in Service.spec.externalIPs.
 	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath, hostdns.LiteralIPv4s(opts.TLSSANs...)...)
 	checks = append(checks, traefikLBCheck)
 	if traefikLBErr != nil {
@@ -1212,7 +1231,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		rollbacks = append(rollbacks, cloudflaredRollback)
 		checks = append(checks, evidence.Check{
 			ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass,
-			Message:   "local Cloudflare Tunnel connector installed and running; tunnel token remains redacted",
+			Message:   "local Cloudflare Tunnel connector and stable 127.0.0.1:80 Traefik origin forwarder installed and running; tunnel token remains redacted",
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	} else {
@@ -1364,6 +1383,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		FQDN:              identity.FQDN,
 		NodeIPv4:          nodeIPv4,
 		ExtraSANs:         opts.TLSSANs,
+		TLSSecretName:     opts.TLSSecretName,
+		CertificatePath:   opts.TLSCertificatePath,
+		KeyPath:           opts.TLSKeyPath,
 	})
 	checks = append(checks, tlsPrepared.Checks...)
 	if tlsErr != nil {
