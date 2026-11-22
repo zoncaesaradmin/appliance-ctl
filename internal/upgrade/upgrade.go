@@ -56,6 +56,8 @@ type Options struct {
 	CloudflaredUnitName           string
 	CloudflaredTokenDestPath      string
 	ApplianceProfile              string
+	PublicOrigin                  string
+	TLSTermination                string
 	ChannelIntegrationRuntimePath string
 	// WorkspaceRootDir is the host directory backing the workspace
 	// storage hostPath PersistentVolume (builder profile only). See
@@ -234,6 +236,24 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
+	tlsTermination := strings.ToLower(strings.TrimSpace(opts.TLSTermination))
+	if tlsTermination == "" {
+		tlsTermination = "traefik"
+	}
+	if resolved.ChannelIntegrationsEnabled {
+		if strings.TrimSpace(opts.PublicOrigin) == "" {
+			return nil, checks, fmt.Errorf("upgrade: channel-integrations capability requires --public-origin")
+		}
+		if tlsTermination != "cloudflare" && tlsTermination != "traefik" {
+			return nil, checks, fmt.Errorf("upgrade: tls termination must be traefik or cloudflare")
+		}
+		if tlsTermination == "cloudflare" && strings.TrimSpace(opts.CloudflaredTunnelTokenPath) == "" {
+			return nil, checks, fmt.Errorf("upgrade: cloudflare TLS termination requires --cloudflare-tunnel-token-file")
+		}
+		if tlsTermination == "traefik" && strings.TrimSpace(opts.CloudflaredTunnelTokenPath) != "" {
+			return nil, checks, fmt.Errorf("upgrade: --cloudflare-tunnel-token-file requires --tls-termination cloudflare")
+		}
+	}
 	detectHost := o.DetectHost
 	if detectHost == nil {
 		detectHost = host.Detect
@@ -270,11 +290,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntime(
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(
 		resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog,
 		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
-		webUIEnabled,
+		webUIEnabled, opts.PublicOrigin, opts.TLSTermination,
 		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference,
 	)
 	if err != nil {

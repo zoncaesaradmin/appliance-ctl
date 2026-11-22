@@ -67,6 +67,8 @@ type cliOptions struct {
 	nodeName            string
 	applianceName       string
 	dnsZone             string
+	publicOrigin        string
+	tlsTermination      string
 	tlsSANs             []string
 	preserveFailedState bool
 	backupID            string
@@ -200,8 +202,10 @@ func run(args []string) int {
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile from the signed metadata catalog; install defaults to core and upgrade preserves the installed profile when omitted")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to this host's appliance node from the local receipt, else hostname)")
-	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN becomes <name>.<dns-zone> for TLS and canonical origin (required for install; upgrade preserves installed value when omitted)")
+	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN is the internal appliance identity (required for install; upgrade preserves installed value when omitted)")
 	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")
+	publicOrigin := fs.String("public-origin", "", "external HTTPS origin for application callbacks (required with channel-integrations; independent of appliance-name/dns-zone)")
+	tlsTermination := fs.String("tls-termination", "", "public TLS termination for channel integrations: traefik or cloudflare (default traefik)")
 	var tlsSANs stringListFlag
 	fs.Var(&tlsSANs, "tls-san", "additional TLS subjectAltName to include on the appliance certificate; repeatable (for example a raw IP)")
 	preserveFailedState := fs.Bool("preserve-failed-state", false, "debug mode: do not roll back a failed install or upgrade; preserve the partial target state for investigation")
@@ -262,6 +266,8 @@ func run(args []string) int {
 		nodeName:                      *nodeName,
 		applianceName:                 *applianceName,
 		dnsZone:                       *dnsZone,
+		publicOrigin:                  *publicOrigin,
+		tlsTermination:                *tlsTermination,
 		tlsSANs:                       append([]string(nil), tlsSANs...),
 		preserveFailedState:           *preserveFailedState,
 		backupID:                      *backupID,

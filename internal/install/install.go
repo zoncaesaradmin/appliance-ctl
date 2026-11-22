@@ -119,6 +119,12 @@ type Options struct {
 	K3sDataDir       string
 	KubeconfigPath   string
 	ApplianceProfile string
+	// PublicOrigin is the externally visible HTTPS origin for application
+	// callbacks. It is independent from the appliance's internal LAN identity.
+	PublicOrigin string
+	// TLSTermination selects the public edge for channel integrations:
+	// traefik (default) or cloudflare.
+	TLSTermination string
 	// ChannelIntegrationRuntimePath is an operator-provided protected JSON
 	// descriptor mounted into the optional channel integration pod.
 	ChannelIntegrationRuntimePath string
@@ -473,6 +479,24 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
+	tlsTermination := strings.ToLower(strings.TrimSpace(opts.TLSTermination))
+	if tlsTermination == "" {
+		tlsTermination = "traefik"
+	}
+	if resolved.ChannelIntegrationsEnabled {
+		if strings.TrimSpace(opts.PublicOrigin) == "" {
+			return nil, checks, fmt.Errorf("install: channel-integrations capability requires --public-origin")
+		}
+		if tlsTermination != "cloudflare" && tlsTermination != "traefik" {
+			return nil, checks, fmt.Errorf("install: tls termination must be traefik or cloudflare")
+		}
+		if tlsTermination == "cloudflare" && strings.TrimSpace(opts.CloudflaredTunnelTokenPath) == "" {
+			return nil, checks, fmt.Errorf("install: cloudflare TLS termination requires --cloudflare-tunnel-token-file")
+		}
+		if tlsTermination == "traefik" && strings.TrimSpace(opts.CloudflaredTunnelTokenPath) != "" {
+			return nil, checks, fmt.Errorf("install: --cloudflare-tunnel-token-file requires --tls-termination cloudflare")
+		}
+	}
 	nodeIPv4 := preferredLocalIPv4(opts.TLSSANs...)
 	var selectedInferenceRuntime runtimeconfig.Selection
 	if resolved.InferenceEnabled {
@@ -486,7 +510,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntime(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}

@@ -3,6 +3,7 @@ package productconfig
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -283,15 +284,44 @@ func ResolveApplianceIdentity(name, zone string) (ApplianceIdentity, error) {
 	}, nil
 }
 
+func normalizePublicOriginAndTLS(publicOrigin, tlsTermination, internalFQDN string) (string, string, string, error) {
+	tlsTermination = strings.ToLower(strings.TrimSpace(tlsTermination))
+	if tlsTermination == "" {
+		tlsTermination = "traefik"
+	}
+	if tlsTermination != "traefik" && tlsTermination != "cloudflare" {
+		return "", "", "", fmt.Errorf("product config: tls termination must be traefik or cloudflare, got %q", tlsTermination)
+	}
+	publicOrigin = strings.TrimRight(strings.TrimSpace(publicOrigin), "/")
+	if publicOrigin == "" {
+		publicOrigin = "https://" + internalFQDN
+	}
+	u, err := url.Parse(publicOrigin)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Port() != "" {
+		return "", "", "", fmt.Errorf("product config: public origin must be an absolute HTTPS URL without a port or path, got %q", publicOrigin)
+	}
+	return publicOrigin, u.Hostname(), tlsTermination, nil
+}
+
 func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, registry...)
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, "", "", registry...)
 }
 
 func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, registry...)
+	return PrepareValuesFileForRuntimeWithPublicOrigin(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, "", "", registry...)
 }
 
-func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, registry ...string) (string, func(), error) {
+// PrepareValuesFileForRuntimeWithPublicOrigin renders the installer-owned
+// values layer while keeping the appliance's internal identity separate from
+// the externally visible application origin. publicOrigin is an absolute
+// https URL without a path. tlsTermination is "traefik" (the default) or
+// "cloudflare"; the latter exposes only the channel webhook on Traefik's
+// plaintext web entrypoint because Cloudflare terminates public HTTPS.
+func PrepareValuesFileForRuntimeWithPublicOrigin(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, tlsTermination string, registry ...string) (string, func(), error) {
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, tlsTermination, registry...)
+}
+
+func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, tlsTermination string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", profileCatalog)
 	if err != nil {
 		return "", func() {}, err
@@ -303,6 +333,10 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	inferenceEnabled := ModuleEnabled(resolvedModules, ModuleNameInferenceRuntime)
 	buildEnabled := ModuleEnabled(resolvedModules, ModuleNameBuild)
 	identity, err := ResolveApplianceIdentity(applianceName, dnsZone)
+	if err != nil {
+		return "", func() {}, err
+	}
+	publicOrigin, publicOriginHost, tlsTermination, err := normalizePublicOriginAndTLS(publicOrigin, tlsTermination, identity.FQDN)
 	if err != nil {
 		return "", func() {}, err
 	}
@@ -386,7 +420,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	// Wi-Fi AP stays explicitly day-2. Neither value is a chart-side policy.
 	delete(config, "hostMDNSEnabled")
 	delete(config, "hostWifiAPEnabled")
-	config["canonicalOrigin"] = "https://" + identity.FQDN
+	config["canonicalOrigin"] = publicOrigin
 	if ip := strings.TrimSpace(nodeIPv4); ip != "" {
 		config["nodeIPv4"] = ip
 	} else {
@@ -474,6 +508,21 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		channelIntegration = map[string]any{}
 	}
 	channelIntegration["enabled"] = channelIntegrationsEnabled
+	channelIngress, _ := channelIntegration["ingress"].(map[string]any)
+	if channelIngress == nil {
+		channelIngress = map[string]any{}
+	}
+	if channelIntegrationsEnabled {
+		channelIngress["host"] = publicOriginHost
+		if tlsTermination == "cloudflare" {
+			channelIngress["entryPoints"] = []string{"web"}
+			channelIngress["tls"] = map[string]any{"enabled": false}
+		} else {
+			channelIngress["entryPoints"] = []string{"websecure"}
+			channelIngress["tls"] = map[string]any{"enabled": true}
+		}
+	}
+	channelIntegration["ingress"] = channelIngress
 	channelImage, _ := channelIntegration["image"].(map[string]any)
 	if channelImage == nil {
 		channelImage = map[string]any{}
