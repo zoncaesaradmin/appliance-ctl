@@ -22,23 +22,24 @@ import (
 // Install and Upgrade consume these paths without caring about bundle
 // layout details.
 type Resolved struct {
-	Runtimes            map[string]runtimeconfig.Selection
-	BundleVersion       string
-	ReleaseID           string
-	HostBaseline        bundle.HostBaseline
-	Compatibility       bundle.Compatibility
-	EffectiveProfile    string
-	ProfileCatalog      productconfig.ProfileCatalog
-	ActionsEnabled      bool
-	LANDiscoveryEnabled bool
-	HostEnabled         bool
-	FilesEnabled        bool
-	ArtifactEnabled     bool
-	DNSEnabled          bool
-	InferenceEnabled    bool
-	BuildEnabled        bool
-	WorkflowsEnabled    bool
-	ZonctlBinaryPath    string
+	Runtimes                   map[string]runtimeconfig.Selection
+	BundleVersion              string
+	ReleaseID                  string
+	HostBaseline               bundle.HostBaseline
+	Compatibility              bundle.Compatibility
+	EffectiveProfile           string
+	ProfileCatalog             productconfig.ProfileCatalog
+	ActionsEnabled             bool
+	ChannelIntegrationsEnabled bool
+	LANDiscoveryEnabled        bool
+	HostEnabled                bool
+	FilesEnabled               bool
+	ArtifactEnabled            bool
+	DNSEnabled                 bool
+	InferenceEnabled           bool
+	BuildEnabled               bool
+	WorkflowsEnabled           bool
+	ZonctlBinaryPath           string
 	// HelperBinaryPaths are durable host tools (currently helm) installed
 	// next to zonctl-real so status/verify work without the temp bundle PATH.
 	HelperBinaryPaths []string
@@ -53,6 +54,7 @@ type Resolved struct {
 	WorkflowsCRDPaths      []string
 	ConfigurationPath      string
 	HostAgentBinaryPath    string
+	CloudflaredBinaryPath  string
 	HostPackagesRootDir    string
 	// MetadataBundleArchivePath is the signed base appliance metadata-bundle archive.
 	MetadataBundleArchivePath string
@@ -82,9 +84,10 @@ type Resolved struct {
 	InferenceManagerImageReference string
 	// OpenWebUIImageReference and OpenWebUIGatewayImageReference are the
 	// optional inference-pack images for the trusted appliance Web UI bridge.
-	OpenWebUIImageReference        string
-	OpenWebUIGatewayImageReference string
-	MessageBrokerImageReference    string
+	OpenWebUIImageReference          string
+	OpenWebUIGatewayImageReference   string
+	MessageBrokerImageReference      string
+	ChannelIntegrationImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -288,6 +291,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: foundation mDNS requires host agent daemon: %w", err)
 	}
+	cloudflaredBinaryPath := optionalApplianceBinaryPath(view, "cloudflared")
 	hostPackagesRootDir := componentRootDir(view, "host-packages")
 	if hostPackagesRootDir == "" {
 		return Resolved{}, checks, fmt.Errorf("install: foundation mDNS requires host-packages")
@@ -302,7 +306,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -361,6 +365,14 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	messageBrokerImageReference := optionalMessageBrokerImageReference(view)
 	postgresImageReference := optionalPostgresImageReference(view)
+	channelIntegrationsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityChannelIntegrations, profileCatalog)
+	channelIntegrationImageReference := ""
+	if channelIntegrationsEnabled {
+		channelIntegrationImageReference, err = requiredChannelIntegrationImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires channel-integrations capability but its image is missing: %w", effectiveProfile, err)
+		}
+	}
 
 	return Resolved{
 		Runtimes:                           runtimes,
@@ -371,6 +383,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		EffectiveProfile:                   effectiveProfile,
 		ProfileCatalog:                     profileCatalog,
 		ActionsEnabled:                     actionsEnabled,
+		ChannelIntegrationsEnabled:         channelIntegrationsEnabled,
 		LANDiscoveryEnabled:                lanDiscoveryEnabled,
 		HostEnabled:                        hostEnabled,
 		FilesEnabled:                       filesEnabled,
@@ -391,6 +404,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		WorkflowsCRDPaths:                  workflowsCRDPaths,
 		ConfigurationPath:                  configurationPath,
 		HostAgentBinaryPath:                hostAgentBinaryPath,
+		CloudflaredBinaryPath:              cloudflaredBinaryPath,
 		HostPackagesRootDir:                hostPackagesRootDir,
 		MetadataBundleArchivePath:          metadataBundleArchivePath,
 		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
@@ -405,6 +419,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		OpenWebUIImageReference:            openWebUIImageReference,
 		OpenWebUIGatewayImageReference:     openWebUIGatewayImageReference,
 		MessageBrokerImageReference:        messageBrokerImageReference,
+		ChannelIntegrationImageReference:   channelIntegrationImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
@@ -468,6 +483,27 @@ func isBlobStorageImageReference(ref string) bool {
 
 func isPostgresImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/postgres@sha256:")
+}
+
+func isChannelIntegrationImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/channel-integration@sha256:")
+}
+
+func requiredChannelIntegrationImageReference(b entrySource) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isChannelIntegrationImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple channel integration image references")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no registry.local/channel-integration@sha256 image")
+	}
+	return found, nil
 }
 
 func optionalPostgresImageReference(b entrySource) string {
@@ -877,6 +913,14 @@ func applianceBinaryPath(b entrySource, baseName string) (string, error) {
 	return "", fmt.Errorf("bundle has no appliance entry named %s", baseName)
 }
 
+func optionalApplianceBinaryPath(b entrySource, baseName string) string {
+	path, err := applianceBinaryPath(b, baseName)
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
 func componentRootDir(b entrySource, component string) string {
 	entries := b.Entries(component)
 	if len(entries) == 0 {
@@ -907,6 +951,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 		}
 		if image.Category == images.CategoryDependency {
 			if strings.HasPrefix(image.Name, "registry.local/artifact-server@") && !r.ArtifactEnabled {
+				continue
+			}
+			if strings.HasPrefix(image.Name, "registry.local/channel-integration@") && !r.ChannelIntegrationsEnabled {
 				continue
 			}
 			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") ||

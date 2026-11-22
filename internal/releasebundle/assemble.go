@@ -198,6 +198,18 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 	}
 
+	if includeProductAutoAdds && strings.TrimSpace(input.Artifacts.CloudflaredBinary.Path) != "" {
+		cloudflaredTarget := "bin/" + filepath.Base(input.Artifacts.CloudflaredBinary.Path)
+		if _, exists := entryByTarget[cloudflaredTarget]; !exists {
+			entryByTarget[cloudflaredTarget] = EntryConfig{
+				SourcePath: input.Artifacts.CloudflaredBinary.Path,
+				TargetPath: cloudflaredTarget,
+				Component:  "appliance",
+				Executable: true,
+			}
+		}
+	}
+
 	if includeDeviceUserAutoAdds {
 		if strings.TrimSpace(input.Artifacts.HostAgentImage.Path) == "" {
 			return Result{}, fmt.Errorf("releasebundle: deviceuser pack requires hostAgentImage in release-input")

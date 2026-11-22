@@ -12,6 +12,7 @@ import (
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cloudflared"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
@@ -37,19 +38,25 @@ import (
 type Options struct {
 	TargetApplianceVersion string
 
-	InstalledStatePath      string
-	K3sConfigPath           string
-	K3sUnitPath             string
-	K3sBinaryDestPath       string
-	K3sUnitName             string
-	K3sDataDir              string
-	KubeconfigPath          string
-	HostAgentBinaryDestPath string
-	HostAgentUnitPath       string
-	HostAgentUnitName       string
-	HostAgentSocketPath     string
-	HostAgentLogPath        string
-	ApplianceProfile        string
+	InstalledStatePath            string
+	K3sConfigPath                 string
+	K3sUnitPath                   string
+	K3sBinaryDestPath             string
+	K3sUnitName                   string
+	K3sDataDir                    string
+	KubeconfigPath                string
+	HostAgentBinaryDestPath       string
+	HostAgentUnitPath             string
+	HostAgentUnitName             string
+	HostAgentSocketPath           string
+	HostAgentLogPath              string
+	CloudflaredTunnelTokenPath    string
+	CloudflaredBinaryDestPath     string
+	CloudflaredUnitPath           string
+	CloudflaredUnitName           string
+	CloudflaredTokenDestPath      string
+	ApplianceProfile              string
+	ChannelIntegrationRuntimePath string
 	// WorkspaceRootDir is the host directory backing the workspace
 	// storage hostPath PersistentVolume (builder profile only). See
 	// internal/hostdirs — re-applied on every upgrade so a host whose
@@ -111,6 +118,7 @@ type Orchestrator struct {
 	RestoreHostDNS      func() error
 	DetectHost          func(host.Options) (host.Facts, error)
 	InstallHostAgent    func(hostagent.InstallSpec) (func() error, error)
+	InstallCloudflared  func(cloudflared.InstallSpec) (func() error, error)
 	InstallHostPackages func(hostpackages.InstallSpec) (func() error, error)
 	// EnsureMDNSEnabled and EnsureMDNSDisabled converge host mDNS with the
 	// target profile's lan-discovery capability after the host agent refresh.
@@ -132,6 +140,7 @@ func NewOrchestrator() *Orchestrator {
 		RestoreHostDNS:      hostdns.Restore,
 		DetectHost:          host.Detect,
 		InstallHostAgent:    hostagent.InstallOrUpdate,
+		InstallCloudflared:  cloudflared.InstallOrUpdate,
 		InstallHostPackages: hostpackages.InstallRequiredPackages,
 		EnsureMDNSEnabled:   hostagent.EnsureMDNSEnabled,
 		EnsureMDNSDisabled:  hostagent.EnsureMDNSDisabled,
@@ -266,7 +275,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
 		webUIEnabled,
-		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference,
+		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference,
 	)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
@@ -428,6 +437,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	restoreHostDNSOnRollback := false
 	var hostPackagesRollback func() error
 	var hostAgentRollback func() error
+	var cloudflaredRollback func() error
 	rollback := func() []evidence.Check {
 		var rc []evidence.Check
 		var rollbackErrs []error
@@ -450,6 +460,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 		if hostAgentRollback != nil {
 			if err := hostAgentRollback(); err != nil {
+				rollbackErrs = append(rollbackErrs, err)
+			}
+		}
+		if cloudflaredRollback != nil {
+			if err := cloudflaredRollback(); err != nil {
 				rollbackErrs = append(rollbackErrs, err)
 			}
 		}
@@ -873,6 +888,36 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		// Wi-Fi AP apply is deferred until after appliance-dns (when the landns
 		// capability is on the profile) so CoreDNS owns host :53 first and the
 		// AP bind-probe falls back to DHCP-only DNS mode for manage.ap.
+	}
+	if strings.TrimSpace(opts.CloudflaredTunnelTokenPath) != "" {
+		if !resolved.ChannelIntegrationsEnabled {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: Cloudflare Tunnel connector is only valid with the channel-integrations capability"), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		if strings.TrimSpace(resolved.CloudflaredBinaryPath) == "" {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: local Cloudflare Tunnel requested but the signed bundle has no cloudflared binary"), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		installCloudflared := o.InstallCloudflared
+		if installCloudflared == nil {
+			installCloudflared = func(cloudflared.InstallSpec) (func() error, error) { return func() error { return nil }, nil }
+		}
+		cloudflaredRollback, err = installCloudflared(cloudflared.InstallSpec{
+			SourceBinaryPath: resolved.CloudflaredBinaryPath,
+			BinaryDestPath:   opts.CloudflaredBinaryDestPath,
+			UnitPath:         opts.CloudflaredUnitPath,
+			UnitName:         opts.CloudflaredUnitName,
+			TokenSourcePath:  opts.CloudflaredTunnelTokenPath,
+			TokenDestPath:    opts.CloudflaredTokenDestPath,
+		})
+		if err != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: install Cloudflare Tunnel connector: %w", err), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		checks = append(checks, evidence.Check{ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass, Message: "local Cloudflare Tunnel connector installed and running; tunnel token remains redacted", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 	}
 	if targetArtifact {
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,

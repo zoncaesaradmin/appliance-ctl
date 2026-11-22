@@ -56,6 +56,7 @@ type Artifacts struct {
 	UIImage                 FileArtifact
 	HostAgentImage          FileArtifact
 	HostAgentBinary         FileArtifact
+	CloudflaredBinary       FileArtifact
 	HostPackages            DirArtifact
 	ApplianceChart          FileArtifact
 	ArtifactServerImage     FileArtifact
@@ -94,6 +95,7 @@ type doc struct {
 		UIImage                 fileArtifact   `json:"uiImage"`
 		HostAgentImage          fileArtifact   `json:"hostAgentImage"`
 		HostAgentBinary         fileArtifact   `json:"hostAgentBinary"`
+		CloudflaredBinary       fileArtifact   `json:"cloudflaredBinary"`
 		HostPackages            dirArtifact    `json:"hostPackages"`
 		ApplianceChart          fileArtifact   `json:"applianceChart"`
 		ArtifactServerImage     fileArtifact   `json:"artifactServerImage"`
@@ -167,6 +169,7 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			UIImage:                 toFileArtifact(rootDir, parsed.Artifacts.UIImage),
 			HostAgentImage:          toFileArtifact(rootDir, parsed.Artifacts.HostAgentImage),
 			HostAgentBinary:         toFileArtifact(rootDir, parsed.Artifacts.HostAgentBinary),
+			CloudflaredBinary:       toFileArtifact(rootDir, parsed.Artifacts.CloudflaredBinary),
 			HostPackages:            toDirArtifact(rootDir, parsed.Artifacts.HostPackages),
 			ApplianceChart:          toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
 			ArtifactServerImage:     toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerImage),
@@ -208,6 +211,9 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		{Name: "configuration-schema", Path: input.Artifacts.ConfigurationSchema.Path, ExpectedDigest: input.Artifacts.ConfigurationSchema.Digest, ExpectedSizeBytes: input.Artifacts.ConfigurationSchema.SizeBytes},
 		{Name: "compatibility", Path: input.Artifacts.Compatibility.Path, ExpectedDigest: input.Artifacts.Compatibility.Digest, ExpectedSizeBytes: input.Artifacts.Compatibility.SizeBytes},
 		{Name: "checksums", Path: input.Artifacts.Checksums.Path, ExpectedDigest: input.Artifacts.Checksums.Digest, ExpectedSizeBytes: input.Artifacts.Checksums.SizeBytes},
+	}
+	if input.Artifacts.CloudflaredBinary.Path != "" {
+		artifacts = append(artifacts, verify.Artifact{Name: "cloudflared-binary", Path: input.Artifacts.CloudflaredBinary.Path, ExpectedDigest: input.Artifacts.CloudflaredBinary.Digest, ExpectedSizeBytes: input.Artifacts.CloudflaredBinary.SizeBytes})
 	}
 	if input.Artifacts.HostAgentImage.Path != "" {
 		artifacts = append(artifacts, verify.Artifact{Name: "host-agent-image", Path: input.Artifacts.HostAgentImage.Path, ExpectedDigest: input.Artifacts.HostAgentImage.Digest, ExpectedSizeBytes: input.Artifacts.HostAgentImage.SizeBytes})

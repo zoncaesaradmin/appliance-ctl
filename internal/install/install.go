@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cloudflared"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
@@ -90,16 +91,21 @@ type Options struct {
 	// It is never copied into the signed release or persisted with secrets.
 	ClusterInventoryPath string
 
-	InstalledStatePath      string
-	K3sConfigPath           string
-	K3sUnitPath             string
-	K3sBinaryDestPath       string
-	K3sUnitName             string
-	HostAgentBinaryDestPath string
-	HostAgentUnitPath       string
-	HostAgentUnitName       string
-	HostAgentSocketPath     string
-	HostAgentLogPath        string
+	InstalledStatePath         string
+	K3sConfigPath              string
+	K3sUnitPath                string
+	K3sBinaryDestPath          string
+	K3sUnitName                string
+	HostAgentBinaryDestPath    string
+	HostAgentUnitPath          string
+	HostAgentUnitName          string
+	HostAgentSocketPath        string
+	HostAgentLogPath           string
+	CloudflaredTunnelTokenPath string
+	CloudflaredBinaryDestPath  string
+	CloudflaredUnitPath        string
+	CloudflaredUnitName        string
+	CloudflaredTokenDestPath   string
 	// KubectlSymlinkPath is where a "kubectl" symlink to K3sBinaryDestPath
 	// is created (K3s is a multicall binary, so this makes plain
 	// `kubectl` work as a real, standalone command on the host).
@@ -113,6 +119,9 @@ type Options struct {
 	K3sDataDir       string
 	KubeconfigPath   string
 	ApplianceProfile string
+	// ChannelIntegrationRuntimePath is an operator-provided protected JSON
+	// descriptor mounted into the optional channel integration pod.
+	ChannelIntegrationRuntimePath string
 	// WorkspaceRootDir is the host directory backing the workspace
 	// storage hostPath PersistentVolume (builder profile only). Prepared
 	// with the correct owner before the chart is applied; see
@@ -319,6 +328,7 @@ type Orchestrator struct {
 	// RestoreHostDNS undoes PrepareHostDNS on rollback/uninstall.
 	RestoreHostDNS      func() error
 	InstallHostAgent    func(hostagent.InstallSpec) (func() error, error)
+	InstallCloudflared  func(cloudflared.InstallSpec) (func() error, error)
 	InstallHostPackages func(hostpackages.InstallSpec) (func() error, error)
 	// EnsureDay2FeaturesDisabled resets client Wi-Fi/Wi-Fi AP (and clears any
 	// stale mDNS state) after host-agent install. Nil uses
@@ -344,6 +354,7 @@ func NewOrchestrator() *Orchestrator {
 		PrepareHostDNS:      hostdns.Prepare,
 		RestoreHostDNS:      hostdns.Restore,
 		InstallHostAgent:    hostagent.InstallOrUpdate,
+		InstallCloudflared:  cloudflared.InstallOrUpdate,
 		InstallHostPackages: hostpackages.InstallRequiredPackages,
 	}
 }
@@ -475,7 +486,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntime(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntime(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -1151,6 +1162,41 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			})
 		}
 	}
+	if strings.TrimSpace(opts.CloudflaredTunnelTokenPath) != "" {
+		if !resolved.ChannelIntegrationsEnabled {
+			return nil, checks, failInstall(fmt.Errorf("install: Cloudflare Tunnel connector is only valid with the channel-integrations capability"), runRollbacks())
+		}
+		if strings.TrimSpace(resolved.CloudflaredBinaryPath) == "" {
+			return nil, checks, failInstall(fmt.Errorf("install: local Cloudflare Tunnel requested but the signed bundle has no cloudflared binary"), runRollbacks())
+		}
+		installCloudflared := o.InstallCloudflared
+		if installCloudflared == nil {
+			installCloudflared = func(cloudflared.InstallSpec) (func() error, error) { return func() error { return nil }, nil }
+		}
+		cloudflaredRollback, err := installCloudflared(cloudflared.InstallSpec{
+			SourceBinaryPath: resolved.CloudflaredBinaryPath,
+			BinaryDestPath:   opts.CloudflaredBinaryDestPath,
+			UnitPath:         opts.CloudflaredUnitPath,
+			UnitName:         opts.CloudflaredUnitName,
+			TokenSourcePath:  opts.CloudflaredTunnelTokenPath,
+			TokenDestPath:    opts.CloudflaredTokenDestPath,
+		})
+		if err != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: install Cloudflare Tunnel connector: %w", err), runRollbacks())
+		}
+		rollbacks = append(rollbacks, cloudflaredRollback)
+		checks = append(checks, evidence.Check{
+			ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass,
+			Message:   "local Cloudflare Tunnel connector installed and running; tunnel token remains redacted",
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	} else {
+		checks = append(checks, evidence.Check{
+			ID: "cloudflared-not-configured", Category: "host", Status: evidence.StatusPass,
+			Message:   "Cloudflare Tunnel connector not configured (expected for cloud installs)",
+			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+		})
+	}
 
 	clusterRun := o.ClusterRun
 	if clusterRun == nil {
@@ -1281,8 +1327,13 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// Control-plane pods mount appliance-ca (public ca.crt) and IngressRoutes
 	// reference appliance-tls. Create both before the ace-system release so the
 	// Deployment can schedule and Traefik has a secret to attach.
+	appsTLSNamespace := ""
+	if resolved.ChannelIntegrationsEnabled {
+		appsTLSNamespace = productconfig.ControlPlaneAppsNamespace
+	}
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
+		AppsNamespace:     appsTLSNamespace,
 		ArtifactNamespace: registryNamespace,
 		IncludeArtifacts:  resolved.ArtifactEnabled,
 		FQDN:              identity.FQDN,
@@ -1348,6 +1399,17 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		rollbacks = append(rollbacks, keysReplica.Cleanup)
 	}
+	if resolved.ChannelIntegrationsEnabled {
+		if strings.TrimSpace(opts.ChannelIntegrationRuntimePath) == "" {
+			return nil, checks, failInstall(fmt.Errorf("install: channel-integrations capability requires --channel-integration-runtime-file"), cleanupOnFailure())
+		}
+		runtimeSecret, runtimeErr := helm.EnsureSecretFromFile(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "channel-integration-runtime", "runtime.json", opts.ChannelIntegrationRuntimePath)
+		checks = append(checks, runtimeSecret.Checks...)
+		if runtimeErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", runtimeErr), cleanupOnFailure(runtimeSecret.Cleanup))
+		}
+		rollbacks = append(rollbacks, runtimeSecret.Cleanup)
+	}
 
 	set2Result = applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppsRelease)
 	checks = append(checks, set2Result.checks...)
@@ -1368,6 +1430,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			deploy string
 			id     string
 		}{deploy: "action-runtime", id: "appliance-action-runtime-ready"})
+	}
+	if resolved.ChannelIntegrationsEnabled {
+		waits = append(waits, struct {
+			deploy string
+			id     string
+		}{deploy: "channel-integration", id: "channel-integration-ready"})
 	}
 	for _, wait := range waits {
 		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, wait.deploy, wait.id)

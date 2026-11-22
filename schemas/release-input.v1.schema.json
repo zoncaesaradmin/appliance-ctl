@@ -57,6 +57,10 @@
           "description": "Optional; required when packaging the deviceuser pack (host/applications capabilities)."
         },
         "hostAgentBinary": { "$ref": "#/$defs/artifact" },
+        "cloudflaredBinary": {
+          "$ref": "#/$defs/artifact",
+          "description": "Pinned host-native Cloudflare Tunnel connector included for optional local LAN installs."
+        },
         "hostPackages": {
           "$ref": "#/$defs/artifactDirectory",
           "description": "Offline host package directory carrying bundled operating-system packages required by installer-owned host capabilities such as mDNS and management WiFi AP."

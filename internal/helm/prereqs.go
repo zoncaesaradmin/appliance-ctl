@@ -405,6 +405,32 @@ func deleteSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, se
 	return nil
 }
 
+// EnsureSecretFromFile installs a protected operator-provided file as a
+// namespaced Secret without putting its contents in command arguments or logs.
+func EnsureSecretFromFile(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName, key, path string) (PreparedRelease, error) {
+	prepared := PreparedRelease{}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return prepared, fmt.Errorf("helm: secret source file %s is missing or not regular", path)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return prepared, fmt.Errorf("helm: secret source file %s must not be group/world accessible", path)
+	}
+	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(secretName) == "" || strings.TrimSpace(key) == "" {
+		return prepared, fmt.Errorf("helm: secret source namespace, name, and key are required")
+	}
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "create", "secret", "generic", secretName, "--from-file="+key+"="+path); err != nil {
+		if secretAlreadyExists(err) {
+			prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-" + evidence.SanitizeIDSegment(secretName), Category: "chart", Status: evidence.StatusPass, Message: "operator-provided channel integration Secret already exists", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+			return prepared, nil
+		}
+		return prepared, fmt.Errorf("helm: create Secret %s/%s: %w", namespace, secretName, err)
+	}
+	prepared.cleanups = append(prepared.cleanups, func() error { return deleteSecret(ctx, run, kubeconfig, namespace, secretName) })
+	prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-" + evidence.SanitizeIDSegment(secretName), Category: "chart", Status: evidence.StatusPass, Message: "created operator-provided channel integration Secret", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+	return prepared, nil
+}
+
 // EnsureKeysSecretReplica copies the control-plane keys Secret into targetNamespace
 // so co-packaged apps that mount keysSecretName (action-runtime in ace-apps)
 // can attach volumes. Material is cloned from source, never regenerated, so

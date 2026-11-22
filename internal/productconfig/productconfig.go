@@ -89,20 +89,21 @@ func ProductNamespaces(controlPlaneNS string) []string {
 type Capability string
 
 const (
-	CapabilityBase          Capability = "base"
-	CapabilityActions       Capability = "actions"
-	CapabilityLANDiscovery  Capability = "lan-discovery"
-	CapabilityHost          Capability = "host"
-	CapabilityWorkflows     Capability = "workflows"
-	CapabilityBuild         Capability = "build"
-	CapabilityFiles         Capability = "files"
-	CapabilityArtifact      Capability = "artifact"
-	CapabilityDNS           Capability = "dns"
-	CapabilityInference     Capability = "inference"
-	CapabilityOpenWebUI     Capability = "open-webui"
-	CapabilityVideo         Capability = "video"
-	CapabilityApplications  Capability = "applications"
-	CapabilityPlaintextHTTP Capability = "plaintext-http"
+	CapabilityBase                Capability = "base"
+	CapabilityActions             Capability = "actions"
+	CapabilityChannelIntegrations Capability = "channel-integrations"
+	CapabilityLANDiscovery        Capability = "lan-discovery"
+	CapabilityHost                Capability = "host"
+	CapabilityWorkflows           Capability = "workflows"
+	CapabilityBuild               Capability = "build"
+	CapabilityFiles               Capability = "files"
+	CapabilityArtifact            Capability = "artifact"
+	CapabilityDNS                 Capability = "dns"
+	CapabilityInference           Capability = "inference"
+	CapabilityOpenWebUI           Capability = "open-webui"
+	CapabilityVideo               Capability = "video"
+	CapabilityApplications        Capability = "applications"
+	CapabilityPlaintextHTTP       Capability = "plaintext-http"
 )
 
 type ProfileDefinition struct {
@@ -311,6 +312,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	artifactServerImageReference := ""
 	blobStorageImageReference := ""
 	postgresImageReference := ""
+	channelIntegrationImageReference := ""
 	if len(registry) > 0 {
 		artifactServerImageReference = strings.TrimSpace(registry[0])
 	}
@@ -319,6 +321,9 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if len(registry) > 2 {
 		postgresImageReference = strings.TrimSpace(registry[2])
+	}
+	if len(registry) > 3 {
+		channelIntegrationImageReference = strings.TrimSpace(registry[3])
 	}
 	if buildEnabled {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
@@ -338,6 +343,10 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if postgresImageReference != "" && !validPostgresImageDigest(postgresImageReference) {
 		return "", func() {}, fmt.Errorf("product config: PostgreSQL image must be registry.local/postgres@sha256:<64>; got %q", postgresImageReference)
+	}
+	channelIntegrationsEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityChannelIntegrations, profileCatalog)
+	if channelIntegrationsEnabled && !validChannelIntegrationImageDigest(channelIntegrationImageReference) {
+		return "", func() {}, fmt.Errorf("product config: channel-integrations capability requires a bundled registry.local/channel-integration@sha256 image reference; got %q", channelIntegrationImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host or application capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -460,6 +469,20 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	actionRuntime["enabled"] = HasCapabilityInCatalog(effectiveProfile, CapabilityActions, profileCatalog)
 	values["actionRuntime"] = actionRuntime
+	channelIntegration, _ := values["channelIntegration"].(map[string]any)
+	if channelIntegration == nil {
+		channelIntegration = map[string]any{}
+	}
+	channelIntegration["enabled"] = channelIntegrationsEnabled
+	channelImage, _ := channelIntegration["image"].(map[string]any)
+	if channelImage == nil {
+		channelImage = map[string]any{}
+	}
+	if channelIntegrationsEnabled {
+		channelImage["reference"] = channelIntegrationImageReference
+	}
+	channelIntegration["image"] = channelImage
+	values["channelIntegration"] = channelIntegration
 	blobStorage, _ := values["blobStorage"].(map[string]any)
 	if blobStorage == nil {
 		blobStorage = map[string]any{}
@@ -568,7 +591,15 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		delete(networkPolicy, "inferencePodLabels")
 		delete(networkPolicy, "inferencePort")
 	}
-	if artifactEnabled || dnsEnabled || inferenceEnabled {
+	if channelIntegrationsEnabled {
+		// The channel webhook is exposed through the K3s-managed Traefik
+		// namespace. Keep this allow-list capability-scoped; other profiles
+		// remain ingress-denied by default.
+		networkPolicy["traefikNamespaceLabel"] = map[string]any{
+			"kubernetes.io/metadata.name": "kube-system",
+		}
+	}
+	if artifactEnabled || dnsEnabled || inferenceEnabled || channelIntegrationsEnabled {
 		values["networkPolicy"] = networkPolicy
 	}
 
@@ -1138,6 +1169,10 @@ func validPostgresImageDigest(image string) bool {
 		return false
 	}
 	return strings.TrimPrefix(image, "registry.local/postgres@sha256:") != placeholderImageDigestHex
+}
+
+func validChannelIntegrationImageDigest(image string) bool {
+	return validRegistryLocalImageDigest(image, "channel-integration")
 }
 
 func validDNSImageDigest(image string) bool {

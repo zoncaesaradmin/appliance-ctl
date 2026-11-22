@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zoncaesaradmin/appliance-ctl/internal/backup"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/cloudflared"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostagent"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/hostdirs"
@@ -60,6 +61,15 @@ func runUninstall(ctx context.Context, opts cliOptions, logger *slog.Logger, res
 	}); err != nil {
 		logger.Error("uninstall failed removing host agent", "error", err)
 		return finish(result, "failed", 1, fmt.Sprintf("uninstall complete but failed removing host agent: %v", err), nil)
+	}
+	if err := cloudflared.Uninstall(cloudflared.InstallSpec{
+		BinaryDestPath: defaultCloudflaredBinaryPath,
+		UnitPath:       defaultCloudflaredUnitPath,
+		UnitName:       defaultCloudflaredUnitName,
+		TokenDestPath:  defaultCloudflaredTokenPath,
+	}); err != nil {
+		logger.Error("uninstall failed removing Cloudflare Tunnel connector", "error", err)
+		return finish(result, "failed", 1, fmt.Sprintf("uninstall complete but failed removing Cloudflare Tunnel connector: %v", err), nil)
 	}
 
 	logger.Info("uninstall complete", "dataPreserved", true)
@@ -140,6 +150,15 @@ func runFactoryReset(ctx context.Context, opts cliOptions, logger *slog.Logger, 
 	}); err != nil {
 		logger.Error("factory-reset failed removing host agent", "error", err)
 		return finish(result, "failed", 1, fmt.Sprintf("factory-reset complete but failed removing host agent: %v", err), nil)
+	}
+	if err := cloudflared.Uninstall(cloudflared.InstallSpec{
+		BinaryDestPath: defaultCloudflaredBinaryPath,
+		UnitPath:       defaultCloudflaredUnitPath,
+		UnitName:       defaultCloudflaredUnitName,
+		TokenDestPath:  defaultCloudflaredTokenPath,
+	}); err != nil {
+		logger.Error("factory-reset failed removing Cloudflare Tunnel connector", "error", err)
+		return finish(result, "failed", 1, fmt.Sprintf("factory-reset complete but failed removing Cloudflare Tunnel connector: %v", err), nil)
 	}
 
 	logger.Info("factory-reset complete", "backupVerified", backupVerified, "workspacesWiped", opts.wipeWorkspaces)

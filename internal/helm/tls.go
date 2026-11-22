@@ -31,6 +31,7 @@ const (
 // ApplianceTLSOptions configures installer-managed Traefik HTTPS material.
 type ApplianceTLSOptions struct {
 	ControlNamespace  string
+	AppsNamespace     string
 	ArtifactNamespace string
 	IncludeArtifacts  bool
 	FQDN              string
@@ -80,6 +81,14 @@ func EnsureApplianceTLSSecrets(ctx context.Context, run cli.Runner, kubeconfig s
 	}
 
 	namespaces := []string{controlNS}
+	if appsNS := strings.TrimSpace(opts.AppsNamespace); appsNS != "" && appsNS != controlNS {
+		if err := EnsureNamespace(ctx, run, kubeconfig, appsNS, nil); err != nil {
+			check.Status, check.Message = evidence.StatusFail, err.Error()
+			prepared.Checks = append(prepared.Checks, check)
+			return prepared, err
+		}
+		namespaces = append(namespaces, appsNS)
+	}
 	if opts.IncludeArtifacts {
 		artifactNS := strings.TrimSpace(opts.ArtifactNamespace)
 		if artifactNS == "" {

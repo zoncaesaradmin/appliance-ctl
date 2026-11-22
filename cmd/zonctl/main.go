@@ -24,26 +24,30 @@ const defaultStateDir = "/var/lib/zon/state"
 // locations (not derived from --state-dir), matching where a production
 // host actually needs them.
 const (
-	defaultK3sConfigPath       = "/etc/rancher/k3s/config.yaml"
-	defaultK3sRegistriesPath   = "/etc/rancher/k3s/registries.yaml"
-	defaultK3sDataDir          = "/var/lib/rancher/k3s"
-	defaultK3sCNINetworkDir    = "/var/lib/cni/networks/cbr0"
-	defaultK3sUnitPath         = "/etc/systemd/system/k3s.service"
-	defaultK3sBinaryDestPath   = "/usr/local/bin/k3s"
-	defaultKubectlSymlinkPath  = "/usr/local/bin/kubectl"
-	defaultZonctlLauncherPath  = "/usr/local/bin/zonctl"
-	defaultZonctlRealPath      = "/usr/local/lib/zon/bin/zonctl-real"
-	defaultHostAgentBinaryPath = "/usr/local/lib/zon/bin/appliance-host-agentd"
-	defaultHostAgentUnitPath   = "/etc/systemd/system/zon-host-agent.service"
-	defaultHostAgentUnitName   = "zon-host-agent.service"
-	defaultHostAgentSocketPath = "/run/zon/host-agent/agent.sock"
-	defaultHostAgentLogPath    = "/data/zon/logs/host-agent/host-agentd.log"
-	defaultKubeconfigPath      = "/etc/rancher/k3s/k3s.yaml"
-	defaultK3sUnitName         = "k3s.service"
-	defaultPublicKeyPath       = "/etc/zon/keys/release-signing.pub"
-	defaultChartReleaseName    = "appliance"
-	defaultChartNamespace      = "ace-system"
-	defaultWorkspaceRootDir    = "/data/zon/workspaces"
+	defaultK3sConfigPath         = "/etc/rancher/k3s/config.yaml"
+	defaultK3sRegistriesPath     = "/etc/rancher/k3s/registries.yaml"
+	defaultK3sDataDir            = "/var/lib/rancher/k3s"
+	defaultK3sCNINetworkDir      = "/var/lib/cni/networks/cbr0"
+	defaultK3sUnitPath           = "/etc/systemd/system/k3s.service"
+	defaultK3sBinaryDestPath     = "/usr/local/bin/k3s"
+	defaultKubectlSymlinkPath    = "/usr/local/bin/kubectl"
+	defaultZonctlLauncherPath    = "/usr/local/bin/zonctl"
+	defaultZonctlRealPath        = "/usr/local/lib/zon/bin/zonctl-real"
+	defaultHostAgentBinaryPath   = "/usr/local/lib/zon/bin/appliance-host-agentd"
+	defaultHostAgentUnitPath     = "/etc/systemd/system/zon-host-agent.service"
+	defaultHostAgentUnitName     = "zon-host-agent.service"
+	defaultHostAgentSocketPath   = "/run/zon/host-agent/agent.sock"
+	defaultHostAgentLogPath      = "/data/zon/logs/host-agent/host-agentd.log"
+	defaultCloudflaredBinaryPath = "/usr/local/lib/zon/bin/cloudflared"
+	defaultCloudflaredUnitPath   = "/etc/systemd/system/zon-cloudflared.service"
+	defaultCloudflaredUnitName   = "zon-cloudflared.service"
+	defaultCloudflaredTokenPath  = "/etc/zon/cloudflared/tunnel-token"
+	defaultKubeconfigPath        = "/etc/rancher/k3s/k3s.yaml"
+	defaultK3sUnitName           = "k3s.service"
+	defaultPublicKeyPath         = "/etc/zon/keys/release-signing.pub"
+	defaultChartReleaseName      = "appliance"
+	defaultChartNamespace        = "ace-system"
+	defaultWorkspaceRootDir      = "/data/zon/workspaces"
 )
 
 var defaultK3sCNIInterfaces = []string{"cni0", "flannel.1"}
@@ -94,6 +98,8 @@ type cliOptions struct {
 	replaceConfiguration          bool
 	recoverySetPath               string
 	preparedConfigurationArchive  string
+	channelIntegrationRuntimeFile string
+	cloudflareTunnelTokenFile     string
 }
 
 type commandSpec struct {
@@ -227,6 +233,8 @@ func run(args []string) int {
 	replaceConfiguration := fs.Bool("replace-configuration", false, "configuration-import only: explicitly replace the active desired configuration")
 	recoverySetPath := fs.String("recovery-set", "", "empty destination directory for a PostgreSQL recovery set (required by backup on PostgreSQL installations)")
 	preparedConfigurationArchive := fs.String("prepared-configuration-archive", "", "internal: sealed configuration archive supplied by the host-agent backup operation")
+	channelIntegrationRuntimeFile := fs.String("channel-integration-runtime-file", "", "protected JSON runtime descriptor for the channel-integrations capability")
+	cloudflareTunnelTokenFile := fs.String("cloudflare-tunnel-token-file", "", "protected Cloudflare Tunnel token file for local LAN installs; omit for cloud installs")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -284,6 +292,8 @@ func run(args []string) int {
 		replaceConfiguration:          *replaceConfiguration,
 		recoverySetPath:               *recoverySetPath,
 		preparedConfigurationArchive:  *preparedConfigurationArchive,
+		channelIntegrationRuntimeFile: *channelIntegrationRuntimeFile,
+		cloudflareTunnelTokenFile:     *cloudflareTunnelTokenFile,
 	}
 
 	logger := newLogger(redact.New(), opts.output)
