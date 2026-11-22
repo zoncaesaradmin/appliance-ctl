@@ -119,6 +119,15 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 		_ = rollback()
 		return nil, fmt.Errorf("cloudflared: write unit: %w", err)
 	}
+	// The token file is read by the unprivileged service account. WriteFileAtomic
+	// creates missing directories as root, so repair the directory ownership
+	// before writing the token rather than leaving the service unable to traverse
+	// its own token path.
+	tokenDir := filepath.Dir(spec.TokenDestPath)
+	if err := prepareTokenDirectory(tokenDir); err != nil {
+		_ = rollback()
+		return nil, fmt.Errorf("cloudflared: prepare token directory: %w", err)
+	}
 	if err := lifecycle.WriteFileAtomic(spec.TokenDestPath, []byte(token+"\n"), 0o640); err != nil {
 		_ = rollback()
 		return nil, fmt.Errorf("cloudflared: write token: %w", err)
@@ -136,6 +145,10 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 		return nil, err
 	}
 	if err := runSystemctl("restart", spec.UnitName); err != nil {
+		_ = rollback()
+		return nil, err
+	}
+	if err := waitForActive(spec.UnitName); err != nil {
 		_ = rollback()
 		return nil, err
 	}
@@ -213,6 +226,35 @@ func serviceGroupID() int {
 	var gid int
 	_, _ = fmt.Sscanf(u.Gid, "%d", &gid)
 	return gid
+}
+
+func prepareTokenDirectory(path string) error {
+	if err := os.MkdirAll(path, 0o750); err != nil {
+		return err
+	}
+	if err := os.Chown(path, 0, serviceGroupID()); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o750)
+}
+
+func waitForActive(unit string) error {
+	// systemctl restart only waits for the start job to be accepted. A process
+	// can still exit immediately afterwards (for example, on a token or
+	// permission error), so installation must wait for the steady-state unit.
+	deadline := time.Now().Add(10 * time.Second)
+	var lastErr error
+	for {
+		if err := runSystemctl("is-active", "--quiet", unit); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("cloudflared: %s did not become active: %w", unit, lastErr)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 type fileBackup struct {
