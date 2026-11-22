@@ -29,12 +29,14 @@ func TestRenderOriginUnitUsesScopedLocalRedirect(t *testing.T) {
 		"Requires=k3s.service",
 		"Type=simple",
 		"chain=ZON-CLOUDFLARED-ORIGIN",
+		"post_chain=ZON-CLOUDFLARED-ORIGIN-POST",
 		"-n kube-system get pods",
 		"status.phase=Running",
 		"-C OUTPUT -j \"$chain\"",
+		"-C POSTROUTING -j \"$post_chain\"",
 		"-d 127.0.0.1 --dport 80 -m owner --uid-owner cloudflared -j DNAT",
 		"--to-destination \"$pod_ip:80\"",
-		"-d \"$pod_ip\" --dport 80 -m owner --uid-owner cloudflared -j MASQUERADE",
+		"-s 127.0.0.1 -d \"$pod_ip\" -p tcp --dport 80 -j MASQUERADE",
 		"ExecStop=/bin/sh -c",
 	} {
 		if !strings.Contains(unit, want) {
