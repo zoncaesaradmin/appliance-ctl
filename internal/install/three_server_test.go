@@ -214,6 +214,33 @@ func TestStageThreeServerBootstrapsWithoutClaimingInstallation(t *testing.T) {
 	}
 }
 
+func TestStageAcceptsNominalFourGiBCloudHost(t *testing.T) {
+	orch, source, opts, _ := threeServerFixture(t, "server-a")
+	orch.DetectHost = func(host.Options) (host.Facts, error) {
+		return host.Facts{
+			OS:                         "ubuntu",
+			OSVersion:                  "24.04",
+			Arch:                       "amd64",
+			KernelRelease:              "6.8.0",
+			CPUCount:                   2,
+			MemTotalBytes:              3924176 * 1024,
+			CgroupVersion:              2,
+			UserNamespacesEnabled:      true,
+			IPv4ForwardingEnabled:      true,
+			DataDirFilesystem:          "ext4",
+			DataDirFreeBytes:           100 << 30,
+			DataDirFreeInodes:          1_000_000,
+			TimeSyncActive:             true,
+			Hostname:                   "server-a",
+			HostnameResolvesInternally: true,
+			PortsInUse:                 map[int]string{},
+		}, nil
+	}
+	if _, _, err := orch.StageEmbeddedEtcd(context.Background(), source, opts); err != nil {
+		t.Fatalf("nominal 4 GiB cloud host was rejected: %v", err)
+	}
+}
+
 func TestStageJoinedPeerKeepsRecordedReleaseOnSameVersionRebuild(t *testing.T) {
 	orch, source, opts, _ := threeServerFixture(t, "server-b")
 	inventory, err := clustertopology.Load(opts.ClusterInventoryPath)

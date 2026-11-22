@@ -22,6 +22,15 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 )
 
+const (
+	minEmbeddedEtcdCPUCount = 2
+	// Cloud VM classes reserve a small amount of memory for the hypervisor and
+	// kernel. A nominal 4 GiB instance such as AWS t3.medium exposes about
+	// 3.74 GiB through /proc/meminfo, so 3.5 GiB is the usable floor for the
+	// supported 4 GiB host class.
+	minEmbeddedEtcdMemoryBytes = 3584 * 1024 * 1024
+)
+
 // EmbeddedEtcdStageOptions adds protected server enrollment inputs to the
 // ordinary host paths. The bootstrap server has no enrollment artifact;
 // joining servers require a signed, inventory-bound v2 artifact.
@@ -245,8 +254,8 @@ func (o *Orchestrator) StageEmbeddedEtcd(ctx context.Context, source Source, opt
 	if baseline.Status != evidence.StatusPass {
 		return nil, checks, errors.New("cluster server stage: host does not match signed bundle baseline")
 	}
-	if facts.CPUCount < 2 || facts.MemTotalBytes < 4*1024*1024*1024 {
-		return nil, checks, errors.New("cluster server stage: each active etcd/server node needs at least 2 CPUs and 4 GiB RAM before profile capacity is evaluated")
+	if facts.CPUCount < minEmbeddedEtcdCPUCount || facts.MemTotalBytes < minEmbeddedEtcdMemoryBytes {
+		return nil, checks, errors.New("cluster server stage: each active etcd/server node needs at least 2 CPUs and a nominal 4 GiB RAM class before profile capacity is evaluated")
 	}
 	if staged == nil {
 		fingerprint, _ := inventory.Fingerprint()
