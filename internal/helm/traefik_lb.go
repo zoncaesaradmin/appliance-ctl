@@ -20,9 +20,11 @@ const (
 	traefikLBReadyPollInterval = 2 * time.Second
 )
 
-// EnsureTraefikManagementExternalIPs adds fixed management addresses (the
-// WiFi AP control plane IP https://10.42.0.1/) to the K3s Traefik LoadBalancer
-// Service as externalIPs.
+// EnsureTraefikManagementExternalIPs adds the fixed management addresses (the
+// WiFi AP control plane IP https://10.42.0.1/ and loopback) to the K3s Traefik
+// LoadBalancer Service as externalIPs. Loopback is deliberately installer
+// owned: host-native connectors such as cloudflared use http://127.0.0.1:80
+// as their stable origin and must not depend on a changing LAN address.
 //
 // K3s ServiceLB only advertises the node's primary ethernet address as the
 // Traefik VIP. Without an externalIP for the AP address, packets to
@@ -42,7 +44,7 @@ func EnsureTraefikManagementExternalIPs(ctx context.Context, run cli.Runner, kub
 		return check, fmt.Errorf("helm: traefik management external IPs: runner is nil")
 	}
 
-	want := uniqueIPs(append([]string{hostagent.WifiAPManagementAddress}, extraIPs...))
+	want := uniqueIPs(append([]string{"127.0.0.1", hostagent.WifiAPManagementAddress}, extraIPs...))
 	if len(want) == 0 {
 		check.Status = evidence.StatusPass
 		check.Message = "no management external IPs required"

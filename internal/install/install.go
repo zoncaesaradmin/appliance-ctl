@@ -1000,10 +1000,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	// Publish https://10.42.0.1/ and every configured server LAN IPv4 as
-	// Traefik externalIPs so kube-proxy on each node can forward :443 to the
-	// Traefik pod. The embedded-etcd K3s configuration enables ServiceLB on
-	// every topology server; this still is not an application-HA guarantee.
+	// Publish loopback, https://10.42.0.1/, and every configured server LAN IPv4
+	// as Traefik externalIPs so host-native connectors can use the stable
+	// 127.0.0.1:80 origin while kube-proxy forwards management traffic to the
+	// Traefik pod. The embedded-etcd K3s configuration enables ServiceLB on every
+	// topology server; this still is not an application-HA guarantee.
 	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath, hostdns.LiteralIPv4s(opts.TLSSANs...)...)
 	checks = append(checks, traefikLBCheck)
 	if traefikLBErr != nil {
