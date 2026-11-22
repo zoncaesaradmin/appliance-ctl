@@ -53,7 +53,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c 'set -eu; chain=ZON-CLOUDFLARED-ORIGIN; iptables=/usr/sbin/iptables; node_ip=$(/usr/sbin/ip -4 route get 8.8.8.8 | /usr/bin/sed -n "s/.* src \([0-9.]*\).*/\1/p"); test -n "$node_ip"; "$iptables" -t nat -N "$chain" 2>/dev/null || true; "$iptables" -t nat -F "$chain"; while "$iptables" -t nat -D OUTPUT -j "$chain" 2>/dev/null; do :; done; "$iptables" -t nat -A "$chain" -p tcp -d 127.0.0.1 --dport 80 -m owner --uid-owner cloudflared -j DNAT --to-destination "$node_ip:80"; "$iptables" -t nat -I OUTPUT 1 -j "$chain"'
+ExecStart=/bin/sh -c 'set -eu; chain=ZON-CLOUDFLARED-ORIGIN; iptables=/usr/sbin/iptables; kubectl=/usr/local/bin/kubectl; "$iptables" -t nat -N "$chain" 2>/dev/null || true; while :; do pod_ip=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml "$kubectl" -n kube-system get pods -l svccontroller.k3s.cattle.io/svcname=traefik --field-selector=status.phase=Running -o jsonpath="{.items[0].status.podIP}" 2>/dev/null || true); case "$pod_ip" in *.*.*.*) ;; *) pod_ip="" ;; esac; if [ -n "$pod_ip" ] && { [ "$pod_ip" != "${last_pod_ip:-}" ] || ! "$iptables" -t nat -C OUTPUT -j "$chain" 2>/dev/null; }; then "$iptables" -t nat -F "$chain"; while "$iptables" -t nat -D OUTPUT -j "$chain" 2>/dev/null; do :; done; "$iptables" -t nat -A "$chain" -p tcp -d 127.0.0.1 --dport 80 -m owner --uid-owner cloudflared -j DNAT --to-destination "$pod_ip:80"; "$iptables" -t nat -I OUTPUT 1 -j "$chain"; last_pod_ip="$pod_ip"; fi; sleep 5; done'
 ExecStop=/bin/sh -c 'set +e; chain=ZON-CLOUDFLARED-ORIGIN; iptables=/usr/sbin/iptables; while "$iptables" -t nat -D OUTPUT -j "$chain" 2>/dev/null; do :; done; "$iptables" -t nat -F "$chain" 2>/dev/null; "$iptables" -t nat -X "$chain" 2>/dev/null; exit 0'
 
 [Install]
@@ -80,7 +80,8 @@ func RenderUnit(binaryPath, tokenPath string) string {
 // Cloudflare Tunnel. K3s ServiceLB owns the node's LAN address, but its
 // host-port rules intercept 127.0.0.1:80 before a normal socket listener can
 // receive it. This narrowly redirects only cloudflared's loopback request to
-// the current node address; the public tunnel configuration remains unchanged.
+// the current Traefik ServiceLB pod, refreshing the pod IP across restarts;
+// the public tunnel configuration remains unchanged.
 func RenderOriginUnit() string {
 	return originUnitTemplate
 }
@@ -161,8 +162,7 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 	}
 	// Replace the old port-forward unit with a narrow, release-owned NAT bridge.
 	// The bridge preserves the operator's fixed Cloudflare origin of
-	// http://127.0.0.1:80 while routing to the node address that K3s ServiceLB
-	// actually serves.
+	// http://127.0.0.1:80 while routing to the current K3s ServiceLB pod.
 	if err := lifecycle.WriteFileAtomic(originUnitPath, []byte(RenderOriginUnit()), 0o644); err != nil {
 		_ = rollback()
 		return nil, fmt.Errorf("cloudflared: write local origin unit: %w", err)

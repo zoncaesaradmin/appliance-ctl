@@ -24,8 +24,8 @@ const (
 // WiFi AP control plane IP https://10.42.0.1/) to the K3s Traefik LoadBalancer
 // Service as externalIPs. Loopback is intentionally not included: Kubernetes
 // rejects all 127.0.0.0/8 addresses in Service.spec.externalIPs. The local
-// Cloudflare connector uses a release-owned host redirect to this ServiceLB
-// address while keeping its configured origin at 127.0.0.1:80.
+// Cloudflare connector uses a release-owned host redirect to the ServiceLB pod
+// while keeping its configured origin at 127.0.0.1:80.
 //
 // K3s ServiceLB only advertises the node's primary ethernet address as the
 // Traefik VIP. Without an externalIP for the AP address, packets to
