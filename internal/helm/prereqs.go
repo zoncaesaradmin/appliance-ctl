@@ -45,7 +45,7 @@ var requiredKeysSecretFiles = []string{
 }
 
 // replicatedKeysSecretFiles is the material consumed by workloads outside the
-// control-plane namespace. automation-runtime verifies its internal caller
+// control-plane namespace. action-runtime verifies its internal caller
 // token with this one pepper; session, registry, cursor, and configuration
 // archive keys remain control-plane local.
 var replicatedKeysSecretFiles = []string{
@@ -406,7 +406,7 @@ func deleteSecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, se
 }
 
 // EnsureKeysSecretReplica copies the control-plane keys Secret into targetNamespace
-// so co-packaged apps that mount keysSecretName (automation-runtime in ace-apps)
+// so co-packaged apps that mount keysSecretName (action-runtime in ace-apps)
 // can attach volumes. Material is cloned from source, never regenerated, so
 // pods across namespaces see the same signing seeds and peppers.
 //

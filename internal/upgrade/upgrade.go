@@ -370,12 +370,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if metadataBundlesDir == "" {
 		metadataBundlesDir = hostdirs.MetadataBundlesDir
 	}
-	if err := o.EnsureOwnedDir(metadataBundlesDir, hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
+	if err := o.EnsureOwnedDir(metadataBundlesDir, hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
 		return nil, checks, fmt.Errorf("upgrade: prepare metadata-bundles directory: %w", err)
 	}
 	checks = append(checks, evidence.Check{
 		ID: "metadata-bundles-directory-owned", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("%s owned by %d:%d", metadataBundlesDir, hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+		Message:   fmt.Sprintf("%s owned by %d:%d", metadataBundlesDir, hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID),
 		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
 	metadataVersion, metadataDigest, err := install.StageMetadataBundle(

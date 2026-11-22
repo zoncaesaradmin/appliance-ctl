@@ -602,12 +602,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if metadataBundlesDir == "" {
 		metadataBundlesDir = hostdirs.MetadataBundlesDir
 	}
-	if err := o.EnsureOwnedDir(metadataBundlesDir, hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
+	if err := o.EnsureOwnedDir(metadataBundlesDir, hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
 		return nil, checks, fmt.Errorf("install: prepare metadata-bundles directory: %w", err)
 	}
 	checks = append(checks, evidence.Check{
 		ID: "metadata-bundles-directory-owned", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("%s owned by %d:%d", metadataBundlesDir, hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID),
+		Message:   fmt.Sprintf("%s owned by %d:%d", metadataBundlesDir, hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID),
 		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
 	metadataVersion, metadataDigest, err := stageMetadataBundle(
@@ -1061,6 +1061,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,
 		resolved.HostEnabled,
+		resolved.ActionsEnabled,
 	) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare service log directory %s: %w", dir.Path, err)
@@ -1330,21 +1331,23 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 	}
 
-	// ui-server / host-agent / automation-runtime live in ace-apps (chart appsNamespace).
+	// ui-server / host-agent / action-runtime live in ace-apps (chart appsNamespace).
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), cleanupOnFailure())
 	}
 
-	// automation-runtime mounts secrets.keysSecretName in the apps namespace; K8s
-	// Secrets are namespaced, so mirror the control-plane keys Secret only after
-	// the ace-system release has created the source namespace/secret.
-	keysReplica, keysReplicaErr := helm.EnsureKeysSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath,
-		opts.ChartNamespace, productconfig.ControlPlaneAppsNamespace, "appliance-keys")
-	checks = append(checks, keysReplica.Checks...)
-	if keysReplicaErr != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: %w", keysReplicaErr), cleanupOnFailure())
+	if resolved.ActionsEnabled {
+		// action-runtime mounts secrets.keysSecretName in the apps namespace; K8s
+		// Secrets are namespaced, so mirror the control-plane keys Secret only after
+		// the ace-system release has created the source namespace/secret.
+		keysReplica, keysReplicaErr := helm.EnsureKeysSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+			opts.ChartNamespace, productconfig.ControlPlaneAppsNamespace, "appliance-keys")
+		checks = append(checks, keysReplica.Checks...)
+		if keysReplicaErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", keysReplicaErr), cleanupOnFailure())
+		}
+		rollbacks = append(rollbacks, keysReplica.Cleanup)
 	}
-	rollbacks = append(rollbacks, keysReplica.Cleanup)
 
 	set2Result = applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppsRelease)
 	checks = append(checks, set2Result.checks...)
@@ -1354,13 +1357,19 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if set2Result.rollback != nil {
 		rollbacks = append(rollbacks, set2Result.rollback)
 	}
-	for _, wait := range []struct {
+	waits := []struct {
 		deploy string
 		id     string
 	}{
 		{deploy: "ui-server", id: "appliance-ui-ready"},
-		{deploy: "automation-runtime", id: "appliance-automation-runtime-ready"},
-	} {
+	}
+	if resolved.ActionsEnabled {
+		waits = append(waits, struct {
+			deploy string
+			id     string
+		}{deploy: "action-runtime", id: "appliance-action-runtime-ready"})
+	}
+	for _, wait := range waits {
 		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, wait.deploy, wait.id)
 		checks = append(checks, ready)
 		if waitErr != nil {

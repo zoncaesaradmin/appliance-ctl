@@ -116,23 +116,32 @@ func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
 	t.Fatal("expected host agent log directory in ServiceLogDirs")
 }
 
-func TestServiceLogDirs_AlwaysIncludesAutomationRuntimeLogDirectory(t *testing.T) {
+func TestServiceLogDirs_AlwaysIncludesActionRuntimeLogDirectory(t *testing.T) {
 	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false)
 	for _, dir := range dirs {
-		if dir.Path == hostdirs.AutomationRuntimeLogDir {
-			if dir.UID != hostdirs.AutomationRuntimeDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
-				t.Fatalf("automation runtime dir ownership = %d:%d, want %d:%d", dir.UID, dir.GID, hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID)
+		if dir.Path == hostdirs.ActionRuntimeLogDir {
+			if dir.UID != hostdirs.ActionRuntimeDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
+				t.Fatalf("action runtime dir ownership = %d:%d, want %d:%d", dir.UID, dir.GID, hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID)
 			}
 			if dir.Mode != hostdirs.ServiceLogDirMode {
-				t.Fatalf("automation runtime dir mode = %o, want %o", dir.Mode, hostdirs.ServiceLogDirMode)
+				t.Fatalf("action runtime dir mode = %o, want %o", dir.Mode, hostdirs.ServiceLogDirMode)
 			}
 			if dir.UID == hostdirs.InferenceDirOwnerUID {
-				t.Fatal("automation runtime must not reuse inference UID 10006")
+				t.Fatal("action runtime must not reuse inference UID 10006")
 			}
 			return
 		}
 	}
-	t.Fatal("expected automation runtime log directory in ServiceLogDirs")
+	t.Fatal("expected action runtime log directory in ServiceLogDirs")
+}
+
+func TestServiceLogDirs_OmitsActionRuntimeLogDirectoryWithoutCapability(t *testing.T) {
+	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false, false, false)
+	for _, dir := range dirs {
+		if dir.Path == hostdirs.ActionRuntimeLogDir {
+			t.Fatalf("action runtime log directory must be absent without actions capability: %#v", dirs)
+		}
+	}
 }
 
 func TestServiceLogFiles_ArtifactApplicationLogReadable(t *testing.T) {

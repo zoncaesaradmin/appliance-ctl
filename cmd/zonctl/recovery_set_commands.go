@@ -57,11 +57,11 @@ func runPostgresRecoveryRestore(ctx context.Context, opts cliOptions, logger *sl
 		return finish(result, "failed", 1, "restore: recovery set has no blob-storage artifact", nil)
 	}
 	base := []string{"--kubeconfig", defaultKubeconfigPath, "--namespace", blobStorageNamespace}
-	for _, deployment := range []string{"controlplane", "automation-runtime", blobStorageDeployment} {
+	for _, deployment := range []string{"controlplane", "action-runtime", blobStorageDeployment} {
 		ns := blobStorageNamespace
 		if deployment != blobStorageDeployment {
 			ns = "ace-system"
-			if deployment == "automation-runtime" {
+			if deployment == "action-runtime" {
 				ns = "ace-apps"
 			}
 		}
@@ -81,11 +81,11 @@ func runPostgresRecoveryRestore(ctx context.Context, opts cliOptions, logger *sl
 		return err
 	}
 	err = restore()
-	for _, deployment := range []string{blobStorageDeployment, "controlplane", "automation-runtime"} {
+	for _, deployment := range []string{blobStorageDeployment, "controlplane", "action-runtime"} {
 		ns := blobStorageNamespace
 		if deployment != blobStorageDeployment {
 			ns = "ace-system"
-			if deployment == "automation-runtime" {
+			if deployment == "action-runtime" {
 				ns = "ace-apps"
 			}
 		}

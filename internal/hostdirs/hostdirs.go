@@ -60,10 +60,10 @@ const (
 	// from HostAgentDirOwnerUID even though both are non-root appliance
 	// identities — never reuse service UIDs across components.
 	InferenceDirOwnerUID = 10006
-	// AutomationRuntimeDirOwnerUID is the fixed numeric identity for the
-	// automation-runtime pod (metadata-bundle + DSL execution). Distinct from
+	// ActionRuntimeDirOwnerUID is the fixed numeric identity for the
+	// action-runtime pod (metadata-bundle + DSL execution). Distinct from
 	// InferenceDirOwnerUID — never reuse service UIDs across components.
-	AutomationRuntimeDirOwnerUID = 10007
+	ActionRuntimeDirOwnerUID = 10007
 	// BlobStorageDirOwnerUID is the fixed numeric identity for the local
 	// S3-compatible blob-storage service.
 	BlobStorageDirOwnerUID = 10009
@@ -114,9 +114,9 @@ const (
 	// InferenceLogDir is the host-visible inference runtime log directory
 	// under the shared appliance log tree.
 	InferenceLogDir = "/data/zon/logs/inference"
-	// AutomationRuntimeLogDir is the host-visible automation-runtime log
+	// ActionRuntimeLogDir is the host-visible action-runtime log
 	// directory under the shared appliance log tree.
-	AutomationRuntimeLogDir = "/data/zon/logs/automation-runtime"
+	ActionRuntimeLogDir = "/data/zon/logs/action-runtime"
 	// InferenceModelsDir is the host-visible model-weight tree mounted into
 	// the inference runtime at /models (filled by zonctl models-import).
 	InferenceModelsDir = "/data/zon/inference/models"
@@ -153,14 +153,15 @@ type OwnedDir struct {
 }
 
 // ServiceLogDirs returns the host-visible log directories the selected
-// capability set requires. Control-plane, UI, and automation runtime always
-// exist; host-agent, registry logs, workflow-controller, DNS, and
+// capability set requires. Control-plane and UI always exist; actions
+// runtime, host-agent, registry logs, workflow-controller, DNS, and
 // inference logs are added only when those capabilities are enabled.
 // The files capability stores objects in foundation blob-storage, so it does
 // not add a dedicated host directory here.
-func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool, includeHost ...bool) []OwnedDir {
+func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool, includeOptional ...bool) []OwnedDir {
 	_ = includeFiles
-	hostEnabled := len(includeHost) == 0 || includeHost[0]
+	hostEnabled := len(includeOptional) == 0 || includeOptional[0]
+	actionsEnabled := len(includeOptional) < 2 || includeOptional[1]
 	dirs := []OwnedDir{
 		{
 			CheckID: "api-server-log-directory-owned",
@@ -176,13 +177,15 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
 		},
-		{
-			CheckID: "automation-runtime-log-directory-owned",
-			Path:    AutomationRuntimeLogDir,
-			UID:     AutomationRuntimeDirOwnerUID,
+	}
+	if actionsEnabled {
+		dirs = append(dirs, OwnedDir{
+			CheckID: "action-runtime-log-directory-owned",
+			Path:    ActionRuntimeLogDir,
+			UID:     ActionRuntimeDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
-		},
+		})
 	}
 	if hostEnabled {
 		dirs = append(dirs, OwnedDir{

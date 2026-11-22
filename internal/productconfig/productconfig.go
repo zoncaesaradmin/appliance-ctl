@@ -29,7 +29,7 @@ const (
 	ProfileTraining                   = "training"
 
 	// ControlPlaneAppsNamespace hosts ui-server, host-agent, and
-	// automation-runtime. controlplane itself uses defaultChartNamespace
+	// action-runtime. controlplane itself uses defaultChartNamespace
 	// (ace-system).
 	ControlPlaneAppsNamespace = "ace-apps"
 	InfrastructureNamespace   = "ace-infra"
@@ -90,6 +90,7 @@ type Capability string
 
 const (
 	CapabilityBase          Capability = "base"
+	CapabilityActions       Capability = "actions"
 	CapabilityLANDiscovery  Capability = "lan-discovery"
 	CapabilityHost          Capability = "host"
 	CapabilityWorkflows     Capability = "workflows"
@@ -453,6 +454,12 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	config["buildCatalog"] = map[string]any{}
 	delete(config, "allowedGitSourceHosts")
 	values["config"] = config
+	actionRuntime, _ := values["actionRuntime"].(map[string]any)
+	if actionRuntime == nil {
+		actionRuntime = map[string]any{}
+	}
+	actionRuntime["enabled"] = HasCapabilityInCatalog(effectiveProfile, CapabilityActions, profileCatalog)
+	values["actionRuntime"] = actionRuntime
 	blobStorage, _ := values["blobStorage"].(map[string]any)
 	if blobStorage == nil {
 		blobStorage = map[string]any{}

@@ -17,17 +17,17 @@ import (
 // install/upgrade fixtures.
 func InstallTestProfileCatalog() map[string][]string {
 	return map[string][]string{
-		"core":                          {"base", "lan-discovery", "files"},
-		"builder":                       {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact"},
-		"storage":                       {"base", "lan-discovery", "host", "files", "artifact"},
-		"landns":                        {"base", "lan-discovery", "host", "files", "dns"},
-		"storage-landns":                {"base", "lan-discovery", "host", "files", "artifact", "dns"},
-		"builder-landns":                {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns"},
-		"builder-storage-landns":        {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns"},
-		"lanllm":                        {"base", "lan-discovery", "inference"},
-		"builder-lanllm":                {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact", "inference"},
-		"builder-lanllm-storage-landns": {"base", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns", "inference"},
-		"training":                      {"base", "lan-discovery", "files", "video", "plaintext-http"},
+		"core":                          {"base", "actions", "lan-discovery", "files"},
+		"builder":                       {"base", "actions", "lan-discovery", "host", "files", "workflows", "build", "artifact"},
+		"storage":                       {"base", "actions", "lan-discovery", "host", "files", "artifact"},
+		"landns":                        {"base", "actions", "lan-discovery", "host", "files", "dns"},
+		"storage-landns":                {"base", "actions", "lan-discovery", "host", "files", "artifact", "dns"},
+		"builder-landns":                {"base", "actions", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns"},
+		"builder-storage-landns":        {"base", "actions", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns"},
+		"lanllm":                        {"base", "actions", "lan-discovery", "inference"},
+		"builder-lanllm":                {"base", "actions", "lan-discovery", "host", "files", "workflows", "build", "artifact", "inference"},
+		"builder-lanllm-storage-landns": {"base", "actions", "lan-discovery", "host", "files", "workflows", "build", "artifact", "dns", "inference"},
+		"training":                      {"base", "actions", "lan-discovery", "files", "video", "plaintext-http"},
 	}
 }
 
@@ -113,6 +113,9 @@ func installTestCapabilitiesYAML() string {
   base:
     displayName: Base
     requires: []
+  actions:
+    displayName: Actions
+    requires: [base]
   host:
     displayName: Host
     requires: [base]

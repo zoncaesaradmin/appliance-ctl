@@ -192,7 +192,7 @@ func TestEnsureKeysSecretReplicaCopiesMaterialToAppsNamespace(t *testing.T) {
 		}
 	}
 	if len(fromFiles) != 1 || fromFiles[0] != "api_token_pepper.key" {
-		t.Fatalf("automation-runtime replica must contain only api_token_pepper.key, got %v", fromFiles)
+		t.Fatalf("action-runtime replica must contain only api_token_pepper.key, got %v", fromFiles)
 	}
 	if err := prepared.Cleanup(); err != nil {
 		_ = err

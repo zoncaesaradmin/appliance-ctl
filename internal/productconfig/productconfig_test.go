@@ -107,6 +107,48 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	}
 }
 
+func TestPrepareValuesFile_ActionRuntimeFollowsCapability(t *testing.T) {
+	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("config: {}\nactionRuntime: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	catalog := productconfig.ProfileCatalog{
+		"with-actions":    {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityActions}},
+		"without-actions": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase}},
+	}
+	for profile, want := range map[string]string{
+		"with-actions":    "enabled: true",
+		"without-actions": "enabled: false",
+	} {
+		t.Run(profile, func(t *testing.T) {
+			rendered, cleanup, err := productconfig.PrepareValuesFile(
+				valuesPath,
+				profile,
+				catalog,
+				"",
+				"",
+				"",
+				"appliance",
+				"appliance.internal",
+				"",
+				"",
+				blobStorageImage,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cleanup()
+			data, err := os.ReadFile(rendered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("rendered values missing %q:\n%s", want, data)
+			}
+		})
+	}
+}
+
 func TestPrepareValuesFileForRuntime_EnablesWebUIOnlyForInferencePackPair(t *testing.T) {
 	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
 	if err := os.WriteFile(valuesPath, []byte("config: {}\ningress: {}\n"), 0o640); err != nil {

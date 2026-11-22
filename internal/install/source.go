@@ -29,6 +29,7 @@ type Resolved struct {
 	Compatibility       bundle.Compatibility
 	EffectiveProfile    string
 	ProfileCatalog      productconfig.ProfileCatalog
+	ActionsEnabled      bool
 	LANDiscoveryEnabled bool
 	HostEnabled         bool
 	FilesEnabled        bool
@@ -191,6 +192,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, profileCatalog, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	applicationsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplications, profileCatalog)
+	actionsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityActions, profileCatalog)
 	lanDiscoveryEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityLANDiscovery, profileCatalog)
 	// Direct application endpoints require the same deviceuser host-agent
 	// boundary as Wi-Fi and host details, even when the profile omits the
@@ -368,6 +370,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		Compatibility:                      compat,
 		EffectiveProfile:                   effectiveProfile,
 		ProfileCatalog:                     profileCatalog,
+		ActionsEnabled:                     actionsEnabled,
 		LANDiscoveryEnabled:                lanDiscoveryEnabled,
 		HostEnabled:                        hostEnabled,
 		FilesEnabled:                       filesEnabled,

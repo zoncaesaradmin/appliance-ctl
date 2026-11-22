@@ -20,7 +20,7 @@ var systemNamespaces = map[string]bool{
 
 // platformNamespaces are product-owned namespaces that install places
 // alongside the control-plane ChartNamespace (default ace-system). The
-// apps package (ui, host-agent, automation-runtime) lives in ace-apps;
+// apps package (ui, host-agent, action-runtime) lives in ace-apps;
 // message broker also uses ace-system; registry/DNS/inference/workflows
 // each have fixed names.
 var platformNamespaces = map[string]bool{

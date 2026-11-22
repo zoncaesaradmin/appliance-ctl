@@ -1409,13 +1409,13 @@ func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
 		hostdirs.APIServerLogDir:             {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:                    {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.HostAgentLogDir:             {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.AutomationRuntimeLogDir:     {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ActionRuntimeLogDir:         {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir:        {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.WorkflowControllerLogDir:    {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
 		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:              {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:              {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected service log ownership for %v, got %v", wantOwnedPaths, ownedPaths)
@@ -1479,11 +1479,11 @@ func TestInstall_CoreProfileOwnsRequiredHostPaths(t *testing.T) {
 	wantOwnedPaths := map[string][2]int{
 		hostdirs.APIServerLogDir:             {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:                    {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.AutomationRuntimeLogDir:     {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ActionRuntimeLogDir:         {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
 		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:              {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:              {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected core required host path ownership %v, got %v", wantOwnedPaths, ownedPaths)
@@ -1522,12 +1522,12 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		hostdirs.APIServerLogDir:             {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.UILogDir:                    {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.HostAgentLogDir:             {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.AutomationRuntimeLogDir:     {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ActionRuntimeLogDir:         {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ArtifactServerLogDir:        {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
 		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:              {hostdirs.AutomationRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:              {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only storage service log ownership %v, got %v", wantOwnedPaths, ownedPaths)
