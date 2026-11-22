@@ -34,7 +34,7 @@ func TestRenderOriginUnitUsesScopedLocalRedirect(t *testing.T) {
 		"-C OUTPUT -j \"$chain\"",
 		"-d 127.0.0.1 --dport 80 -m owner --uid-owner cloudflared -j DNAT",
 		"--to-destination \"$pod_ip:80\"",
-		"-m owner --uid-owner cloudflared -j MASQUERADE",
+		"-d \"$pod_ip\" --dport 80 -m owner --uid-owner cloudflared -j MASQUERADE",
 		"ExecStop=/bin/sh -c",
 	} {
 		if !strings.Contains(unit, want) {
