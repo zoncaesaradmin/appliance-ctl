@@ -27,6 +27,7 @@ func TestRenderOriginUnitUsesScopedLocalRedirect(t *testing.T) {
 	for _, want := range []string{
 		"Description=Zon appliance localhost origin redirect",
 		"Requires=k3s.service",
+		"Type=simple",
 		"chain=ZON-CLOUDFLARED-ORIGIN",
 		"-n kube-system get pods",
 		"status.phase=Running",
