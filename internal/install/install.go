@@ -1021,9 +1021,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// Publish https://10.42.0.1/ and every configured server LAN IPv4 as
 	// Traefik externalIPs so kube-proxy forwards management traffic to the
 	// Traefik pod. The embedded-etcd K3s configuration enables ServiceLB on every
-	// topology server; this still is not an application-HA guarantee. Loopback
-	// is provided separately by the host-native Cloudflare origin forwarder;
-	// Kubernetes rejects loopback values in Service.spec.externalIPs.
+	// topology server; this still is not an application-HA guarantee. Host-native
+	// Cloudflare connectors use ServiceLB's host port on 127.0.0.1; Kubernetes
+	// rejects loopback values in Service.spec.externalIPs.
 	traefikLBCheck, traefikLBErr := helm.EnsureTraefikManagementExternalIPs(ctx, o.HelmRun, opts.KubeconfigPath, hostdns.LiteralIPv4s(opts.TLSSANs...)...)
 	checks = append(checks, traefikLBCheck)
 	if traefikLBErr != nil {
@@ -1231,7 +1231,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		rollbacks = append(rollbacks, cloudflaredRollback)
 		checks = append(checks, evidence.Check{
 			ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass,
-			Message:   "local Cloudflare Tunnel connector and stable 127.0.0.1:80 Traefik origin forwarder installed and running; tunnel token remains redacted",
+			Message:   "local Cloudflare Tunnel connector installed and running against the K3s Traefik ServiceLB localhost origin; tunnel token remains redacted",
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	} else {
