@@ -233,7 +233,7 @@ func restoreBootstrapPostgres(ctx context.Context, run cli.Runner, kubeconfig, n
 	if info, err := os.Stat(dumpPath); err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("install: recovery-set database artifact is missing or invalid")
 	}
-	const pod = "controlplane-database-0"
+	const pod = "platform-postgres-0"
 	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "cp", dumpPath, pod+":/tmp/recovery-set.dump", "-c", "postgres"); err != nil {
 		return fmt.Errorf("install: copy recovery-set database artifact: %w", err)
 	}
@@ -1248,7 +1248,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: wait for blob storage: %w", waitErr), cleanupOnFailure())
 	}
 	if resolved.PostgresImageReference != "" {
-		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, "controlplane-database", "controlplane-database-ready")
+		ready, waitErr = helm.WaitStatefulSetAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, "platform-postgres", "platform-postgres-ready")
 		checks = append(checks, ready)
 		if waitErr != nil {
 			postgresDiag := aceInfraRelease

@@ -405,7 +405,7 @@ func (f *fakeCLI) Run(_ context.Context, name string, args ...string) (string, e
 	if name == "kubectl" && contains(args, "get") && contains(args, "secret") && contains(args, "json") && strings.Contains(call, "controlplane-database-connection") {
 		payload, _ := json.Marshal(map[string]any{"data": map[string]string{
 			"password": base64.StdEncoding.EncodeToString([]byte("postgres-password")),
-			"dsn":      base64.StdEncoding.EncodeToString([]byte("postgresql://controlplane:postgres-password@controlplane-database.ace-infra.svc.cluster.local:5432/controlplane?sslmode=disable")),
+			"dsn":      base64.StdEncoding.EncodeToString([]byte("postgresql://controlplane:postgres-password@platform-postgres.ace-infra.svc.cluster.local:5432/controlplane?sslmode=disable")),
 		}})
 		return string(payload), nil
 	}

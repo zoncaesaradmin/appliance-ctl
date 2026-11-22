@@ -74,10 +74,10 @@ func runPostgresRecoveryRestore(ctx context.Context, opts cliOptions, logger *sl
 			return err
 		}
 		dump := filepath.Join(opts.recoverySetPath, set.Database.Path)
-		if _, err := cli.Exec(ctx, "kubectl", append(base, "cp", dump, "controlplane-database-0:/tmp/recovery-set.dump", "-c", "postgres")...); err != nil {
+		if _, err := cli.Exec(ctx, "kubectl", append(base, "cp", dump, "platform-postgres-0:/tmp/recovery-set.dump", "-c", "postgres")...); err != nil {
 			return err
 		}
-		_, err := cli.Exec(ctx, "kubectl", append(base, "exec", "controlplane-database-0", "-c", "postgres", "--", "sh", "-ec", "psql -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && pg_restore --no-owner --no-acl -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" /tmp/recovery-set.dump && rm -f /tmp/recovery-set.dump")...)
+		_, err := cli.Exec(ctx, "kubectl", append(base, "exec", "platform-postgres-0", "-c", "postgres", "--", "sh", "-ec", "psql -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && pg_restore --no-owner --no-acl -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" /tmp/recovery-set.dump && rm -f /tmp/recovery-set.dump")...)
 		return err
 	}
 	err = restore()
@@ -213,7 +213,7 @@ func runPostgresRecoveryBackup(ctx context.Context, opts cliOptions, installed *
 	}
 
 	dumpPath := filepath.Join(root, "database.dump")
-	exporter := recoveryset.KubernetesPostgresExporter{Kubeconfig: defaultKubeconfigPath, Namespace: "ace-infra", StatefulSet: "controlplane-database", Image: installed.Components.PostgresImageReference}
+	exporter := recoveryset.KubernetesPostgresExporter{Kubeconfig: defaultKubeconfigPath, Namespace: "ace-infra", StatefulSet: "platform-postgres", Image: installed.Components.PostgresImageReference}
 	database, err := exporter.Export(ctx, dumpPath)
 	if err != nil {
 		return finish(result, "failed", 1, "backup: "+err.Error(), nil)

@@ -52,7 +52,7 @@ func TestRestoreBootstrapPostgresCopiesThenRestores(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(calls, "\n")
-	if !strings.Contains(joined, "cp "+dump+" controlplane-database-0:/tmp/recovery-set.dump -c postgres") || !strings.Contains(joined, "pg_restore --no-owner --no-acl") {
+	if !strings.Contains(joined, "cp "+dump+" platform-postgres-0:/tmp/recovery-set.dump -c postgres") || !strings.Contains(joined, "pg_restore --no-owner --no-acl") {
 		t.Fatalf("expected protected copy and restore, got:\n%s", joined)
 	}
 }

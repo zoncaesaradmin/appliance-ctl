@@ -11,7 +11,7 @@ import (
 func TestKubernetesPostgresExporterStreamsCustomDump(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "database.dump")
 	var got []string
-	e := KubernetesPostgresExporter{Kubeconfig: "/kube", Namespace: "ace-infra", StatefulSet: "controlplane-database", Image: "registry.local/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Stream: func(_ context.Context, destination, name string, args ...string) error {
+	e := KubernetesPostgresExporter{Kubeconfig: "/kube", Namespace: "ace-infra", StatefulSet: "platform-postgres", Image: "registry.local/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Stream: func(_ context.Context, destination, name string, args ...string) error {
 		if name != "kubectl" || destination != path {
 			t.Fatalf("stream target %q %q", name, destination)
 		}
@@ -23,7 +23,7 @@ func TestKubernetesPostgresExporterStreamsCustomDump(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(got, " ")
-	for _, want := range []string{"exec statefulset/controlplane-database", "-c postgres", "pg_dump --format=custom"} {
+	for _, want := range []string{"exec statefulset/platform-postgres", "-c postgres", "pg_dump --format=custom"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("command %q missing %q", joined, want)
 		}

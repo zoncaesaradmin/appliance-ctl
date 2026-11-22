@@ -60,7 +60,7 @@ func (e KubernetesPostgresExporter) verifyRestore(ctx context.Context, artifact 
 	base := []string{"--kubeconfig", e.Kubeconfig, "--namespace", e.Namespace}
 	manifest, err := json.Marshal(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
-		"metadata": map[string]any{"name": name, "labels": map[string]string{"app.kubernetes.io/name": "controlplane-database-recovery-verify"}},
+		"metadata": map[string]any{"name": name, "labels": map[string]string{"app.kubernetes.io/name": "platform-postgres-recovery-verify"}},
 		"spec": map[string]any{
 			"restartPolicy": "Never", "automountServiceAccountToken": false,
 			"securityContext": map[string]any{"runAsNonRoot": true, "runAsUser": 70, "runAsGroup": 70, "fsGroup": 70, "fsGroupChangePolicy": "OnRootMismatch", "seccompProfile": map[string]string{"type": "RuntimeDefault"}},
