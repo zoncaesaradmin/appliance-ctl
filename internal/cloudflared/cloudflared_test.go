@@ -11,13 +11,33 @@ func TestRenderUnitUsesPinnedTokenFile(t *testing.T) {
 	unit := RenderUnit("/usr/local/lib/zon/bin/cloudflared", "/etc/zon/cloudflared/tunnel-token")
 	for _, want := range []string{
 		"ExecStart=/usr/local/lib/zon/bin/cloudflared tunnel --no-autoupdate run --token-file /etc/zon/cloudflared/tunnel-token",
-		"After=network-online.target",
+		"Requires=zon-traefik-local-origin.service",
+		"After=network-online.target zon-traefik-local-origin.service",
 		"User=cloudflared",
 		"ProtectSystem=strict",
 	} {
 		if !strings.Contains(unit, want) {
 			t.Fatalf("unit missing %q:\n%s", want, unit)
 		}
+	}
+}
+
+func TestRenderOriginUnitUsesScopedLocalRedirect(t *testing.T) {
+	unit := RenderOriginUnit()
+	for _, want := range []string{
+		"Description=Zon appliance localhost origin redirect",
+		"Requires=k3s.service",
+		"chain=ZON-CLOUDFLARED-ORIGIN",
+		"-d 127.0.0.1 --dport 80 -m owner --uid-owner cloudflared -j DNAT",
+		"--to-destination \"$node_ip:80\"",
+		"ExecStop=/bin/sh -c",
+	} {
+		if !strings.Contains(unit, want) {
+			t.Fatalf("origin unit missing %q:\n%s", want, unit)
+		}
+	}
+	if strings.Contains(unit, "kubectl port-forward") {
+		t.Fatalf("origin unit must not use a kubectl port-forward:\n%s", unit)
 	}
 }
 

@@ -19,12 +19,13 @@ import (
 )
 
 const (
-	serviceUser          = "cloudflared"
-	legacyOriginUnitName = "zon-traefik-local-origin.service"
-	legacyOriginUnitPath = "/etc/systemd/system/zon-traefik-local-origin.service"
-	unitTemplate         = `[Unit]
+	serviceUser    = "cloudflared"
+	originUnitName = "zon-traefik-local-origin.service"
+	originUnitPath = "/etc/systemd/system/zon-traefik-local-origin.service"
+	unitTemplate   = `[Unit]
 Description=Zon appliance Cloudflare Tunnel connector (release-owned; do not edit)
-After=network-online.target
+Requires=zon-traefik-local-origin.service
+After=network-online.target zon-traefik-local-origin.service
 Wants=network-online.target
 
 [Service]
@@ -39,6 +40,21 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=%s
+
+[Install]
+WantedBy=multi-user.target
+`
+	originUnitTemplate = `[Unit]
+Description=Zon appliance localhost origin redirect for Cloudflare Tunnel (release-owned; do not edit)
+Requires=k3s.service
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'set -eu; chain=ZON-CLOUDFLARED-ORIGIN; iptables=/usr/sbin/iptables; node_ip=$(/usr/sbin/ip -4 route get 8.8.8.8 | /usr/bin/sed -n "s/.* src \([0-9.]*\).*/\1/p"); test -n "$node_ip"; "$iptables" -t nat -N "$chain" 2>/dev/null || true; "$iptables" -t nat -F "$chain"; while "$iptables" -t nat -D OUTPUT -j "$chain" 2>/dev/null; do :; done; "$iptables" -t nat -A "$chain" -p tcp -d 127.0.0.1 --dport 80 -m owner --uid-owner cloudflared -j DNAT --to-destination "$node_ip:80"; "$iptables" -t nat -I OUTPUT 1 -j "$chain"'
+ExecStop=/bin/sh -c 'set +e; chain=ZON-CLOUDFLARED-ORIGIN; iptables=/usr/sbin/iptables; while "$iptables" -t nat -D OUTPUT -j "$chain" 2>/dev/null; do :; done; "$iptables" -t nat -F "$chain" 2>/dev/null; "$iptables" -t nat -X "$chain" 2>/dev/null; exit 0'
 
 [Install]
 WantedBy=multi-user.target
@@ -58,6 +74,15 @@ type InstallSpec struct {
 
 func RenderUnit(binaryPath, tokenPath string) string {
 	return fmt.Sprintf(unitTemplate, binaryPath, tokenPath, tokenPath)
+}
+
+// RenderOriginUnit returns the host-native localhost bridge used by the local
+// Cloudflare Tunnel. K3s ServiceLB owns the node's LAN address, but its
+// host-port rules intercept 127.0.0.1:80 before a normal socket listener can
+// receive it. This narrowly redirects only cloudflared's loopback request to
+// the current node address; the public tunnel configuration remains unchanged.
+func RenderOriginUnit() string {
+	return originUnitTemplate
 }
 
 // InstallOrUpdate installs the verified connector and protected token, then
@@ -86,7 +111,7 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 	if err != nil {
 		return nil, err
 	}
-	legacyOriginPrev, err := backupFile(legacyOriginUnitPath)
+	originPrev, err := backupFile(originUnitPath)
 	if err != nil {
 		return nil, err
 	}
@@ -102,20 +127,20 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 		if err := restoreFile(spec.TokenDestPath, tokenPrev); err != nil {
 			errs = append(errs, err)
 		}
-		if err := restoreFile(legacyOriginUnitPath, legacyOriginPrev); err != nil {
+		if err := restoreFile(originUnitPath, originPrev); err != nil {
 			errs = append(errs, err)
 		}
 		if err := runSystemctl("daemon-reload"); err != nil {
 			errs = append(errs, err)
 		}
-		if legacyOriginPrev.exists {
-			if err := runSystemctl("enable", legacyOriginUnitName); err != nil {
+		if originPrev.exists {
+			if err := runSystemctl("enable", originUnitName); err != nil {
 				errs = append(errs, err)
 			}
-			if err := runSystemctl("restart", legacyOriginUnitName); err != nil {
+			if err := runSystemctl("restart", originUnitName); err != nil {
 				errs = append(errs, err)
 			}
-		} else if err := disableAndStop(legacyOriginUnitName); err != nil {
+		} else if err := disableAndStop(originUnitName); err != nil {
 			errs = append(errs, err)
 		}
 		if unitPrev.exists {
@@ -134,17 +159,13 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 	if err := hostagent.InstallBinary(spec.SourceBinaryPath, spec.BinaryDestPath); err != nil {
 		return nil, err
 	}
-	// Older appliance releases installed a kubectl port-forward on 127.0.0.1:80.
-	// K3s ServiceLB already owns that host port and its NAT rules intercept the
-	// port-forward, so remove the obsolete unit and let ServiceLB serve the
-	// Cloudflare origin directly.
-	if err := disableAndStop(legacyOriginUnitName); err != nil {
+	// Replace the old port-forward unit with a narrow, release-owned NAT bridge.
+	// The bridge preserves the operator's fixed Cloudflare origin of
+	// http://127.0.0.1:80 while routing to the node address that K3s ServiceLB
+	// actually serves.
+	if err := lifecycle.WriteFileAtomic(originUnitPath, []byte(RenderOriginUnit()), 0o644); err != nil {
 		_ = rollback()
-		return nil, fmt.Errorf("cloudflared: remove legacy local origin service: %w", err)
-	}
-	if err := os.Remove(legacyOriginUnitPath); err != nil && !os.IsNotExist(err) {
-		_ = rollback()
-		return nil, fmt.Errorf("cloudflared: remove legacy local origin unit: %w", err)
+		return nil, fmt.Errorf("cloudflared: write local origin unit: %w", err)
 	}
 	if err := lifecycle.WriteFileAtomic(spec.UnitPath, []byte(RenderUnit(spec.BinaryDestPath, spec.TokenDestPath)), 0o644); err != nil {
 		_ = rollback()
@@ -171,6 +192,18 @@ func InstallOrUpdate(spec InstallSpec) (func() error, error) {
 		_ = rollback()
 		return nil, err
 	}
+	if err := runSystemctl("enable", originUnitName); err != nil {
+		_ = rollback()
+		return nil, err
+	}
+	if err := runSystemctl("restart", originUnitName); err != nil {
+		_ = rollback()
+		return nil, err
+	}
+	if err := waitForActive(originUnitName); err != nil {
+		_ = rollback()
+		return nil, err
+	}
 	if err := runSystemctl("enable", spec.UnitName); err != nil {
 		_ = rollback()
 		return nil, err
@@ -194,10 +227,10 @@ func Uninstall(spec InstallSpec) error {
 	if err := disableAndStop(spec.UnitName); err != nil {
 		errs = append(errs, err)
 	}
-	if err := disableAndStop(legacyOriginUnitName); err != nil {
+	if err := disableAndStop(originUnitName); err != nil {
 		errs = append(errs, err)
 	}
-	for _, path := range []string{spec.UnitPath, spec.BinaryDestPath, spec.TokenDestPath, legacyOriginUnitPath} {
+	for _, path := range []string{spec.UnitPath, spec.BinaryDestPath, spec.TokenDestPath, originUnitPath} {
 		if path == "" {
 			continue
 		}

@@ -1231,7 +1231,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		rollbacks = append(rollbacks, cloudflaredRollback)
 		checks = append(checks, evidence.Check{
 			ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass,
-			Message:   "local Cloudflare Tunnel connector installed and running against the K3s Traefik ServiceLB localhost origin; tunnel token remains redacted",
+			Message:   "local Cloudflare Tunnel connector installed with a release-owned localhost origin redirect to the K3s Traefik ServiceLB; tunnel token remains redacted",
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	} else {

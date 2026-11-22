@@ -955,7 +955,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
-		checks = append(checks, evidence.Check{ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass, Message: "local Cloudflare Tunnel connector installed and running against the K3s Traefik ServiceLB localhost origin; tunnel token remains redacted", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+		checks = append(checks, evidence.Check{ID: "cloudflared-installed", Category: "host", Status: evidence.StatusPass, Message: "local Cloudflare Tunnel connector installed with a release-owned localhost origin redirect to the K3s Traefik ServiceLB; tunnel token remains redacted", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 	}
 	if targetArtifact {
 		registryKeys, keyErr := helm.EnsureRegistryPublicKeySecret(ctx, o.HelmRun, opts.KubeconfigPath,
