@@ -1372,7 +1372,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// reference appliance-tls. Create both before the ace-system release so the
 	// Deployment can schedule and Traefik has a secret to attach.
 	appsTLSNamespace := ""
-	if resolved.ChannelIntegrationsEnabled || resolved.ApplicationServicesEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.CommerceEnabled {
 		appsTLSNamespace = productconfig.ControlPlaneAppsNamespace
 	}
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
@@ -1457,7 +1457,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		rollbacks = append(rollbacks, runtimeSecret.Cleanup)
 	}
-	if resolved.ApplicationServicesEnabled && resolved.PostgresImageReference != "" {
+	if resolved.CommerceEnabled && resolved.PostgresImageReference != "" {
 		dbReplica, dbReplicaErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, productconfig.ControlPlaneAppsNamespace, "controlplane-database-connection")
 		checks = append(checks, dbReplica.Checks...)
 		if dbReplicaErr != nil {
@@ -1492,7 +1492,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			id     string
 		}{deploy: "channel-integration", id: "channel-integration-ready"})
 	}
-	if resolved.ApplicationServicesEnabled {
+	if resolved.CommerceEnabled {
 		waits = append(waits, struct {
 			deploy string
 			id     string

@@ -31,7 +31,7 @@ type Resolved struct {
 	ProfileCatalog             productconfig.ProfileCatalog
 	ActionsEnabled             bool
 	ChannelIntegrationsEnabled bool
-	ApplicationServicesEnabled bool
+	CommerceEnabled            bool
 	LANDiscoveryEnabled        bool
 	HostEnabled                bool
 	FilesEnabled               bool
@@ -375,12 +375,12 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires channel-integrations capability but its image is missing: %w", effectiveProfile, err)
 		}
 	}
-	applicationServicesEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplicationServices, profileCatalog)
+	commerceEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityCommerce, profileCatalog)
 	orderingImageReference := ""
-	if applicationServicesEnabled {
+	if commerceEnabled {
 		orderingImageReference, err = requiredOrderingImageReference(view)
 		if err != nil {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires application-services capability but its image is missing: %w", effectiveProfile, err)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires commerce capability but its image is missing: %w", effectiveProfile, err)
 		}
 	}
 
@@ -394,7 +394,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ProfileCatalog:                     profileCatalog,
 		ActionsEnabled:                     actionsEnabled,
 		ChannelIntegrationsEnabled:         channelIntegrationsEnabled,
-		ApplicationServicesEnabled:         applicationServicesEnabled,
+		CommerceEnabled:                    commerceEnabled,
 		LANDiscoveryEnabled:                lanDiscoveryEnabled,
 		HostEnabled:                        hostEnabled,
 		FilesEnabled:                       filesEnabled,
@@ -982,7 +982,7 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 		if strings.HasPrefix(image.Name, "registry.local/workspace-provisioner@") && !r.BuildEnabled {
 			continue
 		}
-		if strings.HasPrefix(image.Name, "registry.local/ordering@") && !r.ApplicationServicesEnabled {
+		if strings.HasPrefix(image.Name, "registry.local/ordering@") && !r.CommerceEnabled {
 			continue
 		}
 		if image.Category == images.CategoryDependency {

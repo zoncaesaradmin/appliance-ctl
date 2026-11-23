@@ -93,7 +93,7 @@ const (
 	CapabilityBase                Capability = "base"
 	CapabilityActions             Capability = "actions"
 	CapabilityChannelIntegrations Capability = "channel-integrations"
-	CapabilityApplicationServices Capability = "application-services"
+	CapabilityCommerce            Capability = "commerce"
 	CapabilityLANDiscovery        Capability = "lan-discovery"
 	CapabilityHost                Capability = "host"
 	CapabilityWorkflows           Capability = "workflows"
@@ -387,9 +387,9 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	if channelIntegrationsEnabled && !validChannelIntegrationImageDigest(channelIntegrationImageReference) {
 		return "", func() {}, fmt.Errorf("product config: channel-integrations capability requires a bundled registry.local/channel-integration@sha256 image reference; got %q", channelIntegrationImageReference)
 	}
-	applicationServicesEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityApplicationServices, profileCatalog)
-	if applicationServicesEnabled && !validOrderingImageDigest(orderingImageReference) {
-		return "", func() {}, fmt.Errorf("product config: application-services capability requires a bundled registry.local/ordering@sha256 image reference; got %q", orderingImageReference)
+	commerceEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityCommerce, profileCatalog)
+	if commerceEnabled && !validOrderingImageDigest(orderingImageReference) {
+		return "", func() {}, fmt.Errorf("product config: commerce capability requires a bundled registry.local/ordering@sha256 image reference; got %q", orderingImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host or application capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -549,12 +549,12 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	if ordering == nil {
 		ordering = map[string]any{}
 	}
-	ordering["enabled"] = applicationServicesEnabled
+	ordering["enabled"] = commerceEnabled
 	orderingIngress, _ := ordering["ingress"].(map[string]any)
 	if orderingIngress == nil {
 		orderingIngress = map[string]any{}
 	}
-	if applicationServicesEnabled {
+	if commerceEnabled {
 		orderingIngress["host"] = publicOriginHost
 		if tlsTermination == "cloudflare" {
 			orderingIngress["entryPoints"] = []string{"web"}
@@ -569,7 +569,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	if orderingImage == nil {
 		orderingImage = map[string]any{}
 	}
-	if applicationServicesEnabled {
+	if commerceEnabled {
 		orderingImage["reference"] = orderingImageReference
 	}
 	ordering["image"] = orderingImage
