@@ -1511,7 +1511,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		waits = append(waits, struct {
 			deploy string
 			id     string
-		}{deploy: "application-identity", id: "application-identity-ready"})
+		}{deploy: "identity", id: "identity-ready"})
 	}
 	for _, wait := range waits {
 		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, wait.deploy, wait.id)
