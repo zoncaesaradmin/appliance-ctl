@@ -31,6 +31,7 @@ type Resolved struct {
 	ProfileCatalog             productconfig.ProfileCatalog
 	ActionsEnabled             bool
 	ChannelIntegrationsEnabled bool
+	ApplicationServicesEnabled bool
 	LANDiscoveryEnabled        bool
 	HostEnabled                bool
 	FilesEnabled               bool
@@ -88,6 +89,7 @@ type Resolved struct {
 	OpenWebUIGatewayImageReference   string
 	MessageBrokerImageReference      string
 	ChannelIntegrationImageReference string
+	OrderingImageReference           string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -306,7 +308,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isOrderingImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -373,6 +375,14 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires channel-integrations capability but its image is missing: %w", effectiveProfile, err)
 		}
 	}
+	applicationServicesEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplicationServices, profileCatalog)
+	orderingImageReference := ""
+	if applicationServicesEnabled {
+		orderingImageReference, err = requiredOrderingImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires application-services capability but its image is missing: %w", effectiveProfile, err)
+		}
+	}
 
 	return Resolved{
 		Runtimes:                           runtimes,
@@ -384,6 +394,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ProfileCatalog:                     profileCatalog,
 		ActionsEnabled:                     actionsEnabled,
 		ChannelIntegrationsEnabled:         channelIntegrationsEnabled,
+		ApplicationServicesEnabled:         applicationServicesEnabled,
 		LANDiscoveryEnabled:                lanDiscoveryEnabled,
 		HostEnabled:                        hostEnabled,
 		FilesEnabled:                       filesEnabled,
@@ -420,6 +431,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		OpenWebUIGatewayImageReference:     openWebUIGatewayImageReference,
 		MessageBrokerImageReference:        messageBrokerImageReference,
 		ChannelIntegrationImageReference:   channelIntegrationImageReference,
+		OrderingImageReference:             orderingImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
@@ -487,6 +499,27 @@ func isPostgresImageReference(ref string) bool {
 
 func isChannelIntegrationImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/channel-integration@sha256:")
+}
+
+func isOrderingImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/ordering@sha256:")
+}
+
+func requiredOrderingImageReference(b entrySource) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isOrderingImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple ordering image references")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no registry.local/ordering@sha256 image")
+	}
+	return found, nil
 }
 
 func requiredChannelIntegrationImageReference(b entrySource) (string, error) {
@@ -947,6 +980,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 			continue
 		}
 		if strings.HasPrefix(image.Name, "registry.local/workspace-provisioner@") && !r.BuildEnabled {
+			continue
+		}
+		if strings.HasPrefix(image.Name, "registry.local/ordering@") && !r.ApplicationServicesEnabled {
 			continue
 		}
 		if image.Category == images.CategoryDependency {

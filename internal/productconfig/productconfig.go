@@ -93,6 +93,7 @@ const (
 	CapabilityBase                Capability = "base"
 	CapabilityActions             Capability = "actions"
 	CapabilityChannelIntegrations Capability = "channel-integrations"
+	CapabilityApplicationServices Capability = "application-services"
 	CapabilityLANDiscovery        Capability = "lan-discovery"
 	CapabilityHost                Capability = "host"
 	CapabilityWorkflows           Capability = "workflows"
@@ -347,6 +348,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	blobStorageImageReference := ""
 	postgresImageReference := ""
 	channelIntegrationImageReference := ""
+	orderingImageReference := ""
 	if len(registry) > 0 {
 		artifactServerImageReference = strings.TrimSpace(registry[0])
 	}
@@ -358,6 +360,9 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if len(registry) > 3 {
 		channelIntegrationImageReference = strings.TrimSpace(registry[3])
+	}
+	if len(registry) > 4 {
+		orderingImageReference = strings.TrimSpace(registry[4])
 	}
 	if buildEnabled {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
@@ -381,6 +386,10 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	channelIntegrationsEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityChannelIntegrations, profileCatalog)
 	if channelIntegrationsEnabled && !validChannelIntegrationImageDigest(channelIntegrationImageReference) {
 		return "", func() {}, fmt.Errorf("product config: channel-integrations capability requires a bundled registry.local/channel-integration@sha256 image reference; got %q", channelIntegrationImageReference)
+	}
+	applicationServicesEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityApplicationServices, profileCatalog)
+	if applicationServicesEnabled && !validOrderingImageDigest(orderingImageReference) {
+		return "", func() {}, fmt.Errorf("product config: application-services capability requires a bundled registry.local/ordering@sha256 image reference; got %q", orderingImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host or application capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -532,6 +541,40 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	channelIntegration["image"] = channelImage
 	values["channelIntegration"] = channelIntegration
+	applicationServices, _ := values["applicationServices"].(map[string]any)
+	if applicationServices == nil {
+		applicationServices = map[string]any{}
+	}
+	ordering, _ := applicationServices["ordering"].(map[string]any)
+	if ordering == nil {
+		ordering = map[string]any{}
+	}
+	ordering["enabled"] = applicationServicesEnabled
+	orderingIngress, _ := ordering["ingress"].(map[string]any)
+	if orderingIngress == nil {
+		orderingIngress = map[string]any{}
+	}
+	if applicationServicesEnabled {
+		orderingIngress["host"] = publicOriginHost
+		if tlsTermination == "cloudflare" {
+			orderingIngress["entryPoints"] = []string{"web"}
+			orderingIngress["tls"] = map[string]any{"enabled": false}
+		} else {
+			orderingIngress["entryPoints"] = []string{"websecure"}
+			orderingIngress["tls"] = map[string]any{"enabled": true}
+		}
+	}
+	ordering["ingress"] = orderingIngress
+	orderingImage, _ := ordering["image"].(map[string]any)
+	if orderingImage == nil {
+		orderingImage = map[string]any{}
+	}
+	if applicationServicesEnabled {
+		orderingImage["reference"] = orderingImageReference
+	}
+	ordering["image"] = orderingImage
+	applicationServices["ordering"] = ordering
+	values["applicationServices"] = applicationServices
 	blobStorage, _ := values["blobStorage"].(map[string]any)
 	if blobStorage == nil {
 		blobStorage = map[string]any{}
@@ -1309,6 +1352,10 @@ func validPostgresImageDigest(image string) bool {
 
 func validChannelIntegrationImageDigest(image string) bool {
 	return validRegistryLocalImageDigest(image, "channel-integration")
+}
+
+func validOrderingImageDigest(image string) bool {
+	return validRegistryLocalImageDigest(image, "ordering")
 }
 
 func validDNSImageDigest(image string) bool {

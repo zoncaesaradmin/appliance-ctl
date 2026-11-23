@@ -522,7 +522,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -1372,7 +1372,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// reference appliance-tls. Create both before the ace-system release so the
 	// Deployment can schedule and Traefik has a secret to attach.
 	appsTLSNamespace := ""
-	if resolved.ChannelIntegrationsEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.ApplicationServicesEnabled {
 		appsTLSNamespace = productconfig.ControlPlaneAppsNamespace
 	}
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
@@ -1457,6 +1457,14 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		rollbacks = append(rollbacks, runtimeSecret.Cleanup)
 	}
+	if resolved.ApplicationServicesEnabled && resolved.PostgresImageReference != "" {
+		dbReplica, dbReplicaErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, productconfig.ControlPlaneAppsNamespace, "controlplane-database-connection")
+		checks = append(checks, dbReplica.Checks...)
+		if dbReplicaErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", dbReplicaErr), cleanupOnFailure(dbReplica.Cleanup))
+		}
+		rollbacks = append(rollbacks, dbReplica.Cleanup)
+	}
 
 	set2Result = applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppsRelease)
 	checks = append(checks, set2Result.checks...)
@@ -1483,6 +1491,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			deploy string
 			id     string
 		}{deploy: "channel-integration", id: "channel-integration-ready"})
+	}
+	if resolved.ApplicationServicesEnabled {
+		waits = append(waits, struct {
+			deploy string
+			id     string
+		}{deploy: "ordering", id: "ordering-ready"})
 	}
 	for _, wait := range waits {
 		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, wait.deploy, wait.id)
