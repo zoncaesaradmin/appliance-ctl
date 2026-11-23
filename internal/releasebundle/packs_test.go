@@ -1,6 +1,9 @@
 package releasebundle
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDeliveryPacksAreDisjoint(t *testing.T) {
 	cases := []struct {
@@ -37,6 +40,13 @@ func TestDeliveryPacksAreDisjoint(t *testing.T) {
 func TestAppStackPackRequiresItsServices(t *testing.T) {
 	if err := validateInstallableBundle(nil, PackAppStack); err == nil {
 		t.Fatal("empty app-stack pack accepted")
+	}
+	entries := []manifestEntry{
+		{Component: "oci-images", ImageReference: "registry.local/channel-integration@sha256:" + strings.Repeat("a", 64)},
+		{Component: "oci-images", ImageReference: "registry.local/ordering@sha256:" + strings.Repeat("b", 64)},
+	}
+	if err := validateInstallableBundle(entries, PackAppStack); err != nil {
+		t.Fatalf("complete app-stack pack rejected: %v", err)
 	}
 }
 
