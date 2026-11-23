@@ -495,9 +495,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if tlsTermination == "cloudflare" && (strings.TrimSpace(opts.TLSCertificatePath) != "" || strings.TrimSpace(opts.TLSKeyPath) != "") {
 		return nil, checks, fmt.Errorf("install: public TLS certificate/key are for direct Traefik TLS; omit them with cloudflare termination")
 	}
-	if resolved.ChannelIntegrationsEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.ApplicationIdentityEnabled {
 		if strings.TrimSpace(opts.PublicOrigin) == "" {
-			return nil, checks, fmt.Errorf("install: channel-integrations capability requires --public-origin")
+			return nil, checks, fmt.Errorf("install: application-facing capabilities require --public-origin")
 		}
 		if tlsTermination != "cloudflare" && tlsTermination != "traefik" {
 			return nil, checks, fmt.Errorf("install: tls termination must be traefik or cloudflare")
@@ -522,7 +522,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -1207,8 +1207,8 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 	}
 	if strings.TrimSpace(opts.CloudflaredTunnelTokenPath) != "" {
-		if !resolved.ChannelIntegrationsEnabled {
-			return nil, checks, failInstall(fmt.Errorf("install: Cloudflare Tunnel connector is only valid with the channel-integrations capability"), runRollbacks())
+		if !resolved.ChannelIntegrationsEnabled && !resolved.ApplicationIdentityEnabled {
+			return nil, checks, failInstall(fmt.Errorf("install: Cloudflare Tunnel connector requires an application-facing capability"), runRollbacks())
 		}
 		if strings.TrimSpace(resolved.CloudflaredBinaryPath) == "" {
 			return nil, checks, failInstall(fmt.Errorf("install: local Cloudflare Tunnel requested but the signed bundle has no cloudflared binary"), runRollbacks())
@@ -1372,7 +1372,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// reference appliance-tls. Create both before the ace-system release so the
 	// Deployment can schedule and Traefik has a secret to attach.
 	appsTLSNamespace := ""
-	if resolved.ChannelIntegrationsEnabled || resolved.CommerceEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled {
 		appsTLSNamespace = productconfig.ControlPlaneAppsNamespace
 	}
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
@@ -1434,6 +1434,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), cleanupOnFailure())
 	}
 
+	if resolved.ApplicationIdentityEnabled {
+		identitySecret, identityErr := helm.EnsureApplicationIdentitySecret(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "application-identity-secrets")
+		checks = append(checks, identitySecret.Checks...)
+		if identityErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", identityErr), cleanupOnFailure(identitySecret.Cleanup))
+		}
+		rollbacks = append(rollbacks, identitySecret.Cleanup)
+	}
+
 	if resolved.ActionsEnabled {
 		// action-runtime mounts secrets.keysSecretName in the apps namespace; K8s
 		// Secrets are namespaced, so mirror the control-plane keys Secret only after
@@ -1457,7 +1466,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 		rollbacks = append(rollbacks, runtimeSecret.Cleanup)
 	}
-	if resolved.CommerceEnabled && resolved.PostgresImageReference != "" {
+	if (resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled) && resolved.PostgresImageReference != "" {
 		dbReplica, dbReplicaErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, productconfig.ControlPlaneAppsNamespace, "controlplane-database-connection")
 		checks = append(checks, dbReplica.Checks...)
 		if dbReplicaErr != nil {
@@ -1497,6 +1506,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			deploy string
 			id     string
 		}{deploy: "ordering", id: "ordering-ready"})
+	}
+	if resolved.ApplicationIdentityEnabled {
+		waits = append(waits, struct {
+			deploy string
+			id     string
+		}{deploy: "application-identity", id: "application-identity-ready"})
 	}
 	for _, wait := range waits {
 		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, wait.deploy, wait.id)

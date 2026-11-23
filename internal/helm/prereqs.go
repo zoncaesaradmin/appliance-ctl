@@ -431,6 +431,62 @@ func EnsureSecretFromFile(ctx context.Context, run cli.Runner, kubeconfig, names
 	return prepared, nil
 }
 
+// EnsureApplicationIdentitySecret creates the two target-generated HMAC keys
+// used by the application OTP service. Existing material is preserved so
+// reruns do not invalidate active sessions or challenge digests.
+func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName string) (PreparedRelease, error) {
+	prepared := PreparedRelease{}
+	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(secretName) == "" {
+		return prepared, fmt.Errorf("helm: application identity Secret namespace and name are required")
+	}
+	existing, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "get", "secret", secretName, "-o", "json")
+	if err == nil {
+		var payload secretJSON
+		if decodeErr := json.Unmarshal([]byte(existing), &payload); decodeErr != nil {
+			return prepared, fmt.Errorf("helm: parse application identity Secret %s: %w", secretName, decodeErr)
+		}
+		if payload.Data != nil && payload.Data["otp-key"] != "" && payload.Data["rate-key"] != "" {
+			prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-" + evidence.SanitizeIDSegment(secretName), Category: "chart", Status: evidence.StatusPass, Message: "application identity Secret already exists", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+			return prepared, nil
+		}
+		// A partial Secret can be left by an interrupted install. It is not
+		// usable by the workload, so replace it rather than recursively retrying
+		// create against the same malformed object.
+		if _, deleteErr := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "delete", "secret", secretName); deleteErr != nil {
+			return prepared, fmt.Errorf("helm: remove incomplete application identity Secret %s: %w", secretName, deleteErr)
+		}
+	} else if !secretNotFound(err) {
+		return prepared, fmt.Errorf("helm: inspect application identity Secret %s: %w", secretName, err)
+	}
+	tmp, err := os.MkdirTemp("", "zon-identity-secret-")
+	if err != nil {
+		return prepared, fmt.Errorf("helm: create application identity secret staging: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+	for _, name := range []string{"otp-key", "rate-key"} {
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return prepared, fmt.Errorf("helm: generate application identity key: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte(base64.StdEncoding.EncodeToString(raw)), 0o600); err != nil {
+			return prepared, fmt.Errorf("helm: stage application identity key: %w", err)
+		}
+	}
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "create", "secret", "generic", secretName, "--from-file=otp-key="+filepath.Join(tmp, "otp-key"), "--from-file=rate-key="+filepath.Join(tmp, "rate-key")); err != nil {
+		if secretAlreadyExists(err) {
+			// Another installer won the race. The next idempotent install pass
+			// will re-read and preserve its complete material (or replace a
+			// malformed object); do not recurse while holding the current temp
+			// files.
+			return prepared, fmt.Errorf("helm: application identity Secret %s appeared during creation; rerun install", secretName)
+		}
+		return prepared, fmt.Errorf("helm: create application identity Secret %s: %w", secretName, err)
+	}
+	prepared.cleanups = append(prepared.cleanups, func() error { return deleteSecret(ctx, run, kubeconfig, namespace, secretName) })
+	prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-" + evidence.SanitizeIDSegment(secretName), Category: "chart", Status: evidence.StatusPass, Message: "created target-generated application identity Secret", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+	return prepared, nil
+}
+
 // EnsureKeysSecretReplica copies the control-plane keys Secret into targetNamespace
 // so co-packaged apps that mount keysSecretName (action-runtime in ace-apps)
 // can attach volumes. Material is cloned from source, never regenerated, so

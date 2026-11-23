@@ -32,6 +32,7 @@ type Resolved struct {
 	ActionsEnabled             bool
 	ChannelIntegrationsEnabled bool
 	CommerceEnabled            bool
+	ApplicationIdentityEnabled bool
 	LANDiscoveryEnabled        bool
 	HostEnabled                bool
 	FilesEnabled               bool
@@ -85,11 +86,12 @@ type Resolved struct {
 	InferenceManagerImageReference string
 	// OpenWebUIImageReference and OpenWebUIGatewayImageReference are the
 	// optional inference-pack images for the trusted appliance Web UI bridge.
-	OpenWebUIImageReference          string
-	OpenWebUIGatewayImageReference   string
-	MessageBrokerImageReference      string
-	ChannelIntegrationImageReference string
-	OrderingImageReference           string
+	OpenWebUIImageReference           string
+	OpenWebUIGatewayImageReference    string
+	MessageBrokerImageReference       string
+	ChannelIntegrationImageReference  string
+	OrderingImageReference            string
+	ApplicationIdentityImageReference string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -383,6 +385,14 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires commerce capability but its image is missing: %w", effectiveProfile, err)
 		}
 	}
+	applicationIdentityEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplicationIdentity, profileCatalog)
+	applicationIdentityImageReference := ""
+	if applicationIdentityEnabled {
+		applicationIdentityImageReference, err = requiredApplicationIdentityImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires application-identity capability but its image is missing: %w", effectiveProfile, err)
+		}
+	}
 
 	return Resolved{
 		Runtimes:                           runtimes,
@@ -395,6 +405,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ActionsEnabled:                     actionsEnabled,
 		ChannelIntegrationsEnabled:         channelIntegrationsEnabled,
 		CommerceEnabled:                    commerceEnabled,
+		ApplicationIdentityEnabled:         applicationIdentityEnabled,
 		LANDiscoveryEnabled:                lanDiscoveryEnabled,
 		HostEnabled:                        hostEnabled,
 		FilesEnabled:                       filesEnabled,
@@ -432,6 +443,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		MessageBrokerImageReference:        messageBrokerImageReference,
 		ChannelIntegrationImageReference:   channelIntegrationImageReference,
 		OrderingImageReference:             orderingImageReference,
+		ApplicationIdentityImageReference:  applicationIdentityImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
@@ -503,6 +515,27 @@ func isChannelIntegrationImageReference(ref string) bool {
 
 func isOrderingImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/ordering@sha256:")
+}
+
+func isApplicationIdentityImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/application-identity@sha256:")
+}
+
+func requiredApplicationIdentityImageReference(b entrySource) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isApplicationIdentityImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple application identity image references")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no registry.local/application-identity@sha256 image")
+	}
+	return found, nil
 }
 
 func requiredOrderingImageReference(b entrySource) (string, error) {
@@ -983,6 +1016,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 			continue
 		}
 		if strings.HasPrefix(image.Name, "registry.local/ordering@") && !r.CommerceEnabled {
+			continue
+		}
+		if strings.HasPrefix(image.Name, "registry.local/application-identity@") && !r.ApplicationIdentityEnabled {
 			continue
 		}
 		if image.Category == images.CategoryDependency {

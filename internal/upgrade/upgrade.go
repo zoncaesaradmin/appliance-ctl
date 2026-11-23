@@ -249,9 +249,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if tlsTermination == "cloudflare" && (strings.TrimSpace(opts.TLSCertificatePath) != "" || strings.TrimSpace(opts.TLSKeyPath) != "") {
 		return nil, checks, fmt.Errorf("upgrade: public TLS certificate/key are for direct Traefik TLS; omit them with cloudflare termination")
 	}
-	if resolved.ChannelIntegrationsEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.ApplicationIdentityEnabled {
 		if strings.TrimSpace(opts.PublicOrigin) == "" {
-			return nil, checks, fmt.Errorf("upgrade: channel-integrations capability requires --public-origin")
+			return nil, checks, fmt.Errorf("upgrade: application-facing capabilities require --public-origin")
 		}
 		if tlsTermination != "cloudflare" && tlsTermination != "traefik" {
 			return nil, checks, fmt.Errorf("upgrade: tls termination must be traefik or cloudflare")
@@ -304,7 +304,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
 		webUIEnabled, opts.PublicOrigin, opts.TLSTermination,
-		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference,
+		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference,
 	)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
@@ -686,6 +686,35 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, failErr
 	}
 
+	if resolved.ApplicationIdentityEnabled {
+		identitySecret, identityErr := helm.EnsureApplicationIdentitySecret(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "application-identity-secrets")
+		checks = append(checks, identitySecret.Checks...)
+		if identityErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", identityErr), func() []evidence.Check {
+				_ = identitySecret.Cleanup()
+				_ = keysReplica.Cleanup()
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+	if (resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled) && resolved.PostgresImageReference != "" {
+		dbReplica, dbReplicaErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, productconfig.ControlPlaneAppsNamespace, "controlplane-database-connection")
+		checks = append(checks, dbReplica.Checks...)
+		if dbReplicaErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", dbReplicaErr), func() []evidence.Check {
+				_ = dbReplica.Cleanup()
+				_ = keysReplica.Cleanup()
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
+
 	if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
 		if err := productconfig.InjectImagePullSecrets(preparedValuesPath, productconfig.ImagePullSecretName); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: inject image-pull secrets into values: %w", err), func() []evidence.Check {
@@ -725,8 +754,13 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 
+	appsTLSNamespace := ""
+	if resolved.ChannelIntegrationsEnabled || resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled {
+		appsTLSNamespace = productconfig.ControlPlaneAppsNamespace
+	}
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
 		ControlNamespace:  opts.ChartNamespace,
+		AppsNamespace:     appsTLSNamespace,
 		ArtifactNamespace: registryNamespace,
 		IncludeArtifacts:  targetArtifact,
 		FQDN:              identity.FQDN,
@@ -928,8 +962,8 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		// AP bind-probe falls back to DHCP-only DNS mode for manage.ap.
 	}
 	if strings.TrimSpace(opts.CloudflaredTunnelTokenPath) != "" {
-		if !resolved.ChannelIntegrationsEnabled {
-			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: Cloudflare Tunnel connector is only valid with the channel-integrations capability"), rollback)
+		if !resolved.ChannelIntegrationsEnabled && !resolved.ApplicationIdentityEnabled {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: Cloudflare Tunnel connector requires an application-facing capability"), rollback)
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}

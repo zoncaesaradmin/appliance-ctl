@@ -94,6 +94,7 @@ const (
 	CapabilityActions             Capability = "actions"
 	CapabilityChannelIntegrations Capability = "channel-integrations"
 	CapabilityCommerce            Capability = "commerce"
+	CapabilityApplicationIdentity Capability = "application-identity"
 	CapabilityLANDiscovery        Capability = "lan-discovery"
 	CapabilityHost                Capability = "host"
 	CapabilityWorkflows           Capability = "workflows"
@@ -349,6 +350,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	postgresImageReference := ""
 	channelIntegrationImageReference := ""
 	orderingImageReference := ""
+	applicationIdentityImageReference := ""
 	if len(registry) > 0 {
 		artifactServerImageReference = strings.TrimSpace(registry[0])
 	}
@@ -363,6 +365,9 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if len(registry) > 4 {
 		orderingImageReference = strings.TrimSpace(registry[4])
+	}
+	if len(registry) > 5 {
+		applicationIdentityImageReference = strings.TrimSpace(registry[5])
 	}
 	if buildEnabled {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
@@ -390,6 +395,10 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	commerceEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityCommerce, profileCatalog)
 	if commerceEnabled && !validOrderingImageDigest(orderingImageReference) {
 		return "", func() {}, fmt.Errorf("product config: commerce capability requires a bundled registry.local/ordering@sha256 image reference; got %q", orderingImageReference)
+	}
+	identityEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityApplicationIdentity, profileCatalog)
+	if identityEnabled && !validApplicationIdentityImageDigest(applicationIdentityImageReference) {
+		return "", func() {}, fmt.Errorf("product config: application-identity capability requires a bundled registry.local/application-identity@sha256 image reference; got %q", applicationIdentityImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host or application capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -573,6 +582,23 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		orderingImage["reference"] = orderingImageReference
 	}
 	ordering["image"] = orderingImage
+	identityService, _ := applicationServices["identity"].(map[string]any)
+	if identityService == nil {
+		identityService = map[string]any{}
+	}
+	identityService["enabled"] = identityEnabled
+	if identityEnabled {
+		identityService["origin"] = publicOrigin
+	}
+	identityImage, _ := identityService["image"].(map[string]any)
+	if identityImage == nil {
+		identityImage = map[string]any{}
+	}
+	if identityEnabled {
+		identityImage["reference"] = applicationIdentityImageReference
+	}
+	identityService["image"] = identityImage
+	applicationServices["identity"] = identityService
 	applicationServices["ordering"] = ordering
 	values["applicationServices"] = applicationServices
 	blobStorage, _ := values["blobStorage"].(map[string]any)
@@ -1356,6 +1382,10 @@ func validChannelIntegrationImageDigest(image string) bool {
 
 func validOrderingImageDigest(image string) bool {
 	return validRegistryLocalImageDigest(image, "ordering")
+}
+
+func validApplicationIdentityImageDigest(image string) bool {
+	return validRegistryLocalImageDigest(image, "application-identity")
 }
 
 func validDNSImageDigest(image string) bool {
