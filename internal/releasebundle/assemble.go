@@ -38,6 +38,7 @@ type EntryConfig struct {
 
 const (
 	PackFoundation  = "foundation"
+	PackAppStack    = "app-stack"
 	PackDevPlatform = "dev-platform"
 	PackDeviceUser  = "deviceuser"
 	PackStdLLM      = "std-llm"
@@ -64,7 +65,7 @@ type Config struct {
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
 	// Empty means legacy full bundle (everything). PackFoundation excludes
-	// dev-platform, deviceuser, and the selected inference package artifacts.
+	// app-stack, dev-platform, deviceuser, and the selected inference package artifacts.
 	Pack string `json:"pack,omitempty"`
 }
 
@@ -118,9 +119,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
+	case "", PackFoundation, PackAppStack, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, or %q", PackFoundation, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, %q, or %q", PackFoundation, PackAppStack, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -971,6 +972,19 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			return fmt.Errorf("releasebundle: open-webui pack requires Open WebUI and session-bridge gateway images")
 		}
 		return nil
+	case PackAppStack:
+		var hasChannelIntegration, hasOrdering bool
+		for _, entry := range entries {
+			if entry.Component != "oci-images" {
+				continue
+			}
+			hasChannelIntegration = hasChannelIntegration || isCanonicalChannelIntegrationReference(entry.ImageReference)
+			hasOrdering = hasOrdering || isCanonicalOrderingReference(entry.ImageReference)
+		}
+		if !hasChannelIntegration || !hasOrdering {
+			return fmt.Errorf("releasebundle: app-stack pack requires channel-integration and ordering images")
+		}
+		return nil
 	}
 	if pack == PackFoundation {
 		var hasHostAgentDaemon, hasMDNSPackage bool
@@ -1005,7 +1019,9 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	case "":
 		return true
 	case PackFoundation:
-		return !entryIsStorageNetwork(entry) && !entryIsBuildWorkflows(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry) && !entryIsOpenWebUI(entry)
+		return !entryIsAppStack(entry) && !entryIsStorageNetwork(entry) && !entryIsBuildWorkflows(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry) && !entryIsOpenWebUI(entry)
+	case PackAppStack:
+		return entryIsAppStack(entry)
 	case PackDevPlatform:
 		return entryIsStorageNetwork(entry) || entryIsBuildWorkflows(entry)
 	case PackDeviceUser:
@@ -1096,6 +1112,22 @@ func entryIsOpenWebUI(entry EntryConfig) bool {
 	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
 	return strings.Contains(ref, "open-webui") || strings.Contains(target, "open-webui") ||
 		strings.Contains(sourceBase, "open-webui")
+}
+
+func entryIsAppStack(entry EntryConfig) bool {
+	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
+	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
+	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
+	return strings.Contains(ref, "channel-integration") || strings.Contains(target, "channel-integration") || strings.Contains(sourceBase, "channel-integration") ||
+		strings.Contains(ref, "/ordering@") || strings.Contains(target, "ordering") || strings.Contains(sourceBase, "ordering")
+}
+
+func isCanonicalChannelIntegrationReference(ref string) bool {
+	return isCanonicalRegistryLocalReference(strings.ToLower(strings.TrimSpace(ref)), "channel-integration")
+}
+
+func isCanonicalOrderingReference(ref string) bool {
+	return isCanonicalRegistryLocalReference(strings.ToLower(strings.TrimSpace(ref)), "ordering")
 }
 
 func encodePublicKeyPEM(pub ed25519.PublicKey) ([]byte, error) {
