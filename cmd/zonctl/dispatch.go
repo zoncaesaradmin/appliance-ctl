@@ -577,6 +577,7 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		CloudflaredTokenDestPath:        defaultCloudflaredTokenPath,
 		ApplianceProfile:                opts.applianceProfile,
 		PublicOrigin:                    opts.publicOrigin,
+		ChannelIntegrationOrigin:        opts.channelIntegrationOrigin,
 		TLSTermination:                  opts.tlsTermination,
 		TLSCertificatePath:              opts.tlsCertificateFile,
 		TLSKeyPath:                      opts.tlsKeyFile,

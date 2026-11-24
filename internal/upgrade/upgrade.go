@@ -57,6 +57,7 @@ type Options struct {
 	CloudflaredTokenDestPath      string
 	ApplianceProfile              string
 	PublicOrigin                  string
+	ChannelIntegrationOrigin      string
 	TLSTermination                string
 	TLSCertificatePath            string
 	TLSKeyPath                    string
@@ -299,11 +300,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigins(
 		resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog,
 		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
-		webUIEnabled, opts.PublicOrigin, opts.TLSTermination,
+		webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination,
 		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference,
 	)
 	if err != nil {

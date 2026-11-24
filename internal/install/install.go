@@ -122,6 +122,9 @@ type Options struct {
 	// PublicOrigin is the externally visible HTTPS origin for application
 	// callbacks. It is independent from the appliance's internal LAN identity.
 	PublicOrigin string
+	// ChannelIntegrationOrigin is the externally visible HTTPS origin for
+	// channel webhooks. Empty uses PublicOrigin for compatibility.
+	ChannelIntegrationOrigin string
 	// TLSTermination selects the public edge for channel integrations:
 	// traefik (default) or cloudflare.
 	TLSTermination string
@@ -522,7 +525,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigins(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}

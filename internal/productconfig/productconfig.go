@@ -306,7 +306,7 @@ func normalizePublicOriginAndTLS(publicOrigin, tlsTermination, internalFQDN stri
 }
 
 func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, "", "", registry...)
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, "", "", "", registry...)
 }
 
 func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, registry ...string) (string, func(), error) {
@@ -317,13 +317,21 @@ func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog 
 // values layer while keeping the appliance's internal identity separate from
 // the externally visible application origin. publicOrigin is an absolute
 // https URL without a path. tlsTermination is "traefik" (the default) or
-// "cloudflare"; the latter exposes only the channel webhook on Traefik's
-// plaintext web entrypoint because Cloudflare terminates public HTTPS.
+// "cloudflare"; the latter exposes the public routes on Traefik's plaintext
+// web entrypoint because Cloudflare terminates public HTTPS.
 func PrepareValuesFileForRuntimeWithPublicOrigin(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, tlsTermination string, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, tlsTermination, registry...)
+	return PrepareValuesFileForRuntimeWithPublicOrigins(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, publicOrigin, "", tlsTermination, registry...)
 }
 
-func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, tlsTermination string, registry ...string) (string, func(), error) {
+// PrepareValuesFileForRuntimeWithPublicOrigins renders the installer-owned
+// values layer with independent browser and channel-integration origins.
+// channelIntegrationOrigin is an absolute HTTPS URL without a path. When it
+// is empty, the application public origin is used for backwards compatibility.
+func PrepareValuesFileForRuntimeWithPublicOrigins(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination string, registry ...string) (string, func(), error) {
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, registry...)
+}
+
+func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", profileCatalog)
 	if err != nil {
 		return "", func() {}, err
@@ -341,6 +349,13 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	publicOrigin, publicOriginHost, tlsTermination, err := normalizePublicOriginAndTLS(publicOrigin, tlsTermination, identity.FQDN)
 	if err != nil {
 		return "", func() {}, err
+	}
+	if strings.TrimSpace(channelIntegrationOrigin) == "" {
+		channelIntegrationOrigin = publicOrigin
+	}
+	_, channelIntegrationHost, _, err := normalizePublicOriginAndTLS(channelIntegrationOrigin, tlsTermination, identity.FQDN)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("product config: channel integration origin: %w", err)
 	}
 	workspaceProvisionerImageReference = strings.TrimSpace(workspaceProvisionerImageReference)
 	builderImageReference = strings.TrimSpace(builderImageReference)
@@ -536,7 +551,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		channelIngress = map[string]any{}
 	}
 	if channelIntegrationsEnabled {
-		channelIngress["host"] = publicOriginHost
+		channelIngress["host"] = channelIntegrationHost
 		if tlsTermination == "cloudflare" {
 			channelIngress["entryPoints"] = []string{"web"}
 			channelIngress["tls"] = map[string]any{"enabled": false}

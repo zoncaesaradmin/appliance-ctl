@@ -121,6 +121,7 @@ func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logg
 		CloudflaredTokenDestPath:      defaultCloudflaredTokenPath,
 		ApplianceProfile:              profile,
 		PublicOrigin:                  opts.publicOrigin,
+		ChannelIntegrationOrigin:      opts.channelIntegrationOrigin,
 		TLSTermination:                opts.tlsTermination,
 		TLSCertificatePath:            opts.tlsCertificateFile,
 		TLSKeyPath:                    opts.tlsKeyFile,

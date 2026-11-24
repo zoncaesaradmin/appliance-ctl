@@ -56,30 +56,31 @@ var defaultK3sCNIInterfaces = []string{"cni0", "flannel.1"}
 // publicKeyPath are install-specific; the rest are shared or unused by
 // most commands (unused flags are harmless).
 type cliOptions struct {
-	dryRun              bool
-	output              string
-	stateDir            string
-	configPath          string
-	bundleDir           string
-	packDirs            []string
-	publicKey           string
-	applianceProfile    string
-	nodeName            string
-	applianceName       string
-	dnsZone             string
-	publicOrigin        string
-	tlsTermination      string
-	tlsSANs             []string
-	tlsCertificateFile  string
-	tlsKeyFile          string
-	tlsSecretName       string
-	preserveFailedState bool
-	backupID            string
-	confirm             string
-	acknowledgeDataLoss bool
-	forceDataLoss       bool
-	wipeWorkspaces      bool
-	forceAdopt          bool
+	dryRun                   bool
+	output                   string
+	stateDir                 string
+	configPath               string
+	bundleDir                string
+	packDirs                 []string
+	publicKey                string
+	applianceProfile         string
+	nodeName                 string
+	applianceName            string
+	dnsZone                  string
+	publicOrigin             string
+	channelIntegrationOrigin string
+	tlsTermination           string
+	tlsSANs                  []string
+	tlsCertificateFile       string
+	tlsKeyFile               string
+	tlsSecretName            string
+	preserveFailedState      bool
+	backupID                 string
+	confirm                  string
+	acknowledgeDataLoss      bool
+	forceDataLoss            bool
+	wipeWorkspaces           bool
+	forceAdopt               bool
 	// Optional image-pull registry (K3s registries.yaml). Host empty = omit.
 	imagePullRegistry             string
 	imagePullRegistryUsernameEnv  string
@@ -208,6 +209,7 @@ func run(args []string) int {
 	applianceName := fs.String("appliance-name", "", "product LAN instance label (single DNS label); FQDN is the internal appliance identity (required for install; upgrade preserves installed value when omitted)")
 	dnsZone := fs.String("dns-zone", "", "LAN DNS zone for appliance identity and landns CoreDNS (default appliance.internal)")
 	publicOrigin := fs.String("public-origin", "", "external HTTPS origin for application callbacks (required with channel-integrations; independent of appliance-name/dns-zone)")
+	channelIntegrationOrigin := fs.String("channel-integration-origin", "", "external HTTPS origin for channel webhooks; defaults to --public-origin")
 	tlsTermination := fs.String("tls-termination", "", "public TLS termination for channel integrations: traefik or cloudflare (default traefik)")
 	tlsCertificateFile := fs.String("tls-cert-file", "", "protected public TLS certificate PEM for Traefik ingress (cloud/direct-TLS installs)")
 	tlsKeyFile := fs.String("tls-key-file", "", "protected public TLS private key PEM for Traefik ingress (cloud/direct-TLS installs)")
@@ -273,6 +275,7 @@ func run(args []string) int {
 		applianceName:                 *applianceName,
 		dnsZone:                       *dnsZone,
 		publicOrigin:                  *publicOrigin,
+		channelIntegrationOrigin:      *channelIntegrationOrigin,
 		tlsTermination:                *tlsTermination,
 		tlsSANs:                       append([]string(nil), tlsSANs...),
 		tlsCertificateFile:            *tlsCertificateFile,
