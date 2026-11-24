@@ -199,7 +199,7 @@ func TestPrepareValuesFileForRuntimeWithPublicOrigin_CloudflareUsesHTTPChannelRo
 		"application-core": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityHost, productconfig.CapabilityActions, productconfig.CapabilityChannelIntegrations}},
 	}
 	runtime := runtimeconfig.Selection{}
-	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(valuesPath, "application-core", catalog, "", "", hostAgentImage, "big-machine", "appliance.internal", "", runtime, false, "https://app-local.zonited.com", "cloudflare", "", blobStorageImage, "", channelIntegrationImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(valuesPath, "application-core", catalog, "", "", hostAgentImage, "big-machine", "appliance.internal", "", runtime, false, "https://local.app.zonited.com", "cloudflare", "", blobStorageImage, "", channelIntegrationImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestPrepareValuesFileForRuntimeWithPublicOrigin_CloudflareUsesHTTPChannelRo
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, want := range []string{"canonicalOrigin: https://app-local.zonited.com", "host: app-local.zonited.com", "tlsTermination: cloudflare"} {
+	for _, want := range []string{"canonicalOrigin: https://local.app.zonited.com", "host: local.app.zonited.com", "tlsTermination: cloudflare"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered values missing %q:\n%s", want, text)
 		}
