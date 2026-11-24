@@ -431,9 +431,11 @@ func EnsureSecretFromFile(ctx context.Context, run cli.Runner, kubeconfig, names
 	return prepared, nil
 }
 
-// EnsureApplicationIdentitySecret creates the two target-generated HMAC keys
-// used by the application OTP service. Existing material is preserved so
-// reruns do not invalidate active sessions or challenge digests.
+// EnsureApplicationIdentitySecret creates the target-generated HMAC keys used
+// by the application identity service. Existing material is preserved so
+// reruns do not invalidate active sessions or challenge digests. Older
+// installations may have only the OTP and rate keys; those are upgraded in
+// place with the internal principal key.
 func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName string) (PreparedRelease, error) {
 	prepared := PreparedRelease{}
 	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(secretName) == "" {
@@ -445,8 +447,47 @@ func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeco
 		if decodeErr := json.Unmarshal([]byte(existing), &payload); decodeErr != nil {
 			return prepared, fmt.Errorf("helm: parse application identity Secret %s: %w", secretName, decodeErr)
 		}
-		if payload.Data != nil && payload.Data["otp-key"] != "" && payload.Data["rate-key"] != "" {
+		if payload.Data != nil && payload.Data["otp-key"] != "" && payload.Data["rate-key"] != "" && payload.Data["internal-key"] != "" {
 			prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-" + evidence.SanitizeIDSegment(secretName), Category: "chart", Status: evidence.StatusPass, Message: "application identity Secret already exists", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+			return prepared, nil
+		}
+		if payload.Data != nil && payload.Data["otp-key"] != "" && payload.Data["rate-key"] != "" {
+			// Preserve the active OTP/rate keys while adding the new internal
+			// contract key. Replacing this Secret would revoke every session.
+			raw := make([]byte, 32)
+			if _, err := rand.Read(raw); err != nil {
+				return prepared, fmt.Errorf("helm: generate application identity internal key: %w", err)
+			}
+			payload.Data["internal-key"] = base64.StdEncoding.EncodeToString(raw)
+			manifest, marshalErr := json.Marshal(map[string]any{
+				"apiVersion": "v1", "kind": "Secret",
+				"metadata": map[string]string{"name": secretName, "namespace": namespace},
+				"type":     "Opaque", "data": payload.Data,
+			})
+			if marshalErr != nil {
+				return prepared, fmt.Errorf("helm: encode application identity Secret update: %w", marshalErr)
+			}
+			tmpFile, err := os.CreateTemp("", "zon-identity-secret-*.json")
+			if err != nil {
+				return prepared, fmt.Errorf("helm: stage application identity Secret update: %w", err)
+			}
+			path := tmpFile.Name()
+			defer os.Remove(path)
+			if err := tmpFile.Chmod(0o600); err != nil {
+				_ = tmpFile.Close()
+				return prepared, fmt.Errorf("helm: protect application identity Secret update: %w", err)
+			}
+			if _, err := tmpFile.Write(manifest); err != nil {
+				_ = tmpFile.Close()
+				return prepared, fmt.Errorf("helm: stage application identity Secret update: %w", err)
+			}
+			if err := tmpFile.Close(); err != nil {
+				return prepared, fmt.Errorf("helm: close application identity Secret update: %w", err)
+			}
+			if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "apply", "-f", path); err != nil {
+				return prepared, fmt.Errorf("helm: add internal key to application identity Secret %s: %w", secretName, err)
+			}
+			prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-" + evidence.SanitizeIDSegment(secretName), Category: "chart", Status: evidence.StatusPass, Message: "preserved application identity keys and added the internal principal key", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 			return prepared, nil
 		}
 		// A partial Secret can be left by an interrupted install. It is not
@@ -463,7 +504,7 @@ func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeco
 		return prepared, fmt.Errorf("helm: create application identity secret staging: %w", err)
 	}
 	defer os.RemoveAll(tmp)
-	for _, name := range []string{"otp-key", "rate-key"} {
+	for _, name := range []string{"otp-key", "rate-key", "internal-key"} {
 		raw := make([]byte, 32)
 		if _, err := rand.Read(raw); err != nil {
 			return prepared, fmt.Errorf("helm: generate application identity key: %w", err)
@@ -472,7 +513,7 @@ func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeco
 			return prepared, fmt.Errorf("helm: stage application identity key: %w", err)
 		}
 	}
-	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "create", "secret", "generic", secretName, "--from-file=otp-key="+filepath.Join(tmp, "otp-key"), "--from-file=rate-key="+filepath.Join(tmp, "rate-key")); err != nil {
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "create", "secret", "generic", secretName, "--from-file=otp-key="+filepath.Join(tmp, "otp-key"), "--from-file=rate-key="+filepath.Join(tmp, "rate-key"), "--from-file=internal-key="+filepath.Join(tmp, "internal-key")); err != nil {
 		if secretAlreadyExists(err) {
 			// Another installer won the race. The next idempotent install pass
 			// will re-read and preserve its complete material (or replace a
