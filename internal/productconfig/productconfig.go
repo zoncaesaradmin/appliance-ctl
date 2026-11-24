@@ -494,6 +494,11 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		ingress = map[string]any{}
 	}
 	ingress["webUIEnabled"] = openWebUIEnabled
+	// The public TLS terminator determines how the appliance is reached from
+	// outside. Cloudflare terminates HTTPS at the edge and tunnels to the
+	// appliance's local HTTP entrypoint; project that existing install setting
+	// into the chart so the full UI/API route is available on web as well.
+	ingress["tlsTermination"] = tlsTermination
 	values["ingress"] = ingress
 	if workspaceProvisionerImageReference != "" {
 		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference

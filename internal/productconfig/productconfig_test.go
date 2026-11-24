@@ -209,7 +209,7 @@ func TestPrepareValuesFileForRuntimeWithPublicOrigin_CloudflareUsesHTTPChannelRo
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, want := range []string{"canonicalOrigin: https://walocal.zonited.com", "host: walocal.zonited.com"} {
+	for _, want := range []string{"canonicalOrigin: https://walocal.zonited.com", "host: walocal.zonited.com", "tlsTermination: cloudflare"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered values missing %q:\n%s", want, text)
 		}
