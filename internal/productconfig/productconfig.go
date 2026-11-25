@@ -574,6 +574,16 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	if applicationServices == nil {
 		applicationServices = map[string]any{}
 	}
+	identityValues, _ := applicationServices["identity"].(map[string]any)
+	if identityValues == nil {
+		identityValues = map[string]any{}
+	}
+	if channelIntegrationsEnabled && HasCapabilityInCatalog(effectiveProfile, CapabilityApplicationIdentity, profileCatalog) {
+		identityValues["deliveryMode"] = "event"
+	} else {
+		identityValues["deliveryMode"] = "local"
+	}
+	applicationServices["identity"] = identityValues
 	ordering, _ := applicationServices["ordering"].(map[string]any)
 	if ordering == nil {
 		ordering = map[string]any{}

@@ -431,11 +431,39 @@ func EnsureSecretFromFile(ctx context.Context, run cli.Runner, kubeconfig, names
 	return prepared, nil
 }
 
+// EnsureSecretPresent verifies that a protected operator-provided Secret is
+// already available. Upgrade paths may intentionally omit the source file so
+// an existing runtime descriptor is preserved; a newly enabled capability
+// must still fail closed instead of allowing its deployment to start without
+// the required configuration.
+func EnsureSecretPresent(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName, key string) (PreparedRelease, error) {
+	prepared := PreparedRelease{}
+	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(secretName) == "" || strings.TrimSpace(key) == "" {
+		return prepared, fmt.Errorf("helm: secret namespace, name, and key are required")
+	}
+	payload, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "get", "secret", secretName, "-o", "json")
+	if err != nil {
+		return prepared, fmt.Errorf("helm: required Secret %s/%s is missing: %w", namespace, secretName, err)
+	}
+	var secret secretJSON
+	if err := json.Unmarshal([]byte(payload), &secret); err != nil {
+		return prepared, fmt.Errorf("helm: parse required Secret %s/%s: %w", namespace, secretName, err)
+	}
+	if secret.Data == nil || secret.Data[key] == "" {
+		return prepared, fmt.Errorf("helm: required Secret %s/%s is missing key %q", namespace, secretName, key)
+	}
+	prepared.Checks = append(prepared.Checks, evidence.Check{
+		ID: "chart-prereq-secret-" + evidence.SanitizeIDSegment(secretName), Category: "chart", Status: evidence.StatusPass,
+		Message: "required operator-provided Secret is present", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
+	})
+	return prepared, nil
+}
+
 // EnsureApplicationIdentitySecret creates the target-generated HMAC keys used
 // by the application identity service. Existing material is preserved so
 // reruns do not invalidate active sessions or challenge digests. Older
 // installations may have only the OTP and rate keys; those are upgraded in
-// place with the internal principal key.
+// place with the internal principal and delivery encryption keys.
 func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeconfig, namespace, secretName string) (PreparedRelease, error) {
 	prepared := PreparedRelease{}
 	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(secretName) == "" {
@@ -447,18 +475,23 @@ func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeco
 		if decodeErr := json.Unmarshal([]byte(existing), &payload); decodeErr != nil {
 			return prepared, fmt.Errorf("helm: parse application identity Secret %s: %w", secretName, decodeErr)
 		}
-		if payload.Data != nil && payload.Data["otp-key"] != "" && payload.Data["rate-key"] != "" && payload.Data["internal-key"] != "" {
+		if payload.Data != nil && payload.Data["otp-key"] != "" && payload.Data["rate-key"] != "" && payload.Data["internal-key"] != "" && payload.Data["delivery-key"] != "" {
 			prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-" + evidence.SanitizeIDSegment(secretName), Category: "chart", Status: evidence.StatusPass, Message: "application identity Secret already exists", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 			return prepared, nil
 		}
 		if payload.Data != nil && payload.Data["otp-key"] != "" && payload.Data["rate-key"] != "" {
-			// Preserve the active OTP/rate keys while adding the new internal
-			// contract key. Replacing this Secret would revoke every session.
-			raw := make([]byte, 32)
-			if _, err := rand.Read(raw); err != nil {
-				return prepared, fmt.Errorf("helm: generate application identity internal key: %w", err)
+			// Preserve the active OTP/rate keys while adding any newer contract
+			// keys. Replacing this Secret would revoke every session.
+			for _, name := range []string{"internal-key", "delivery-key"} {
+				if payload.Data[name] != "" {
+					continue
+				}
+				raw := make([]byte, 32)
+				if _, err := rand.Read(raw); err != nil {
+					return prepared, fmt.Errorf("helm: generate application identity %s: %w", name, err)
+				}
+				payload.Data[name] = base64.StdEncoding.EncodeToString(raw)
 			}
-			payload.Data["internal-key"] = base64.StdEncoding.EncodeToString(raw)
 			manifest, marshalErr := json.Marshal(map[string]any{
 				"apiVersion": "v1", "kind": "Secret",
 				"metadata": map[string]string{"name": secretName, "namespace": namespace},
@@ -504,7 +537,7 @@ func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeco
 		return prepared, fmt.Errorf("helm: create application identity secret staging: %w", err)
 	}
 	defer os.RemoveAll(tmp)
-	for _, name := range []string{"otp-key", "rate-key", "internal-key"} {
+	for _, name := range []string{"otp-key", "rate-key", "internal-key", "delivery-key"} {
 		raw := make([]byte, 32)
 		if _, err := rand.Read(raw); err != nil {
 			return prepared, fmt.Errorf("helm: generate application identity key: %w", err)
@@ -513,7 +546,7 @@ func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeco
 			return prepared, fmt.Errorf("helm: stage application identity key: %w", err)
 		}
 	}
-	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "create", "secret", "generic", secretName, "--from-file=otp-key="+filepath.Join(tmp, "otp-key"), "--from-file=rate-key="+filepath.Join(tmp, "rate-key"), "--from-file=internal-key="+filepath.Join(tmp, "internal-key")); err != nil {
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", namespace, "create", "secret", "generic", secretName, "--from-file=otp-key="+filepath.Join(tmp, "otp-key"), "--from-file=rate-key="+filepath.Join(tmp, "rate-key"), "--from-file=internal-key="+filepath.Join(tmp, "internal-key"), "--from-file=delivery-key="+filepath.Join(tmp, "delivery-key")); err != nil {
 		if secretAlreadyExists(err) {
 			// Another installer won the race. The next idempotent install pass
 			// will re-read and preserve its complete material (or replace a

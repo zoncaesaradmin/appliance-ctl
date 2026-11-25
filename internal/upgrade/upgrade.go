@@ -474,6 +474,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	var hostPackagesRollback func() error
 	var hostAgentRollback func() error
 	var cloudflaredRollback func() error
+	var channelRuntimeRollback func() error
 	rollback := func() []evidence.Check {
 		var rc []evidence.Check
 		var rollbackErrs []error
@@ -501,6 +502,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 		if cloudflaredRollback != nil {
 			if err := cloudflaredRollback(); err != nil {
+				rollbackErrs = append(rollbackErrs, err)
+			}
+		}
+		if channelRuntimeRollback != nil {
+			if err := channelRuntimeRollback(); err != nil {
 				rollbackErrs = append(rollbackErrs, err)
 			}
 		}
@@ -700,6 +706,29 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
+	}
+	if resolved.ChannelIntegrationsEnabled {
+		var runtimeSecret helm.PreparedRelease
+		var runtimeErr error
+		if strings.TrimSpace(opts.ChannelIntegrationRuntimePath) != "" {
+			runtimeSecret, runtimeErr = helm.EnsureSecretFromFile(ctx, o.HelmRun, opts.KubeconfigPath,
+				productconfig.ControlPlaneAppsNamespace, "channel-integration-runtime", "runtime.json", opts.ChannelIntegrationRuntimePath)
+		} else {
+			runtimeSecret, runtimeErr = helm.EnsureSecretPresent(ctx, o.HelmRun, opts.KubeconfigPath,
+				productconfig.ControlPlaneAppsNamespace, "channel-integration-runtime", "runtime.json")
+		}
+		checks = append(checks, runtimeSecret.Checks...)
+		if runtimeErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: channel-integrations runtime Secret: %w", runtimeErr), func() []evidence.Check {
+				_ = runtimeSecret.Cleanup()
+				_ = keysReplica.Cleanup()
+				_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+		channelRuntimeRollback = runtimeSecret.Cleanup
 	}
 	if (resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled) && resolved.PostgresImageReference != "" {
 		dbReplica, dbReplicaErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, productconfig.ControlPlaneAppsNamespace, "controlplane-database-connection")

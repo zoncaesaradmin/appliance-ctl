@@ -35,6 +35,9 @@ func TestEnsureApplicationIdentitySecretCreatesInternalKey(t *testing.T) {
 	if !strings.Contains(createCall, "--from-file=internal-key=") {
 		t.Fatalf("internal key was not created: %s", createCall)
 	}
+	if !strings.Contains(createCall, "--from-file=delivery-key=") {
+		t.Fatalf("delivery key was not created: %s", createCall)
+	}
 	if err := prepared.Cleanup(); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +78,7 @@ func TestEnsureApplicationIdentitySecretUpgradesWithoutReplacingExistingKeys(t *
 	if err := json.Unmarshal(applied, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Data["otp-key"] != otp || manifest.Data["rate-key"] != rate || manifest.Data["internal-key"] == "" {
+	if manifest.Data["otp-key"] != otp || manifest.Data["rate-key"] != rate || manifest.Data["internal-key"] == "" || manifest.Data["delivery-key"] == "" {
 		t.Fatalf("existing keys were not preserved during upgrade: %#v", manifest.Data)
 	}
 }
