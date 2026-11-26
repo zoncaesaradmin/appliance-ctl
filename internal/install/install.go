@@ -1451,6 +1451,35 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationCoreNamespace, helm.RestrictedNamespaceLabels()); err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare application-core namespace %s: %w", productconfig.ApplicationCoreNamespace, err), cleanupOnFailure())
 	}
+	// Prepare the identity Secret before auth-service is rendered so the
+	// application-core replica uses the same delivery key as channel adapters.
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), cleanupOnFailure())
+	}
+	if resolved.ApplicationIdentityEnabled {
+		identitySecret, identityErr := helm.EnsureApplicationIdentitySecret(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "application-identity-secrets")
+		checks = append(checks, identitySecret.Checks...)
+		if identityErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", identityErr), cleanupOnFailure(identitySecret.Cleanup))
+		}
+		rollbacks = append(rollbacks, identitySecret.Cleanup)
+		if resolved.ApplicationAuthEnabled {
+			authSecret, authErr := helm.EnsureApplicationAuthSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "application-identity-secrets", productconfig.ApplicationCoreNamespace, "auth-service-secrets")
+			checks = append(checks, authSecret.Checks...)
+			if authErr != nil {
+				return nil, checks, failInstall(fmt.Errorf("install: %w", authErr), cleanupOnFailure(authSecret.Cleanup))
+			}
+			rollbacks = append(rollbacks, authSecret.Cleanup)
+		}
+	}
+	if resolved.ApplicationAuthEnabled && !resolved.ApplicationIdentityEnabled {
+		authSecret, authErr := helm.EnsureApplicationIdentitySecret(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationCoreNamespace, "auth-service-secrets")
+		checks = append(checks, authSecret.Checks...)
+		if authErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", authErr), cleanupOnFailure(authSecret.Cleanup))
+		}
+		rollbacks = append(rollbacks, authSecret.Cleanup)
+	}
 	appCoreResult := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppCoreRelease)
 	checks = append(checks, appCoreResult.checks...)
 	if appCoreResult.err != nil {
@@ -1471,18 +1500,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 
 	// ui-server / host-agent / action-runtime live in ace-apps (chart appsNamespace).
-	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: prepare apps namespace %s: %w", productconfig.ControlPlaneAppsNamespace, err), cleanupOnFailure())
-	}
-
-	if resolved.ApplicationIdentityEnabled {
-		identitySecret, identityErr := helm.EnsureApplicationIdentitySecret(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "application-identity-secrets")
-		checks = append(checks, identitySecret.Checks...)
-		if identityErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: %w", identityErr), cleanupOnFailure(identitySecret.Cleanup))
-		}
-		rollbacks = append(rollbacks, identitySecret.Cleanup)
-	}
 
 	if resolved.ActionsEnabled {
 		// action-runtime mounts secrets.keysSecretName in the apps namespace; K8s

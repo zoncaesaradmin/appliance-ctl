@@ -561,6 +561,83 @@ func EnsureApplicationIdentitySecret(ctx context.Context, run cli.Runner, kubeco
 	return prepared, nil
 }
 
+// EnsureApplicationAuthSecretReplica mirrors the target-generated identity
+// secret into the application-core namespace. In particular, the delivery key
+// must be identical so Auth Service events can be decrypted by the channel
+// integration workload in ace-apps. The replica is created from a protected
+// JSON descriptor; key material never appears in command arguments or logs.
+func EnsureApplicationAuthSecretReplica(ctx context.Context, run cli.Runner, kubeconfig, sourceNamespace, sourceName, targetNamespace, targetName string) (PreparedRelease, error) {
+	prepared := PreparedRelease{}
+	if err := EnsureNamespace(ctx, run, kubeconfig, targetNamespace, nil); err != nil {
+		return prepared, err
+	}
+	sourceOut, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", sourceNamespace, "get", "secret", sourceName, "-o", "json")
+	if err != nil {
+		return prepared, fmt.Errorf("helm: read source application identity Secret %s/%s: %w", sourceNamespace, sourceName, err)
+	}
+	payload, err := extractJSONObject(sourceOut)
+	if err != nil {
+		return prepared, fmt.Errorf("helm: parse source application identity Secret: %w", err)
+	}
+	var source secretJSON
+	if err := json.Unmarshal(payload, &source); err != nil {
+		return prepared, fmt.Errorf("helm: decode source application identity Secret: %w", err)
+	}
+	for _, key := range []string{"otp-key", "rate-key", "internal-key", "delivery-key"} {
+		if strings.TrimSpace(source.Data[key]) == "" {
+			return prepared, fmt.Errorf("helm: source application identity Secret is missing %s", key)
+		}
+	}
+	targetOut, targetErr := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "--namespace", targetNamespace, "get", "secret", targetName, "-o", "json")
+	if targetErr == nil {
+		targetPayload, parseErr := extractJSONObject(targetOut)
+		if parseErr != nil {
+			return prepared, fmt.Errorf("helm: parse target auth Secret: %w", parseErr)
+		}
+		var target secretJSON
+		if err := json.Unmarshal(targetPayload, &target); err != nil {
+			return prepared, fmt.Errorf("helm: decode target auth Secret: %w", err)
+		}
+		for _, key := range []string{"otp-key", "rate-key", "internal-key", "delivery-key"} {
+			if strings.TrimSpace(target.Data[key]) != strings.TrimSpace(source.Data[key]) {
+				return prepared, fmt.Errorf("helm: auth Secret %s conflicts with identity Secret for %s", targetName, key)
+			}
+		}
+		prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-replica-" + evidence.SanitizeIDSegment(targetName), Category: "chart", Status: evidence.StatusPass, Message: "application auth Secret already matches identity Secret", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+		return prepared, nil
+	}
+	if !secretNotFound(targetErr) {
+		return prepared, fmt.Errorf("helm: inspect target auth Secret %s/%s: %w", targetNamespace, targetName, targetErr)
+	}
+	manifest, err := json.Marshal(map[string]any{"apiVersion": "v1", "kind": "Secret", "metadata": map[string]string{"name": targetName, "namespace": targetNamespace}, "type": "Opaque", "data": source.Data})
+	if err != nil {
+		return prepared, fmt.Errorf("helm: encode auth Secret replica: %w", err)
+	}
+	tmp, err := os.CreateTemp("", "zon-auth-secret-*.json")
+	if err != nil {
+		return prepared, fmt.Errorf("helm: stage auth Secret replica: %w", err)
+	}
+	path := tmp.Name()
+	defer os.Remove(path)
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return prepared, err
+	}
+	if _, err := tmp.Write(manifest); err != nil {
+		_ = tmp.Close()
+		return prepared, err
+	}
+	if err := tmp.Close(); err != nil {
+		return prepared, err
+	}
+	if _, err := run(ctx, "kubectl", "--kubeconfig", kubeconfig, "apply", "-f", path); err != nil {
+		return prepared, fmt.Errorf("helm: create auth Secret replica: %w", err)
+	}
+	prepared.cleanups = append(prepared.cleanups, func() error { return deleteSecret(ctx, run, kubeconfig, targetNamespace, targetName) })
+	prepared.Checks = append(prepared.Checks, evidence.Check{ID: "chart-prereq-secret-replica-" + evidence.SanitizeIDSegment(targetName), Category: "chart", Status: evidence.StatusPass, Message: "created application auth Secret replica from identity Secret", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+	return prepared, nil
+}
+
 // EnsureKeysSecretReplica copies the control-plane keys Secret into targetNamespace
 // so co-packaged apps that mount keysSecretName (action-runtime in ace-apps)
 // can attach volumes. Material is cloned from source, never regenerated, so

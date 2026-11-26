@@ -720,6 +720,24 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
+	if resolved.ApplicationAuthEnabled {
+		var authSecret helm.PreparedRelease
+		var authErr error
+		if resolved.ApplicationIdentityEnabled {
+			authSecret, authErr = helm.EnsureApplicationAuthSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, "application-identity-secrets", productconfig.ApplicationCoreNamespace, "auth-service-secrets")
+		} else {
+			authSecret, authErr = helm.EnsureApplicationIdentitySecret(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationCoreNamespace, "auth-service-secrets")
+		}
+		checks = append(checks, authSecret.Checks...)
+		if authErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", authErr), func() []evidence.Check {
+				_ = authSecret.Cleanup()
+				return nil
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
 	if resolved.ChannelIntegrationsEnabled {
 		var runtimeSecret helm.PreparedRelease
 		var runtimeErr error

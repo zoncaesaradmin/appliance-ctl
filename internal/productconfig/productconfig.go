@@ -647,6 +647,17 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		authService = map[string]any{}
 	}
 	authService["enabled"] = authEnabled
+	if identityEnvironment, ok := identityService["environment"].(string); ok && identityEnvironment != "" {
+		authService["environment"] = identityEnvironment
+	}
+	if identityOrigin, ok := identityService["origin"].(string); ok && identityOrigin != "" {
+		authService["origin"] = identityOrigin
+	}
+	if channelIntegrationsEnabled && identityEnabled {
+		authService["deliveryMode"] = "event"
+	} else if _, ok := authService["deliveryMode"]; !ok {
+		authService["deliveryMode"] = "local"
+	}
 	authImage, _ := authService["image"].(map[string]any)
 	if authImage == nil {
 		authImage = map[string]any{}
