@@ -99,6 +99,7 @@ const (
 	CapabilityActions             Capability = "actions"
 	CapabilityChannelIntegrations Capability = "channel-integrations"
 	CapabilityCommerce            Capability = "commerce"
+	CapabilityApplicationAuth     Capability = "application-auth"
 	CapabilityApplicationIdentity Capability = "application-identity"
 	CapabilityLANDiscovery        Capability = "lan-discovery"
 	CapabilityHost                Capability = "host"
