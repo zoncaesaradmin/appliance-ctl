@@ -33,6 +33,7 @@ type Resolved struct {
 	ChannelIntegrationsEnabled bool
 	CommerceEnabled            bool
 	ApplicationIdentityEnabled bool
+	ApplicationAuthEnabled     bool
 	LANDiscoveryEnabled        bool
 	HostEnabled                bool
 	FilesEnabled               bool
@@ -92,6 +93,7 @@ type Resolved struct {
 	ChannelIntegrationImageReference  string
 	OrderingImageReference            string
 	ApplicationIdentityImageReference string
+	AuthServiceImageReference         string
 
 	// K3sImages and OCIImages are preloaded directly into the K3s image
 	// store before chart application so the appliance can run with public
@@ -310,7 +312,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isOrderingImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isOrderingImageReference(e.ImageReference) || isApplicationIdentityImageReference(e.ImageReference) || isAuthServiceImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -393,6 +395,14 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 			return Resolved{}, checks, fmt.Errorf("install: profile %q requires application-identity capability but its image is missing: %w", effectiveProfile, err)
 		}
 	}
+	applicationAuthEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityApplicationAuth, profileCatalog)
+	authServiceImageReference := ""
+	if applicationAuthEnabled {
+		authServiceImageReference, err = requiredAuthServiceImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires application-auth capability but its image is missing: %w", effectiveProfile, err)
+		}
+	}
 
 	return Resolved{
 		Runtimes:                           runtimes,
@@ -406,6 +416,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ChannelIntegrationsEnabled:         channelIntegrationsEnabled,
 		CommerceEnabled:                    commerceEnabled,
 		ApplicationIdentityEnabled:         applicationIdentityEnabled,
+		ApplicationAuthEnabled:             applicationAuthEnabled,
 		LANDiscoveryEnabled:                lanDiscoveryEnabled,
 		HostEnabled:                        hostEnabled,
 		FilesEnabled:                       filesEnabled,
@@ -444,6 +455,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ChannelIntegrationImageReference:   channelIntegrationImageReference,
 		OrderingImageReference:             orderingImageReference,
 		ApplicationIdentityImageReference:  applicationIdentityImageReference,
+		AuthServiceImageReference:          authServiceImageReference,
 		K3sImages:                          k3sImages,
 		OCIImages:                          ociImages,
 	}, checks, nil
@@ -519,6 +531,27 @@ func isOrderingImageReference(ref string) bool {
 
 func isApplicationIdentityImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/application-identity@sha256:")
+}
+
+func isAuthServiceImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/auth-service@sha256:")
+}
+
+func requiredAuthServiceImageReference(b entrySource) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isAuthServiceImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple auth service image references")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no registry.local/auth-service@sha256 image")
+	}
+	return found, nil
 }
 
 func requiredApplicationIdentityImageReference(b entrySource) (string, error) {
@@ -1019,6 +1052,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 			continue
 		}
 		if strings.HasPrefix(image.Name, "registry.local/application-identity@") && !r.ApplicationIdentityEnabled {
+			continue
+		}
+		if strings.HasPrefix(image.Name, "registry.local/auth-service@") && !r.ApplicationAuthEnabled {
 			continue
 		}
 		if image.Category == images.CategoryDependency {

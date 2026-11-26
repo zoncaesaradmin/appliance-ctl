@@ -498,7 +498,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if tlsTermination == "cloudflare" && (strings.TrimSpace(opts.TLSCertificatePath) != "" || strings.TrimSpace(opts.TLSKeyPath) != "") {
 		return nil, checks, fmt.Errorf("install: public TLS certificate/key are for direct Traefik TLS; omit them with cloudflare termination")
 	}
-	if resolved.ChannelIntegrationsEnabled || resolved.ApplicationIdentityEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.ApplicationIdentityEnabled || resolved.ApplicationAuthEnabled {
 		if strings.TrimSpace(opts.PublicOrigin) == "" {
 			return nil, checks, fmt.Errorf("install: application-facing capabilities require --public-origin")
 		}
@@ -525,7 +525,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigins(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigins(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -1215,7 +1215,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}
 	}
 	if strings.TrimSpace(opts.CloudflaredTunnelTokenPath) != "" {
-		if !resolved.ChannelIntegrationsEnabled && !resolved.ApplicationIdentityEnabled {
+		if !resolved.ChannelIntegrationsEnabled && !resolved.ApplicationIdentityEnabled && !resolved.ApplicationAuthEnabled {
 			return nil, checks, failInstall(fmt.Errorf("install: Cloudflare Tunnel connector requires an application-facing capability"), runRollbacks())
 		}
 		if strings.TrimSpace(resolved.CloudflaredBinaryPath) == "" {
@@ -1386,7 +1386,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	// reference appliance-tls. Create both before the ace-system release so the
 	// Deployment can schedule and Traefik has a secret to attach.
 	appsTLSNamespace := ""
-	if resolved.ChannelIntegrationsEnabled || resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled || resolved.ApplicationAuthEnabled {
 		appsTLSNamespace = productconfig.ControlPlaneAppsNamespace
 	}
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
@@ -1458,6 +1458,16 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	}
 	if appCoreResult.rollback != nil {
 		rollbacks = append(rollbacks, appCoreResult.rollback)
+	}
+	if resolved.ApplicationAuthEnabled {
+		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationCoreNamespace, "auth-service", "application-auth-ready")
+		checks = append(checks, ready)
+		if waitErr != nil {
+			appCoreDiag := aceAppCoreRelease
+			appCoreDiag.Namespace = productconfig.ApplicationCoreNamespace
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, appCoreDiag)...)
+			return nil, checks, failInstall(fmt.Errorf("install: wait for auth-service: %w", waitErr), cleanupOnFailure())
+		}
 	}
 
 	// ui-server / host-agent / action-runtime live in ace-apps (chart appsNamespace).

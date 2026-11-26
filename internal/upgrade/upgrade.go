@@ -250,7 +250,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if tlsTermination == "cloudflare" && (strings.TrimSpace(opts.TLSCertificatePath) != "" || strings.TrimSpace(opts.TLSKeyPath) != "") {
 		return nil, checks, fmt.Errorf("upgrade: public TLS certificate/key are for direct Traefik TLS; omit them with cloudflare termination")
 	}
-	if resolved.ChannelIntegrationsEnabled || resolved.ApplicationIdentityEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.ApplicationIdentityEnabled || resolved.ApplicationAuthEnabled {
 		if strings.TrimSpace(opts.PublicOrigin) == "" {
 			return nil, checks, fmt.Errorf("upgrade: application-facing capabilities require --public-origin")
 		}
@@ -305,7 +305,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
 		webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination,
-		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference,
+		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference,
 	)
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
@@ -743,7 +743,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 		channelRuntimeRollback = runtimeSecret.Cleanup
 	}
-	if (resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled) && resolved.PostgresImageReference != "" {
+	if (resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled || resolved.ApplicationAuthEnabled) && resolved.PostgresImageReference != "" {
 		dbReplica, dbReplicaErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, productconfig.ControlPlaneAppsNamespace, "controlplane-database-connection")
 		checks = append(checks, dbReplica.Checks...)
 		if dbReplicaErr != nil {
@@ -798,7 +798,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	appsTLSNamespace := ""
-	if resolved.ChannelIntegrationsEnabled || resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled {
+	if resolved.ChannelIntegrationsEnabled || resolved.CommerceEnabled || resolved.ApplicationIdentityEnabled || resolved.ApplicationAuthEnabled {
 		appsTLSNamespace = productconfig.ControlPlaneAppsNamespace
 	}
 	tlsPrepared, tlsErr := helm.EnsureApplianceTLSSecrets(ctx, o.HelmRun, opts.KubeconfigPath, helm.ApplianceTLSOptions{
@@ -1005,7 +1005,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		// AP bind-probe falls back to DHCP-only DNS mode for manage.ap.
 	}
 	if strings.TrimSpace(opts.CloudflaredTunnelTokenPath) != "" {
-		if !resolved.ChannelIntegrationsEnabled && !resolved.ApplicationIdentityEnabled {
+		if !resolved.ChannelIntegrationsEnabled && !resolved.ApplicationIdentityEnabled && !resolved.ApplicationAuthEnabled {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: Cloudflare Tunnel connector requires an application-facing capability"), rollback)
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
@@ -1199,6 +1199,17 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		})
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
+	}
+	if resolved.ApplicationAuthEnabled {
+		ready, waitErr := helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationCoreNamespace, "auth-service", "application-auth-ready")
+		checks = append(checks, ready)
+		if waitErr != nil {
+			appCoreDiag := helm.ChartRelease{Name: opts.ChartReleaseName, ChartPath: chartPath, Namespace: opts.ChartNamespace, ValuesPath: preparedValuesPath}
+			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, appCoreDiag)...)
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: wait for auth-service: %w", waitErr), rollback)
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
 	}
 
 	// Re-attach image-pull secrets after charts may have created new SAs.

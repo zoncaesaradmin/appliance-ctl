@@ -987,13 +987,17 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		return nil
 	}
 	if pack == PackFoundation {
-		var hasHostAgentDaemon, hasMDNSPackage bool
+		var hasHostAgentDaemon, hasMDNSPackage, hasAuthServiceImage bool
 		for _, entry := range entries {
 			hasHostAgentDaemon = hasHostAgentDaemon || (entry.Component == "appliance" && strings.EqualFold(filepath.Base(entry.Path), "appliance-host-agentd"))
 			hasMDNSPackage = hasMDNSPackage || (entry.Component == "host-packages" && strings.Contains(strings.ToLower(filepath.Base(entry.Path)), "avahi-daemon"))
+			hasAuthServiceImage = hasAuthServiceImage || (entry.Component == "oci-images" && isCanonicalAuthServiceReference(entry.ImageReference))
 		}
 		if !hasHostAgentDaemon || !hasMDNSPackage {
 			return fmt.Errorf("releasebundle: foundation pack requires host-agent daemon and Avahi mDNS package")
+		}
+		if !hasAuthServiceImage {
+			return fmt.Errorf("releasebundle: foundation pack requires auth-service image")
 		}
 	}
 
@@ -1128,6 +1132,10 @@ func isCanonicalChannelIntegrationReference(ref string) bool {
 
 func isCanonicalOrderingReference(ref string) bool {
 	return isCanonicalRegistryLocalReference(strings.ToLower(strings.TrimSpace(ref)), "ordering")
+}
+
+func isCanonicalAuthServiceReference(ref string) bool {
+	return isCanonicalRegistryLocalReference(strings.ToLower(strings.TrimSpace(ref)), "auth-service")
 }
 
 func encodePublicKeyPEM(pub ed25519.PublicKey) ([]byte, error) {

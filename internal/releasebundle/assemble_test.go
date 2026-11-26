@@ -266,6 +266,7 @@ func TestAssembleAndVerifyBundleWithoutSupportedUpgradeSources(t *testing.T) {
 	writeTestFile(t, staging, "install.sh", "#!/bin/sh\n", 0o750)
 	writeTestFile(t, staging, "k3s-airgap-images.tar", "k3s images", 0o640)
 	writeTestFile(t, staging, "control-plane.tar", "app image", 0o640)
+	writeTestFile(t, staging, "auth-service.oci.tar.zst", "auth service", 0o640)
 	writeTestFile(t, staging, "chart.tgz", "chart", 0o640)
 	writeTestFile(t, staging, "values.yaml", "replicaCount: 1\n", 0o640)
 
@@ -296,6 +297,7 @@ func TestAssembleAndVerifyBundleWithoutSupportedUpgradeSources(t *testing.T) {
 			{SourcePath: filepath.Join(staging, "install.sh"), TargetPath: "k3s/install/install.sh", Component: "k3s-install", Executable: true},
 			{SourcePath: filepath.Join(staging, "k3s-airgap-images.tar"), TargetPath: "k3s/images/k3s-airgap-images.tar", Component: "k3s-images"},
 			{SourcePath: filepath.Join(staging, "control-plane.tar"), TargetPath: "oci-images/control-plane.tar", Component: "oci-images", ImageReference: "internal/control-plane:2.4.0"},
+			{SourcePath: filepath.Join(staging, "auth-service.oci.tar.zst"), TargetPath: "oci-images/auth-service.oci.tar.zst", Component: "oci-images", ImageReference: "registry.local/auth-service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			{SourcePath: filepath.Join(staging, "chart.tgz"), TargetPath: "charts/appliance-chart-2.4.0.tgz", Component: "chart"},
 			{SourcePath: filepath.Join(staging, "values.yaml"), TargetPath: "configuration/values.yaml", Component: "configuration"},
 		},
@@ -319,6 +321,7 @@ func TestAssemblePackFoundationExcludesWorkflowAndInference(t *testing.T) {
 	writeTestFile(t, staging, "install.sh", "#!/bin/sh\n", 0o750)
 	writeTestFile(t, staging, "k3s-airgap-images.tar", "k3s images", 0o640)
 	writeTestFile(t, staging, "control-plane.tar", "app image", 0o640)
+	writeTestFile(t, staging, "auth-service.oci.tar.zst", "auth service", 0o640)
 	writeTestFile(t, staging, "chart.tgz", "chart", 0o640)
 	writeTestFile(t, staging, "values.yaml", "replicaCount: 1\n", 0o640)
 	writeTestFile(t, staging, "workflows-chart.tgz", "workflows", 0o640)
@@ -354,6 +357,7 @@ func TestAssemblePackFoundationExcludesWorkflowAndInference(t *testing.T) {
 			{SourcePath: filepath.Join(staging, "install.sh"), TargetPath: "k3s/install/install.sh", Component: "k3s-install", Executable: true},
 			{SourcePath: filepath.Join(staging, "k3s-airgap-images.tar"), TargetPath: "k3s/images/k3s-airgap-images.tar", Component: "k3s-images"},
 			{SourcePath: filepath.Join(staging, "control-plane.tar"), TargetPath: "oci-images/control-plane.tar", Component: "oci-images", ImageReference: "internal/control-plane:2.4.0"},
+			{SourcePath: filepath.Join(staging, "auth-service.oci.tar.zst"), TargetPath: "oci-images/auth-service.oci.tar.zst", Component: "oci-images", ImageReference: "registry.local/auth-service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			{SourcePath: filepath.Join(staging, "chart.tgz"), TargetPath: "charts/appliance-chart-2.4.0.tgz", Component: "chart"},
 			{SourcePath: filepath.Join(staging, "values.yaml"), TargetPath: "configuration/values.yaml", Component: "configuration"},
 			{SourcePath: filepath.Join(staging, "workflows-chart.tgz"), TargetPath: "charts/workflows-chart-1.0.0.tgz", Component: "chart"},

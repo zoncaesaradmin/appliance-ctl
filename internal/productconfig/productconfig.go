@@ -372,6 +372,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	channelIntegrationImageReference := ""
 	orderingImageReference := ""
 	applicationIdentityImageReference := ""
+	authServiceImageReference := ""
 	if len(registry) > 0 {
 		artifactServerImageReference = strings.TrimSpace(registry[0])
 	}
@@ -389,6 +390,9 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if len(registry) > 5 {
 		applicationIdentityImageReference = strings.TrimSpace(registry[5])
+	}
+	if len(registry) > 6 {
+		authServiceImageReference = strings.TrimSpace(registry[6])
 	}
 	if buildEnabled {
 		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
@@ -420,6 +424,10 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	identityEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityApplicationIdentity, profileCatalog)
 	if identityEnabled && !validApplicationIdentityImageDigest(applicationIdentityImageReference) {
 		return "", func() {}, fmt.Errorf("product config: application-identity capability requires a bundled registry.local/application-identity@sha256 image reference; got %q", applicationIdentityImageReference)
+	}
+	authEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityApplicationAuth, profileCatalog)
+	if authEnabled && !validAuthServiceImageDigest(authServiceImageReference) {
+		return "", func() {}, fmt.Errorf("product config: application-auth capability requires a bundled registry.local/auth-service@sha256 image reference; got %q", authServiceImageReference)
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host or application capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -634,6 +642,18 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		identityImage["reference"] = applicationIdentityImageReference
 	}
 	identityService["image"] = identityImage
+	authService, _ := applicationServices["auth"].(map[string]any)
+	if authService == nil {
+		authService = map[string]any{}
+	}
+	authService["enabled"] = authEnabled
+	authImage, _ := authService["image"].(map[string]any)
+	if authImage == nil {
+		authImage = map[string]any{}
+	}
+	authImage["reference"] = authServiceImageReference
+	authService["image"] = authImage
+	applicationServices["auth"] = authService
 	applicationServices["identity"] = identityService
 	applicationServices["ordering"] = ordering
 	values["applicationServices"] = applicationServices
@@ -1426,6 +1446,10 @@ func validOrderingImageDigest(image string) bool {
 
 func validApplicationIdentityImageDigest(image string) bool {
 	return validRegistryLocalImageDigest(image, "application-identity")
+}
+
+func validAuthServiceImageDigest(image string) bool {
+	return validRegistryLocalImageDigest(image, "auth-service")
 }
 
 func validDNSImageDigest(image string) bool {
