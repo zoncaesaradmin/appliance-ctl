@@ -77,6 +77,7 @@ func TestProductNamespacesExcludesSystemNamespaces(t *testing.T) {
 	want := map[string]bool{
 		"ace-infra":        true,
 		"ace-system":       true,
+		"ace-app-core":     true,
 		"ace-apps":         true,
 		"apps":             true,
 		"artifacts":        true,

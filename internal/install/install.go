@@ -1079,6 +1079,11 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-infra values: %w", err), runRollbacks())
 	}
 	defer cleanupAceInfraValues()
+	aceAppCoreValuesPath, cleanupAceAppCoreValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.AceAppCoreOverlay())
+	if err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-app-core values: %w", err), runRollbacks())
+	}
+	defer cleanupAceAppCoreValues()
 	aceAppsValuesPath, cleanupAceAppsValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.AceAppsOverlay())
 	if err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-apps values: %w", err), runRollbacks())
@@ -1271,6 +1276,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		Namespace:  opts.ChartNamespace,
 		ValuesPath: aceSystemValuesPath,
 	}
+	aceAppCoreRelease := helm.ChartRelease{
+		Name:       rolloutsets.AceAppCoreReleaseName,
+		ChartPath:  resolved.ChartPath,
+		Namespace:  opts.ChartNamespace,
+		ValuesPath: aceAppCoreValuesPath,
+	}
 	aceAppsRelease := helm.ChartRelease{
 		Name:       rolloutsets.AceAppsReleaseName,
 		ChartPath:  resolved.ChartPath,
@@ -1430,6 +1441,23 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		if waitErr != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: wait for message broker: %w", waitErr), cleanupOnFailure())
 		}
+	}
+
+	// Shared application prerequisites are installed after the infrastructure and
+	// control plane are ready, but before the co-packaged application workloads.
+	// Keeping this as its own release lets a future auth service (and other
+	// application-core capabilities) move independently without changing the
+	// ace-apps release.
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationCoreNamespace, helm.RestrictedNamespaceLabels()); err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: prepare application-core namespace %s: %w", productconfig.ApplicationCoreNamespace, err), cleanupOnFailure())
+	}
+	appCoreResult := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, aceAppCoreRelease)
+	checks = append(checks, appCoreResult.checks...)
+	if appCoreResult.err != nil {
+		return nil, checks, failInstall(fmt.Errorf("install: %w", appCoreResult.err), cleanupOnFailure(appCoreResult.rollback))
+	}
+	if appCoreResult.rollback != nil {
+		rollbacks = append(rollbacks, appCoreResult.rollback)
 	}
 
 	// ui-server / host-agent / action-runtime live in ace-apps (chart appsNamespace).

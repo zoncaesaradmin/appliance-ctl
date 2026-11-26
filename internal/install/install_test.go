@@ -27,6 +27,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/rolloutsets"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/verify"
 )
@@ -1251,6 +1252,33 @@ func TestInstall_ReplicatesAppsKeysOnlyAfterAceSystemRelease(t *testing.T) {
 	}
 	if replicaIndex <= set0Index {
 		t.Fatalf("expected ace-apps keys replica after ace-system release, got release index %d and replica index %d\ncalls: %v", set0Index, replicaIndex, fcli.calls)
+	}
+}
+
+func TestInstall_AppliesApplicationCoreBetweenSystemAndApps(t *testing.T) {
+	dir, pub := buildFixtureBundle(t)
+	opts := baseOptions(t, dir, pub)
+
+	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
+	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
+	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
+
+	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
+		t.Fatalf("expected install to succeed, got: %v", err)
+	}
+	indexOfRelease := func(name string) int {
+		return findCallIndex(fcli.calls, func(call string) bool {
+			return strings.Contains(call, "helm") && strings.Contains(call, "upgrade --install "+name+" ")
+		})
+	}
+	systemIndex := indexOfRelease(opts.ChartReleaseName)
+	appCoreIndex := indexOfRelease(rolloutsets.AceAppCoreReleaseName)
+	appsIndex := indexOfRelease(rolloutsets.AceAppsReleaseName)
+	if systemIndex < 0 || appCoreIndex < 0 || appsIndex < 0 {
+		t.Fatalf("missing rollout release calls (system=%d app-core=%d apps=%d): %v", systemIndex, appCoreIndex, appsIndex, fcli.calls)
+	}
+	if !(systemIndex < appCoreIndex && appCoreIndex < appsIndex) {
+		t.Fatalf("expected ace-system -> ace-app-core -> ace-apps order (system=%d app-core=%d apps=%d): %v", systemIndex, appCoreIndex, appsIndex, fcli.calls)
 	}
 }
 

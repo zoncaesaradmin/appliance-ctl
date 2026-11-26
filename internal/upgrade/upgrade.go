@@ -671,6 +671,19 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		return nil, checks, failErr
 	}
 
+	// Keep the shared application prerequisites namespace present before the
+	// chart upgrade renders any application workloads. The fresh-install path
+	// applies the dedicated ace-app-core release between ace-infra/ace-system
+	// and ace-apps; upgrades preserve that namespace boundary.
+	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationCoreNamespace, helm.RestrictedNamespaceLabels()); err != nil {
+		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare application-core namespace %s: %w", productconfig.ApplicationCoreNamespace, err), func() []evidence.Check {
+			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
+			return rollback()
+		})
+		checks = append(checks, rollbackChecks...)
+		return nil, checks, failErr
+	}
+
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, helm.RestrictedNamespaceLabels()); err != nil {
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare application namespace %s: %w", productconfig.ApplicationNamespace, err), func() []evidence.Check {
 			_ = importer.Rollback(ctx, preloadResult.NewlyImported)

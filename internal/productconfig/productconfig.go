@@ -33,7 +33,11 @@ const (
 	// action-runtime. controlplane itself uses defaultChartNamespace
 	// (ace-system).
 	ControlPlaneAppsNamespace = "ace-apps"
-	InfrastructureNamespace   = "ace-infra"
+	// ApplicationCoreNamespace hosts shared application prerequisites such as
+	// the future platform authentication service. It is deliberately separate
+	// from ace-apps so those prerequisites can be enabled or moved as a unit.
+	ApplicationCoreNamespace = "ace-app-core"
+	InfrastructureNamespace  = "ace-infra"
 	// ApplicationNamespace is permanently provisioned for user-managed
 	// application workloads and is independent from co-packaged services.
 	ApplicationNamespace = "apps"
@@ -68,6 +72,7 @@ func ProductNamespaces(controlPlaneNS string) []string {
 	return []string{
 		InfrastructureNamespace,
 		controlPlaneNS,
+		ApplicationCoreNamespace,
 		ControlPlaneAppsNamespace,
 		ApplicationNamespace,
 		ArtifactsNamespace,
@@ -685,6 +690,10 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	values["appsNamespace"] = map[string]any{
 		"create": false,
 		"name":   ControlPlaneAppsNamespace,
+	}
+	values["appCoreNamespace"] = map[string]any{
+		"create": false,
+		"name":   ApplicationCoreNamespace,
 	}
 	// Default empty: lab install injects appliance-image-pull via
 	// InjectImagePullSecrets when --image-pull-registry is set.
