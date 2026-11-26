@@ -1451,6 +1451,15 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationCoreNamespace, helm.RestrictedNamespaceLabels()); err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare application-core namespace %s: %w", productconfig.ApplicationCoreNamespace, err), cleanupOnFailure())
 	}
+	if resolved.PostgresImageReference != "" && (resolved.ApplicationAuthEnabled || resolved.ApplicationIdentityEnabled || resolved.CommerceEnabled) {
+		databaseCoreReplica, databaseCoreErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+			productconfig.InfrastructureNamespace, productconfig.ApplicationCoreNamespace, "controlplane-database-connection")
+		checks = append(checks, databaseCoreReplica.Checks...)
+		if databaseCoreErr != nil {
+			return nil, checks, failInstall(fmt.Errorf("install: %w", databaseCoreErr), cleanupOnFailure(databaseCoreReplica.Cleanup))
+		}
+		rollbacks = append(rollbacks, databaseCoreReplica.Cleanup)
+	}
 	// Prepare the identity Secret before auth-service is rendered so the
 	// application-core replica uses the same delivery key as channel adapters.
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, nil); err != nil {

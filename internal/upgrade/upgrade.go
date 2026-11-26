@@ -683,6 +683,19 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		checks = append(checks, rollbackChecks...)
 		return nil, checks, failErr
 	}
+	if resolved.PostgresImageReference != "" && (resolved.ApplicationAuthEnabled || resolved.ApplicationIdentityEnabled || resolved.CommerceEnabled) {
+		databaseCoreReplica, databaseCoreErr := helm.EnsureControlPlaneDatabaseConnectionReplica(ctx, o.HelmRun, opts.KubeconfigPath,
+			productconfig.InfrastructureNamespace, productconfig.ApplicationCoreNamespace, "controlplane-database-connection")
+		checks = append(checks, databaseCoreReplica.Checks...)
+		if databaseCoreErr != nil {
+			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", databaseCoreErr), func() []evidence.Check {
+				_ = databaseCoreReplica.Cleanup()
+				return rollback()
+			})
+			checks = append(checks, rollbackChecks...)
+			return nil, checks, failErr
+		}
+	}
 
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, helm.RestrictedNamespaceLabels()); err != nil {
 		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare application namespace %s: %w", productconfig.ApplicationNamespace, err), func() []evidence.Check {
