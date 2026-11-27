@@ -52,3 +52,19 @@ func TestStorageNetworkPackRequiresItsServices(t *testing.T) {
 		t.Fatal("empty storage-network pack accepted")
 	}
 }
+
+func TestGeoStackPackAllowsMetadataOnlyStage(t *testing.T) {
+	if err := validateInstallableBundle(nil, PackGeoStack); err != nil {
+		t.Fatalf("metadata-only geo-stack pack rejected: %v", err)
+	}
+	entries := []manifestEntry{
+		{Component: "oci-images", ImageReference: "registry.local/geo-zone@sha256:" + strings.Repeat("a", 64)},
+	}
+	if err := validateInstallableBundle(entries, PackGeoStack); err == nil {
+		t.Fatal("geo-stack pack with only an image accepted")
+	}
+	entries = append(entries, manifestEntry{Component: "chart", Path: "chart/geo-zone-0.1.0.tgz"})
+	if err := validateInstallableBundle(entries, PackGeoStack); err != nil {
+		t.Fatalf("complete geo-stack pack rejected: %v", err)
+	}
+}

@@ -977,6 +977,14 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 				hasGeoChart = true
 			}
 		}
+		// The Geo-Zone profile is metadata/routing-only until its producer
+		// publishes signed image and chart artifacts.  Keep an explicitly empty
+		// pack installable so the foundation bundle can be exercised without
+		// pretending that Geo runtime services are present.  Once either runtime
+		// artifact is supplied, require the complete pair below.
+		if !hasGeoImage && !hasGeoChart {
+			return nil
+		}
 		if !hasGeoImage || !hasGeoChart {
 			return fmt.Errorf("releasebundle: geo-stack pack requires Geo-Zone image and chart")
 		}
@@ -1005,6 +1013,12 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 	}
 	if counts["k3s-images"] == 0 {
 		return fmt.Errorf("releasebundle: assembled bundle must include at least one k3s-images archive")
+	}
+	if pack == PackGeoStack && counts["oci-images"] == 0 && counts["chart"] == 0 {
+		// A metadata-only Geo pack intentionally contains only its signed
+		// manifest/public key.  The foundation pack owns the installable
+		// appliance payload until Geo runtime artifacts are added.
+		return nil
 	}
 	if counts["oci-images"] == 0 {
 		return fmt.Errorf("releasebundle: assembled bundle must include at least one oci-images archive")
