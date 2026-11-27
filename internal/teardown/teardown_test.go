@@ -321,6 +321,9 @@ func TestFactoryReset_WipesDataWithVerifiedBackup(t *testing.T) {
 	if _, err := os.Stat(f.inferenceModelsDir); !os.IsNotExist(err) {
 		t.Errorf("expected the inference models directory to be removed, stat err=%v", err)
 	}
+	if _, err := os.Stat(f.workspaceFilePath); err != nil {
+		t.Errorf("expected legacy workspace data to remain untouched, stat err=%v", err)
+	}
 }
 
 func TestFactoryReset_WipesDataWithExplicitOverride(t *testing.T) {
