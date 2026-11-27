@@ -37,13 +37,14 @@ type EntryConfig struct {
 }
 
 const (
-	PackFoundation  = "foundation"
-	PackAppStack    = "app-stack"
-	PackDevPlatform = "dev-platform"
-	PackDeviceUser  = "deviceuser"
-	PackStdLLM      = "std-llm"
-	PackAccLLM      = "acc-llm"
-	PackOpenWebUI   = "open-webui"
+	PackFoundation     = "foundation"
+	PackAppStack       = "app-stack"
+	PackStorageNetwork = "storage-network"
+	PackBuildWorkflows = "build-workflows"
+	PackDeviceUser     = "deviceuser"
+	PackStdLLM         = "std-llm"
+	PackAccLLM         = "acc-llm"
+	PackOpenWebUI      = "open-webui"
 )
 
 func IsInferencePack(pack string) bool {
@@ -65,7 +66,7 @@ type Config struct {
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
 	// Empty means legacy full bundle (everything). PackFoundation excludes
-	// app-stack, dev-platform, deviceuser, and the selected inference package artifacts.
+	// app-stack, storage-network, build-workflows, deviceuser, and the selected inference package artifacts.
 	Pack string `json:"pack,omitempty"`
 }
 
@@ -119,9 +120,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackAppStack, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
+	case "", PackFoundation, PackAppStack, PackStorageNetwork, PackBuildWorkflows, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, %q, or %q", PackFoundation, PackAppStack, PackDevPlatform, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, %q, %q, or %q", PackFoundation, PackAppStack, PackStorageNetwork, PackBuildWorkflows, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -162,7 +163,8 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 
 	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
 	includeFoundationMDNSAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
-	includeDevPlatformAutoAdds := cfg.Pack == "" || cfg.Pack == PackDevPlatform
+	includeStorageNetworkAutoAdds := cfg.Pack == "" || cfg.Pack == PackStorageNetwork
+	includeBuildWorkflowsAutoAdds := cfg.Pack == "" || cfg.Pack == PackBuildWorkflows
 	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
 	includeInferenceAutoAdd := cfg.Pack == "" || IsInferencePack(cfg.Pack)
 	includeOpenWebUIAutoAdd := cfg.Pack == "" || IsOpenWebUIPack(cfg.Pack)
@@ -215,6 +217,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		if strings.TrimSpace(input.Artifacts.HostAgentImage.Path) == "" {
 			return Result{}, fmt.Errorf("releasebundle: deviceuser pack requires hostAgentImage in release-input")
 		}
+		if strings.TrimSpace(input.Artifacts.DnsImage.Path) == "" || strings.TrimSpace(input.Artifacts.DnsChart.Path) == "" {
+			return Result{}, fmt.Errorf("releasebundle: deviceuser pack requires dnsImage and dnsChart in release-input")
+		}
 		hostAgentImageTarget := "oci-images/" + filepath.Base(input.Artifacts.HostAgentImage.Path)
 		if _, exists := entryByTarget[hostAgentImageTarget]; !exists {
 			if !isCanonicalHostAgentReference(input.Artifacts.HostAgentImage.ImageReference) {
@@ -229,12 +234,9 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 	}
 
-	if includeDevPlatformAutoAdds {
+	if includeStorageNetworkAutoAdds {
 		if strings.TrimSpace(input.Artifacts.ArtifactServerImage.Path) == "" || strings.TrimSpace(input.Artifacts.ArtifactServerChart.Path) == "" {
-			return Result{}, fmt.Errorf("releasebundle: dev-platform pack requires artifactServerImage and artifactServerChart in release-input")
-		}
-		if strings.TrimSpace(input.Artifacts.DnsImage.Path) == "" || strings.TrimSpace(input.Artifacts.DnsChart.Path) == "" {
-			return Result{}, fmt.Errorf("releasebundle: dev-platform pack requires dnsImage and dnsChart in release-input")
+			return Result{}, fmt.Errorf("releasebundle: storage-network pack requires artifactServerImage and artifactServerChart in release-input")
 		}
 		artifactServerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.ArtifactServerImage.Path)
 		if _, exists := entryByTarget[artifactServerImageTarget]; !exists {
@@ -260,6 +262,35 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 				Component:  "chart",
 			}
 		}
+		/* DNS is delivered with the deviceuser pack below. */
+		/* Keep artifact-server entries isolated from device-user entries. */
+	}
+
+	if includeBuildWorkflowsAutoAdds {
+		if cfg.Pack == PackBuildWorkflows && (strings.TrimSpace(input.Artifacts.WorkflowsChart.Path) == "" || strings.TrimSpace(input.Artifacts.WorkflowControllerImage.Path) == "" || strings.TrimSpace(input.Artifacts.WorkflowExecutorImage.Path) == "") {
+			return Result{}, fmt.Errorf("releasebundle: build-workflows pack requires workflows chart and controller/executor images in release-input")
+		}
+		workflowControllerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.WorkflowControllerImage.Path)
+		if input.Artifacts.WorkflowControllerImage.Path != "" {
+			if _, exists := entryByTarget[workflowControllerImageTarget]; !exists {
+				entryByTarget[workflowControllerImageTarget] = EntryConfig{SourcePath: input.Artifacts.WorkflowControllerImage.Path, TargetPath: workflowControllerImageTarget, Component: "oci-images", ImageReference: input.Artifacts.WorkflowControllerImage.ImageReference}
+			}
+		}
+		workflowExecutorImageTarget := "oci-images/" + filepath.Base(input.Artifacts.WorkflowExecutorImage.Path)
+		if input.Artifacts.WorkflowExecutorImage.Path != "" {
+			if _, exists := entryByTarget[workflowExecutorImageTarget]; !exists {
+				entryByTarget[workflowExecutorImageTarget] = EntryConfig{SourcePath: input.Artifacts.WorkflowExecutorImage.Path, TargetPath: workflowExecutorImageTarget, Component: "oci-images", ImageReference: input.Artifacts.WorkflowExecutorImage.ImageReference}
+			}
+		}
+		workflowsChartTarget := "chart/" + filepath.Base(input.Artifacts.WorkflowsChart.Path)
+		if input.Artifacts.WorkflowsChart.Path != "" {
+			if _, exists := entryByTarget[workflowsChartTarget]; !exists {
+				entryByTarget[workflowsChartTarget] = EntryConfig{SourcePath: input.Artifacts.WorkflowsChart.Path, TargetPath: workflowsChartTarget, Component: "chart"}
+			}
+		}
+	}
+
+	if includeDeviceUserAutoAdds {
 		dnsImageTarget := "oci-images/" + filepath.Base(input.Artifacts.DnsImage.Path)
 		if _, exists := entryByTarget[dnsImageTarget]; !exists {
 			if !isCanonicalDNSReference(input.Artifacts.DnsImage.ImageReference) {
@@ -878,51 +909,37 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		counts[entry.Component]++
 	}
 	switch pack {
-	case PackDevPlatform:
-		var registryImage, dnsImage, registryChart, dnsChart bool
+	case PackStorageNetwork:
+		var registryImage, registryChart bool
 		for _, entry := range entries {
 			registryImage = registryImage || (entry.Component == "oci-images" && isCanonicalArtifactServerReference(entry.ImageReference))
-			dnsImage = dnsImage || (entry.Component == "oci-images" && isCanonicalDNSReference(entry.ImageReference))
 			base := strings.ToLower(filepath.Base(entry.Path))
 			registryChart = registryChart || (entry.Component == "chart" && strings.HasPrefix(base, "appliance-registry-"))
-			dnsChart = dnsChart || (entry.Component == "chart" && strings.HasPrefix(base, "appliance-dns-"))
 		}
-		if !registryImage || !dnsImage || !registryChart || !dnsChart {
-			return fmt.Errorf("releasebundle: dev-platform pack requires Artifact Server and CoreDNS images and charts")
+		if !registryImage || !registryChart {
+			return fmt.Errorf("releasebundle: storage-network pack requires Artifact Server image and chart")
 		}
-		if counts["chart"] == 0 {
-			return fmt.Errorf("releasebundle: dev-platform pack is missing a workflows chart")
-		}
-		if counts["kubernetes-crds"] == 0 {
-			return fmt.Errorf("releasebundle: dev-platform pack is missing kubernetes-crds")
-		}
-		if counts["oci-images"] == 0 {
-			return fmt.Errorf("releasebundle: dev-platform pack must include at least one oci-images archive")
-		}
-		var hasWorkflowsChart bool
-		for _, entry := range entries {
-			if entry.Component != "chart" {
-				continue
-			}
-			base := strings.ToLower(filepath.Base(entry.Path))
-			if strings.Contains(base, "workflows") {
-				hasWorkflowsChart = true
-				break
-			}
-		}
-		if !hasWorkflowsChart {
-			return fmt.Errorf("releasebundle: dev-platform pack is missing a workflows chart")
+		return nil
+	case PackBuildWorkflows:
+		if counts["chart"] == 0 || counts["kubernetes-crds"] == 0 || counts["oci-images"] == 0 {
+			return fmt.Errorf("releasebundle: build-workflows pack requires workflows chart, CRDs, and images")
 		}
 		return nil
 	case PackDeviceUser:
-		var hasHostAgentImage bool
+		var hasHostAgentImage, hasDNSImage, hasDNSChart bool
 		for _, entry := range entries {
 			if entry.Component == "oci-images" && isCanonicalHostAgentReference(entry.ImageReference) {
 				hasHostAgentImage = true
 			}
+			if entry.Component == "oci-images" && isCanonicalDNSReference(entry.ImageReference) {
+				hasDNSImage = true
+			}
+			if entry.Component == "chart" && strings.HasPrefix(strings.ToLower(filepath.Base(entry.Path)), "appliance-dns-") {
+				hasDNSChart = true
+			}
 		}
-		if !hasHostAgentImage {
-			return fmt.Errorf("releasebundle: deviceuser pack requires the in-cluster host-agent image")
+		if !hasHostAgentImage || !hasDNSImage || !hasDNSChart {
+			return fmt.Errorf("releasebundle: deviceuser pack requires host-agent and LAN DNS images and charts")
 		}
 		return nil
 	case PackStdLLM, PackAccLLM:
@@ -1026,8 +1043,10 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 		return !entryIsAppStack(entry) && !entryIsStorageNetwork(entry) && !entryIsBuildWorkflows(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry) && !entryIsOpenWebUI(entry)
 	case PackAppStack:
 		return entryIsAppStack(entry)
-	case PackDevPlatform:
-		return entryIsStorageNetwork(entry) || entryIsBuildWorkflows(entry)
+	case PackStorageNetwork:
+		return entryIsStorageNetwork(entry)
+	case PackBuildWorkflows:
+		return entryIsBuildWorkflows(entry)
 	case PackDeviceUser:
 		return entryIsDeviceUser(entry)
 	case PackStdLLM, PackAccLLM:
@@ -1074,11 +1093,6 @@ func entryIsStorageNetwork(entry EntryConfig) bool {
 		(entry.Component == "chart" && (strings.HasPrefix(base, "appliance-registry-") || strings.HasPrefix(sourceBase, "appliance-registry-"))) {
 		return true
 	}
-	if strings.Contains(ref, "/coredns") || strings.Contains(target, "coredns") ||
-		strings.Contains(sourceBase, "coredns") ||
-		(entry.Component == "chart" && (strings.HasPrefix(base, "appliance-dns-") || strings.HasPrefix(sourceBase, "appliance-dns-"))) {
-		return true
-	}
 	return false
 }
 
@@ -1087,7 +1101,8 @@ func entryIsDeviceUser(entry EntryConfig) bool {
 	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
 	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
 
-	return strings.Contains(ref, "appliance-host-agent") ||
+	return strings.Contains(ref, "appliance-host-agent") || strings.Contains(ref, "/coredns@") || strings.Contains(target, "coredns") || strings.Contains(sourceBase, "coredns") ||
+		(entry.Component == "chart" && (strings.HasPrefix(strings.ToLower(filepath.Base(target)), "appliance-dns-") || strings.HasPrefix(strings.ToLower(filepath.Base(entry.SourcePath)), "appliance-dns-"))) ||
 		strings.HasPrefix(ref, "registry.local/jellyfin@sha256:") || strings.Contains(target, "jellyfin") || strings.Contains(sourceBase, "jellyfin")
 }
 

@@ -128,8 +128,8 @@ type Source interface {
 // OfflineSource resolves artifacts from a verified local air-gap bundle.
 type OfflineSource struct {
 	BundleDir string
-	// PackDirs are additional signed pack bundle directories (dev-platform,
-	// deviceuser, std-llm) verified with the same public key and merged into Resolved.
+	// PackDirs are additional signed pack bundle directories (storage-network,
+	// build-workflows, deviceuser, std-llm) verified with the same public key and merged into Resolved.
 	PackDirs  []string
 	PublicKey *verify.PublicKey
 }
@@ -220,13 +220,13 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		workflowsChartPath = optionalWorkflowsChartPath(view)
 		workflowsCRDPaths = crdPaths(view)
 		if workflowsChartPath == "" && len(workflowsCRDPaths) == 0 {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires workflows/build capability but the dev-platform pack was not provided (missing workflows chart and/or CRDs)", effectiveProfile)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires workflows/build capability but the build-workflows pack was not provided (missing workflows chart and/or CRDs)", effectiveProfile)
 		}
 		if workflowsChartPath != "" && len(workflowsCRDPaths) == 0 {
 			return Resolved{}, checks, fmt.Errorf("install: bundle has a workflows chart but no workflows-crds artifact; the workflow controller cannot start without its CRDs")
 		}
 		if workflowsChartPath == "" {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires workflows/build capability but the dev-platform pack was not provided (missing workflows chart)", effectiveProfile)
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires workflows/build capability but the build-workflows pack was not provided (missing workflows chart)", effectiveProfile)
 		}
 	}
 	registryChartPath := ""

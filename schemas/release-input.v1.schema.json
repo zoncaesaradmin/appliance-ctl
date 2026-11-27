@@ -68,19 +68,19 @@
         "applianceChart": { "$ref": "#/$defs/artifact" },
         "artifactServerImage": {
           "$ref": "#/$defs/artifact",
-          "description": "Optional; required when packaging the dev-platform pack (artifact capability)."
+          "description": "Optional; required when packaging the storage-network pack (artifact capability)."
         },
         "artifactServerChart": {
           "$ref": "#/$defs/artifact",
-          "description": "Optional; required when packaging the dev-platform pack (artifact capability)."
+          "description": "Optional; required when packaging the storage-network pack (artifact capability)."
         },
         "dnsImage": {
           "$ref": "#/$defs/artifact",
-          "description": "Optional; required when packaging the dev-platform pack (dns capability)."
+          "description": "Optional; required when packaging the deviceuser pack (dns capability)."
         },
         "dnsChart": {
           "$ref": "#/$defs/artifact",
-          "description": "Optional; required when packaging the dev-platform pack (dns capability)."
+          "description": "Optional; required when packaging the deviceuser pack (dns capability)."
         },
         "blobStorageImage": { "$ref": "#/$defs/artifact", "description": "Pinned S3-compatible foundation blob-storage OCI image archive." },
         "inferenceRuntimeImage": { "$ref": "#/$defs/artifact" },
@@ -133,12 +133,12 @@
         "artifactServerVersion": {
           "type": "string",
           "minLength": 1,
-          "description": "Required when artifacts.artifactServerImage/Chart are present (dev-platform / artifact capability)."
+          "description": "Required when artifacts.artifactServerImage/Chart are present (storage-network / artifact capability)."
         },
         "dnsVersion": {
           "type": "string",
           "minLength": 1,
-          "description": "Required when artifacts.dnsImage/Chart are present (dev-platform / dns capability)."
+          "description": "Required when artifacts.dnsImage/Chart are present (deviceuser / dns capability)."
         },
         "inferenceVersion": { "type": "string", "minLength": 1 },
         "workflowsVersion": { "type": "string", "minLength": 1 },
