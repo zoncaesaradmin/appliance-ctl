@@ -71,7 +71,6 @@
         "dnsVersion": { "type": "string", "minLength": 1 },
         "inferenceVersion": { "type": "string", "minLength": 1 },
         "videoVersion": { "type": "string", "minLength": 1 },
-        "workflowsVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",
           "items": { "type": "string" },

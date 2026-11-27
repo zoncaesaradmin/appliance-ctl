@@ -63,8 +63,8 @@ func writeOCIArchive(t *testing.T, dir, name, annotatedRef, contentDigest string
 func TestValidateOCIArchiveReference_Mismatch(t *testing.T) {
 	dir := t.TempDir()
 	contentDigest := "sha256:5e1543841d987081a1e0e37305039b2bb9908592a4cddad95b4c4c49d07653a3"
-	annotatedRef := "registry.local/workspace-provisioner@sha256:77418e6e7c7f434c4a98eaff04ef16840cf03649c881c03948e3e213923e3136"
-	path, _ := writeOCIArchive(t, dir, "workspace-provisioner.tar", annotatedRef, contentDigest)
+	annotatedRef := "registry.local/artifact-server@sha256:77418e6e7c7f434c4a98eaff04ef16840cf03649c881c03948e3e213923e3136"
+	path, _ := writeOCIArchive(t, dir, "artifact-server.tar", annotatedRef, contentDigest)
 
 	err := images.ValidateOCIArchiveReference(path, annotatedRef)
 	if err == nil {
@@ -78,8 +78,8 @@ func TestValidateOCIArchiveReference_Mismatch(t *testing.T) {
 func TestValidateOCIArchiveReference_AcceptsBundledTagAnnotation(t *testing.T) {
 	dir := t.TempDir()
 	digest := "sha256:5e1543841d987081a1e0e37305039b2bb9908592a4cddad95b4c4c49d07653a3"
-	ref := "registry.local/workspace-provisioner@" + digest
-	path, _ := writeOCIArchive(t, dir, "workspace-provisioner.tar", "registry.local/workspace-provisioner:bundled", digest)
+	ref := "registry.local/artifact-server@" + digest
+	path, _ := writeOCIArchive(t, dir, "artifact-server.tar", "registry.local/artifact-server:bundled", digest)
 
 	if err := images.ValidateOCIArchiveReference(path, ref); err != nil {
 		t.Fatal(err)
@@ -112,8 +112,8 @@ func TestValidateOCIArchiveReference_NonOCISkipped(t *testing.T) {
 func TestPreloadAll_RejectsMismatchedOCIArchiveReference(t *testing.T) {
 	dir := t.TempDir()
 	contentDigest := "sha256:5e1543841d987081a1e0e37305039b2bb9908592a4cddad95b4c4c49d07653a3"
-	annotatedRef := "registry.local/workspace-provisioner@sha256:77418e6e7c7f434c4a98eaff04ef16840cf03649c881c03948e3e213923e3136"
-	path, digest := writeOCIArchive(t, dir, "workspace-provisioner.tar", annotatedRef, contentDigest)
+	annotatedRef := "registry.local/artifact-server@sha256:77418e6e7c7f434c4a98eaff04ef16840cf03649c881c03948e3e213923e3136"
+	path, digest := writeOCIArchive(t, dir, "artifact-server.tar", annotatedRef, contentDigest)
 
 	fake := &fakeCtr{}
 	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
@@ -129,7 +129,7 @@ func TestPreloadAll_RejectsMismatchedOCIArchiveReference(t *testing.T) {
 	if len(fake.calls) != 0 {
 		t.Fatalf("expected no import calls, got %v", fake.calls)
 	}
-	if got := statusOfCheck(t, result.Checks, "image-preload-registry-local-workspace-provisioner-sha256-77418e6e7c7f434c4a98eaff04ef16840cf03649c881c03948e3e213923e3136"); got != evidence.StatusFail {
+	if got := statusOfCheck(t, result.Checks, "image-preload-registry-local-artifact-server-sha256-77418e6e7c7f434c4a98eaff04ef16840cf03649c881c03948e3e213923e3136"); got != evidence.StatusFail {
 		t.Errorf("expected fail status, got %s", got)
 	}
 }
@@ -137,11 +137,11 @@ func TestPreloadAll_RejectsMismatchedOCIArchiveReference(t *testing.T) {
 func TestPreloadAll_TagsDigestPinnedNameFromBundledAnnotation(t *testing.T) {
 	dir := t.TempDir()
 	digest := "sha256:5e1543841d987081a1e0e37305039b2bb9908592a4cddad95b4c4c49d07653a3"
-	imageRef := "registry.local/workspace-provisioner@" + digest
-	path, fileDigest := writeOCIArchive(t, dir, "workspace-provisioner.tar", "registry.local/workspace-provisioner:bundled", digest)
+	imageRef := "registry.local/artifact-server@" + digest
+	path, fileDigest := writeOCIArchive(t, dir, "artifact-server.tar", "registry.local/artifact-server:bundled", digest)
 
 	fake := &fakeCtr{
-		nextImportAdds:    [][]string{{"registry.local/workspace-provisioner:bundled"}},
+		nextImportAdds:    [][]string{{"registry.local/artifact-server:bundled"}},
 		nextImportDigests: []string{digest},
 	}
 	imp := &images.Importer{Run: fake.Run, Namespace: "k8s.io"}
@@ -152,7 +152,7 @@ func TestPreloadAll_TagsDigestPinnedNameFromBundledAnnotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(fake.calls, ",")
-	if !strings.Contains(joined, "tag:registry.local/workspace-provisioner:bundled>"+imageRef) {
+	if !strings.Contains(joined, "tag:registry.local/artifact-server:bundled>"+imageRef) {
 		t.Fatalf("expected tag from :bundled to digest pin, got %v", fake.calls)
 	}
 	found := false

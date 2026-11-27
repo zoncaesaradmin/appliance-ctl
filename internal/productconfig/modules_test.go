@@ -20,13 +20,10 @@ func TestResolveModulesIncludesHostAgentForHostCapableProfiles(t *testing.T) {
 	}
 }
 
-func TestResolveModulesIncludesArtifactAndBuildWhenEnabled(t *testing.T) {
-	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileBuilder, testProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+func TestResolveModulesIncludesArtifactWhenEnabled(t *testing.T) {
+	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileStorage, testProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameArtifactRegistry) {
-		t.Fatal("builder modules should include artifact-registry")
-	}
-	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
-		t.Fatal("builder modules should include build")
+		t.Fatal("storage modules should include artifact-registry")
 	}
 }
 
@@ -44,9 +41,6 @@ func TestResolveModulesIncludesInferenceWhenEnabled(t *testing.T) {
 	}
 	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameFiles) {
 		t.Fatal("lanllm profile should not include files")
-	}
-	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
-		t.Fatal("lanllm profile should not include build")
 	}
 	if productconfig.ModuleEnabled(modules, productconfig.ModuleNameHostAgent) {
 		t.Fatal("lanllm profile should not include host-agent")
@@ -82,32 +76,6 @@ func TestResolveModulesIncludesInferenceWhenEnabled(t *testing.T) {
 	}
 	if _, ok := routes[0]["upstreamPath"]; ok {
 		t.Fatalf("catch-all must omit upstreamPath, got %#v", routes[0])
-	}
-}
-
-func TestResolveModulesIncludesInferenceForBuilderLANLLM(t *testing.T) {
-	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileBuilderLANLLM, testProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
-	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameInferenceRuntime) {
-		t.Fatal("builder-lanllm modules should include inference-runtime")
-	}
-	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameBuild) {
-		t.Fatal("builder-lanllm modules should include build")
-	}
-}
-
-func TestResolveModulesIncludesEverythingForBuilderLANLLMStorageLANDNS(t *testing.T) {
-	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileBuilderLANLLMStorageLANDNS, testProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
-	for _, moduleName := range []string{
-		productconfig.ModuleNameHostAgent,
-		productconfig.ModuleNameFiles,
-		productconfig.ModuleNameArtifactRegistry,
-		productconfig.ModuleNameBuild,
-		productconfig.ModuleNameLANDNS,
-		productconfig.ModuleNameInferenceRuntime,
-	} {
-		if !productconfig.ModuleEnabled(modules, moduleName) {
-			t.Fatalf("builder-lanllm-storage-landns modules should include %s", moduleName)
-		}
 	}
 }
 

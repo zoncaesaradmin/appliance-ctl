@@ -14,7 +14,6 @@ const (
 	ModuleNameFiles            = "files"
 	ModuleNameArtifactRegistry = "artifact-registry"
 	ModuleNameLANDNS           = "lan-dns"
-	ModuleNameBuild            = "build"
 	ModuleNameInferenceRuntime = "inference-runtime"
 )
 
@@ -23,7 +22,6 @@ type ExecutionMode string
 const (
 	ExecutionModeClusterService ExecutionMode = "cluster-service"
 	ExecutionModeHostAgent      ExecutionMode = "host-agent"
-	ExecutionModeWorkflowBacked ExecutionMode = "workflow-backed"
 )
 
 type SecurityClass string
@@ -122,14 +120,6 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 			RequiredCapabilities: []Capability{CapabilityDNS},
 			ExecutionMode:        ExecutionModeClusterService,
 			EntitlementKey:       ModuleNameLANDNS,
-			SecurityClass:        SecurityClassRestricted,
-		},
-		{
-			Name:                 ModuleNameBuild,
-			Kind:                 ModuleKindPlatform,
-			RequiredCapabilities: []Capability{CapabilityBuild},
-			ExecutionMode:        ExecutionModeWorkflowBacked,
-			EntitlementKey:       ModuleNameBuild,
 			SecurityClass:        SecurityClassRestricted,
 		},
 		{

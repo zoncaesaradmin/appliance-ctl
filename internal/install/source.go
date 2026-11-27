@@ -40,8 +40,6 @@ type Resolved struct {
 	ArtifactEnabled            bool
 	DNSEnabled                 bool
 	InferenceEnabled           bool
-	BuildEnabled               bool
-	WorkflowsEnabled           bool
 	ZonctlBinaryPath           string
 	// HelperBinaryPaths are durable host tools (currently helm) installed
 	// next to zonctl-real so status/verify work without the temp bundle PATH.
@@ -53,21 +51,12 @@ type Resolved struct {
 	DNSChartPath           string
 	InferenceChartPath     string
 	MessageBrokerChartPath string
-	WorkflowsChartPath     string
-	WorkflowsCRDPaths      []string
 	ConfigurationPath      string
 	HostAgentBinaryPath    string
 	CloudflaredBinaryPath  string
 	HostPackagesRootDir    string
 	// MetadataBundleArchivePath is the signed base appliance metadata-bundle archive.
 	MetadataBundleArchivePath string
-	// WorkspaceProvisionerImageReference is the appliance-owned generic
-	// image used by builder workspace provisioning workflows.
-	WorkspaceProvisionerImageReference string
-	// BuilderImageReference is an optional operator-supplied default builder
-	// image digest. Builder images are not packaged in the appliance bundle;
-	// catalogs must use explicit digest-pinned refs for build pods.
-	BuilderImageReference string
 	// HostAgentImageReference is the bundled, digest-pinned appliance host
 	// agent image reference used by the host capability.
 	HostAgentImageReference      string
@@ -129,7 +118,7 @@ type Source interface {
 type OfflineSource struct {
 	BundleDir string
 	// PackDirs are additional signed pack bundle directories (storage-network,
-	// build-workflows, deviceuser, std-llm) verified with the same public key and merged into Resolved.
+	// deviceuser, std-llm) verified with the same public key and merged into Resolved.
 	PackDirs  []string
 	PublicKey *verify.PublicKey
 }
@@ -211,24 +200,6 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	filesEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameFiles)
 	dnsEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameLANDNS)
 	inferenceEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameInferenceRuntime)
-	buildEnabled := productconfig.ModuleEnabled(resolvedModules, productconfig.ModuleNameBuild)
-	workflowsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityWorkflows, profileCatalog)
-
-	workflowsChartPath := ""
-	workflowsCRDPaths := []string(nil)
-	if workflowsEnabled || buildEnabled {
-		workflowsChartPath = optionalWorkflowsChartPath(view)
-		workflowsCRDPaths = crdPaths(view)
-		if workflowsChartPath == "" && len(workflowsCRDPaths) == 0 {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires workflows/build capability but the build-workflows pack was not provided (missing workflows chart and/or CRDs)", effectiveProfile)
-		}
-		if workflowsChartPath != "" && len(workflowsCRDPaths) == 0 {
-			return Resolved{}, checks, fmt.Errorf("install: bundle has a workflows chart but no workflows-crds artifact; the workflow controller cannot start without its CRDs")
-		}
-		if workflowsChartPath == "" {
-			return Resolved{}, checks, fmt.Errorf("install: profile %q requires workflows/build capability but the build-workflows pack was not provided (missing workflows chart)", effectiveProfile)
-		}
-	}
 	registryChartPath := ""
 	if artifactEnabled && strings.TrimSpace(compat.ArtifactServerVersion) != "" {
 		registryChartPath, err = requiredRegistryChartPath(view)
@@ -312,13 +283,11 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isOrderingImageReference(e.ImageReference) || isApplicationIdentityImageReference(e.ImageReference) || isAuthServiceImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) || isWorkflowDependencyReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isOrderingImageReference(e.ImageReference) || isApplicationIdentityImageReference(e.ImageReference) || isAuthServiceImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
 	}
-	workspaceProvisionerImageReference := workspaceProvisionerImageReference(view)
-	builderImageReference := builderImageReference(view)
 	hostAgentImageReference := ""
 	if hostEnabled {
 		hostAgentImageReference, err = requiredHostAgentImageReference(view)
@@ -405,59 +374,53 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 
 	return Resolved{
-		Runtimes:                           runtimes,
-		BundleVersion:                      b.BundleVersion,
-		ReleaseID:                          b.ReleaseID,
-		HostBaseline:                       b.HostBaseline,
-		Compatibility:                      compat,
-		EffectiveProfile:                   effectiveProfile,
-		ProfileCatalog:                     profileCatalog,
-		ActionsEnabled:                     actionsEnabled,
-		ChannelIntegrationsEnabled:         channelIntegrationsEnabled,
-		CommerceEnabled:                    commerceEnabled,
-		ApplicationIdentityEnabled:         applicationIdentityEnabled,
-		ApplicationAuthEnabled:             applicationAuthEnabled,
-		LANDiscoveryEnabled:                lanDiscoveryEnabled,
-		HostEnabled:                        hostEnabled,
-		FilesEnabled:                       filesEnabled,
-		ArtifactEnabled:                    artifactEnabled,
-		DNSEnabled:                         dnsEnabled,
-		InferenceEnabled:                   inferenceEnabled,
-		BuildEnabled:                       buildEnabled,
-		WorkflowsEnabled:                   workflowsEnabled,
-		ZonctlBinaryPath:                   zonctlBinaryPath,
-		HelperBinaryPaths:                  helperBinaryPaths,
-		K3sBinaryPath:                      k3sBinaryPath,
-		ChartPath:                          chartPath,
-		RegistryChartPath:                  registryChartPath,
-		DNSChartPath:                       dnsChartPath,
-		InferenceChartPath:                 inferenceChartPath,
-		MessageBrokerChartPath:             messageBrokerChartPath,
-		WorkflowsChartPath:                 workflowsChartPath,
-		WorkflowsCRDPaths:                  workflowsCRDPaths,
-		ConfigurationPath:                  configurationPath,
-		HostAgentBinaryPath:                hostAgentBinaryPath,
-		CloudflaredBinaryPath:              cloudflaredBinaryPath,
-		HostPackagesRootDir:                hostPackagesRootDir,
-		MetadataBundleArchivePath:          metadataBundleArchivePath,
-		WorkspaceProvisionerImageReference: workspaceProvisionerImageReference,
-		BuilderImageReference:              builderImageReference,
-		HostAgentImageReference:            hostAgentImageReference,
-		ArtifactServerImageReference:       artifactServerImageReference,
-		BlobStorageImageReference:          blobStorageImageReference,
-		PostgresImageReference:             postgresImageReference,
-		DNSImageReference:                  dnsImageReference,
-		InferenceImageReference:            inferenceImageReference,
-		InferenceManagerImageReference:     inferenceManagerImageReference,
-		OpenWebUIImageReference:            openWebUIImageReference,
-		OpenWebUIGatewayImageReference:     openWebUIGatewayImageReference,
-		MessageBrokerImageReference:        messageBrokerImageReference,
-		ChannelIntegrationImageReference:   channelIntegrationImageReference,
-		OrderingImageReference:             orderingImageReference,
-		ApplicationIdentityImageReference:  applicationIdentityImageReference,
-		AuthServiceImageReference:          authServiceImageReference,
-		K3sImages:                          k3sImages,
-		OCIImages:                          ociImages,
+		Runtimes:                          runtimes,
+		BundleVersion:                     b.BundleVersion,
+		ReleaseID:                         b.ReleaseID,
+		HostBaseline:                      b.HostBaseline,
+		Compatibility:                     compat,
+		EffectiveProfile:                  effectiveProfile,
+		ProfileCatalog:                    profileCatalog,
+		ActionsEnabled:                    actionsEnabled,
+		ChannelIntegrationsEnabled:        channelIntegrationsEnabled,
+		CommerceEnabled:                   commerceEnabled,
+		ApplicationIdentityEnabled:        applicationIdentityEnabled,
+		ApplicationAuthEnabled:            applicationAuthEnabled,
+		LANDiscoveryEnabled:               lanDiscoveryEnabled,
+		HostEnabled:                       hostEnabled,
+		FilesEnabled:                      filesEnabled,
+		ArtifactEnabled:                   artifactEnabled,
+		DNSEnabled:                        dnsEnabled,
+		InferenceEnabled:                  inferenceEnabled,
+		ZonctlBinaryPath:                  zonctlBinaryPath,
+		HelperBinaryPaths:                 helperBinaryPaths,
+		K3sBinaryPath:                     k3sBinaryPath,
+		ChartPath:                         chartPath,
+		RegistryChartPath:                 registryChartPath,
+		DNSChartPath:                      dnsChartPath,
+		InferenceChartPath:                inferenceChartPath,
+		MessageBrokerChartPath:            messageBrokerChartPath,
+		ConfigurationPath:                 configurationPath,
+		HostAgentBinaryPath:               hostAgentBinaryPath,
+		CloudflaredBinaryPath:             cloudflaredBinaryPath,
+		HostPackagesRootDir:               hostPackagesRootDir,
+		MetadataBundleArchivePath:         metadataBundleArchivePath,
+		HostAgentImageReference:           hostAgentImageReference,
+		ArtifactServerImageReference:      artifactServerImageReference,
+		BlobStorageImageReference:         blobStorageImageReference,
+		PostgresImageReference:            postgresImageReference,
+		DNSImageReference:                 dnsImageReference,
+		InferenceImageReference:           inferenceImageReference,
+		InferenceManagerImageReference:    inferenceManagerImageReference,
+		OpenWebUIImageReference:           openWebUIImageReference,
+		OpenWebUIGatewayImageReference:    openWebUIGatewayImageReference,
+		MessageBrokerImageReference:       messageBrokerImageReference,
+		ChannelIntegrationImageReference:  channelIntegrationImageReference,
+		OrderingImageReference:            orderingImageReference,
+		ApplicationIdentityImageReference: applicationIdentityImageReference,
+		AuthServiceImageReference:         authServiceImageReference,
+		K3sImages:                         k3sImages,
+		OCIImages:                         ociImages,
 	}, checks, nil
 }
 
@@ -493,9 +456,6 @@ func validatePackTopologies(primary *bundle.Bundle, packs []*bundle.Bundle) erro
 func mergeCompatibility(primary *bundle.Bundle, packs []*bundle.Bundle) bundle.Compatibility {
 	compat := primary.Compatibility
 	for _, p := range packs {
-		if strings.TrimSpace(compat.WorkflowsVersion) == "" {
-			compat.WorkflowsVersion = p.Compatibility.WorkflowsVersion
-		}
 		if strings.TrimSpace(compat.InferenceVersion) == "" {
 			compat.InferenceVersion = p.Compatibility.InferenceVersion
 		}
@@ -657,13 +617,6 @@ func optionalMessageBrokerImageReference(b entrySource) string {
 	return found
 }
 
-func isWorkflowDependencyReference(ref string) bool {
-	ref = strings.TrimSpace(ref)
-	return strings.Contains(ref, "/argoproj/workflow-controller:") ||
-		strings.Contains(ref, "/appliance-workflow-controller:") ||
-		strings.Contains(ref, "/argoproj/argoexec:")
-}
-
 func isHostAgentImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/appliance-host-agent@sha256:")
 }
@@ -818,35 +771,6 @@ func imageName(e bundle.Entry) (string, bool) {
 	return e.Path, false
 }
 
-func workspaceProvisionerImageReference(b entrySource) string {
-	for _, e := range b.Entries("oci-images") {
-		ref := strings.TrimSpace(e.ImageReference)
-		if strings.Contains(ref, "/workspace-provisioner@sha256:") ||
-			strings.HasPrefix(ref, "workspace-provisioner@sha256:") ||
-			strings.Contains(ref, "/alpine/git@sha256:") {
-			return ref
-		}
-	}
-	return ""
-}
-
-func builderImageReference(b entrySource) string {
-	// Builder images are operator-supplied and are not packaged in the product
-	// bundle. Keep a best-effort lookup for any day-2 injected digest entry, but
-	// do not require registry.local/dev-build.
-	for _, e := range b.Entries("oci-images") {
-		ref := strings.TrimSpace(e.ImageReference)
-		if ref == "" || !strings.Contains(ref, "@sha256:") {
-			continue
-		}
-		if strings.Contains(ref, "/dev-build@sha256:") ||
-			strings.HasPrefix(ref, "dev-build@sha256:") {
-			return ref
-		}
-	}
-	return ""
-}
-
 func applianceChartPath(b entrySource) (string, error) {
 	entries := b.Entries("chart")
 	if len(entries) == 0 {
@@ -862,16 +786,6 @@ func applianceChartPath(b entrySource) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("bundle has multiple chart entries but none named appliance-chart-*")
-}
-
-func optionalWorkflowsChartPath(b entrySource) string {
-	for _, e := range b.Entries("chart") {
-		base := strings.ToLower(filepath.Base(e.Path))
-		if strings.Contains(base, "workflows-chart") || strings.Contains(base, "appliance-workflows") {
-			return e.Path
-		}
-	}
-	return ""
 }
 
 func requiredRegistryChartPath(b entrySource) (string, error) {
@@ -1045,9 +959,6 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 		if isHostAgentImageReference(image.Name) && !r.HostEnabled {
 			continue
 		}
-		if strings.HasPrefix(image.Name, "registry.local/workspace-provisioner@") && !r.BuildEnabled {
-			continue
-		}
 		if strings.HasPrefix(image.Name, "registry.local/ordering@") && !r.CommerceEnabled {
 			continue
 		}
@@ -1062,12 +973,6 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 				continue
 			}
 			if strings.HasPrefix(image.Name, "registry.local/channel-integration@") && !r.ChannelIntegrationsEnabled {
-				continue
-			}
-			if (strings.Contains(image.Name, "/argoproj/workflow-controller:") ||
-				strings.Contains(image.Name, "/appliance-workflow-controller:") ||
-				strings.Contains(image.Name, "/argoproj/argoexec:")) &&
-				!r.WorkflowsEnabled {
 				continue
 			}
 			if strings.HasPrefix(image.Name, "registry.local/coredns@") && !r.DNSEnabled {

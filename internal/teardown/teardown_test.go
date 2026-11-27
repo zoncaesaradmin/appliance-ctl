@@ -143,9 +143,9 @@ func setupInstalledFiles(t *testing.T) installedFiles {
 	return f
 }
 
-func runFactoryResetForTest(t *testing.T, f installedFiles, fake *fakeK3s, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) error {
+func runFactoryResetForTest(t *testing.T, f installedFiles, fake *fakeK3s, recentBackupVerified, dataLossOverride bool) error {
 	t.Helper()
-	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.controlPlaneDatabaseDir, f.metadataBundlesDir, f.inferenceModelsDir, f.workspaceRootDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride, wipeWorkspaces)
+	_, err := teardown.FactoryReset(context.Background(), fake.ops(), "k3s.service", f.stateDir, f.binaryPath, f.configPath, f.registriesPath, f.unitPath, f.kubectlSymlinkPath, filepath.Join(f.stateDir, "cni", "networks", "cbr0"), []string{"cni0", "flannel.1"}, f.dataDir, f.controlPlaneDatabaseDir, f.metadataBundlesDir, f.inferenceModelsDir, f.zonctlRealPath, f.zonctlLauncherPath, recentBackupVerified, dataLossOverride)
 	return err
 }
 
@@ -281,7 +281,7 @@ func TestFactoryReset_RefusesWithoutBackupOrOverride(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if err := runFactoryResetForTest(t, f, fake, false, false, false); err == nil {
+	if err := runFactoryResetForTest(t, f, fake, false, false); err == nil {
 		t.Fatal("expected factory-reset to refuse without a verified backup or override")
 	}
 	if fake.stopCalls != 0 {
@@ -303,7 +303,7 @@ func TestFactoryReset_WipesDataWithVerifiedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := runFactoryResetForTest(t, f, fake, true, false, false); err != nil {
+	if err := runFactoryResetForTest(t, f, fake, true, false); err != nil {
 		t.Fatalf("expected factory-reset to succeed with a verified backup, got: %v", err)
 	}
 	if _, err := os.Stat(tokenPath); !os.IsNotExist(err) {
@@ -327,7 +327,7 @@ func TestFactoryReset_WipesDataWithExplicitOverride(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
+	if err := runFactoryResetForTest(t, f, fake, false, true); err != nil {
 		t.Fatalf("expected factory-reset to succeed with an explicit override, got: %v", err)
 	}
 	if _, err := os.Stat(f.dataDir); !os.IsNotExist(err) {
@@ -335,42 +335,12 @@ func TestFactoryReset_WipesDataWithExplicitOverride(t *testing.T) {
 	}
 }
 
-func TestFactoryReset_PreservesWorkspaceRootByDefault(t *testing.T) {
-	f := setupInstalledFiles(t)
-	fake := &fakeK3s{}
-
-	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
-		t.Fatalf("expected factory-reset to succeed, got: %v", err)
-	}
-	data, err := os.ReadFile(f.workspaceFilePath)
-	if err != nil {
-		t.Fatalf("expected the workspace file to survive default factory-reset: %v", err)
-	}
-	if string(data) != "workspace data" {
-		t.Error("expected workspace contents to be unchanged")
-	}
-}
-
-func TestFactoryReset_WipesWorkspaceRootWhenExplicitlyRequested(t *testing.T) {
-	f := setupInstalledFiles(t)
-	fake := &fakeK3s{}
-
-	if err := runFactoryResetForTest(t, f, fake, false, true, true); err != nil {
-		t.Fatalf("expected factory-reset with workspace wipe to succeed, got: %v", err)
-	}
-	if _, err := os.Stat(f.workspaceRootDir); !os.IsNotExist(err) {
-		t.Errorf("expected the workspace root to be removed, stat err=%v", err)
-	}
-}
-
-// This is the exact behavior just added: factory-reset is the one
-// operation meant to leave nothing behind, including zonctl itself.
 func TestFactoryReset_RemovesZonctlBinaries(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 	helmPath := filepath.Join(filepath.Dir(f.zonctlRealPath), "helm")
 
-	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
+	if err := runFactoryResetForTest(t, f, fake, false, true); err != nil {
 		t.Fatalf("expected factory-reset to succeed, got: %v", err)
 	}
 	for _, p := range []string{f.zonctlRealPath, f.zonctlLauncherPath, helmPath} {
@@ -389,7 +359,7 @@ func TestFactoryReset_WipesEntireStateDirNotJustInstalledState(t *testing.T) {
 	f := setupInstalledFiles(t)
 	fake := &fakeK3s{}
 
-	if err := runFactoryResetForTest(t, f, fake, false, true, false); err != nil {
+	if err := runFactoryResetForTest(t, f, fake, false, true); err != nil {
 		t.Fatalf("expected factory-reset to succeed, got: %v", err)
 	}
 	if _, err := os.Stat(f.stateDir); !os.IsNotExist(err) {

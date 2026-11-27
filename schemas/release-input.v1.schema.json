@@ -111,14 +111,10 @@
         "provenance": { "$ref": "#/$defs/artifactDirectory" },
         "notices": { "$ref": "#/$defs/artifactDirectory" },
         "tests": { "$ref": "#/$defs/artifactDirectory" },
-        "workflowsChart": { "$ref": "#/$defs/artifact" },
-        "workflowsCRDs": { "$ref": "#/$defs/artifactDirectory" },
-        "workflowControllerImage": { "$ref": "#/$defs/artifact" },
-        "workflowExecutorImage": { "$ref": "#/$defs/artifact" },
         "extraOCIImages": {
           "type": "array",
           "items": { "$ref": "#/$defs/artifact" },
-          "description": "Additional pinned OCI image archives required by optional appliance capabilities, such as builder task images."
+          "description": "Additional pinned OCI image archives required by optional appliance capabilities."
         }
       }
     },
@@ -141,7 +137,6 @@
           "description": "Required when artifacts.dnsImage/Chart are present (deviceuser / dns capability)."
         },
         "inferenceVersion": { "type": "string", "minLength": 1 },
-        "workflowsVersion": { "type": "string", "minLength": 1 },
         "supportedUpgradeSources": {
           "type": "array",
           "items": { "type": "string" },

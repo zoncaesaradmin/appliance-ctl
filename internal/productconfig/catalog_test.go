@@ -25,15 +25,14 @@ func TestLoadCatalogLoadsExplicitCatalogDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadCatalog: %v", err)
 	}
-	profile, err := productconfig.ResolveApplianceProfileWithCatalog("builder-landns", "", catalog.Profiles)
+	profile, err := productconfig.ResolveApplianceProfileWithCatalog("storage-landns", "", catalog.Profiles)
 	if err != nil {
-		t.Fatalf("ResolveApplianceProfileWithCatalog(builder-landns): %v", err)
+		t.Fatalf("ResolveApplianceProfileWithCatalog(storage-landns): %v", err)
 	}
 	modules := productconfig.ResolveModulesWithCatalog(profile, catalog.Profiles, productconfig.AlwaysEntitled{}, catalog.Modules)
 	for _, moduleName := range []string{
 		productconfig.ModuleNameHostAgent,
 		productconfig.ModuleNameArtifactRegistry,
-		productconfig.ModuleNameBuild,
 		productconfig.ModuleNameLANDNS,
 	} {
 		if !productconfig.ModuleEnabled(modules, moduleName) {

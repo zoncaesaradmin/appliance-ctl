@@ -101,7 +101,7 @@ func TestServiceLogDirs_ArtifactDoesNotImplyFilesDir(t *testing.T) {
 }
 
 func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false)
+	dirs := hostdirs.ServiceLogDirs(false, false, false, false, true)
 	for _, dir := range dirs {
 		if dir.Path == hostdirs.HostAgentLogDir {
 			if dir.UID != hostdirs.HostAgentDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
@@ -117,7 +117,7 @@ func TestServiceLogDirs_AlwaysIncludesHostAgentLogDirectory(t *testing.T) {
 }
 
 func TestServiceLogDirs_AlwaysIncludesActionRuntimeLogDirectory(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false)
+	dirs := hostdirs.ServiceLogDirs(false, false, false, false, true)
 	for _, dir := range dirs {
 		if dir.Path == hostdirs.ActionRuntimeLogDir {
 			if dir.UID != hostdirs.ActionRuntimeDirOwnerUID || dir.GID != hostdirs.ApplianceSharedFSGID {
@@ -136,7 +136,7 @@ func TestServiceLogDirs_AlwaysIncludesActionRuntimeLogDirectory(t *testing.T) {
 }
 
 func TestServiceLogDirs_OmitsActionRuntimeLogDirectoryWithoutCapability(t *testing.T) {
-	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false, false, false)
+	dirs := hostdirs.ServiceLogDirs(false, false, false, false, false, false)
 	for _, dir := range dirs {
 		if dir.Path == hostdirs.ActionRuntimeLogDir {
 			t.Fatalf("action runtime log directory must be absent without actions capability: %#v", dirs)
@@ -148,7 +148,7 @@ func TestServiceLogFiles_ArtifactApplicationLogReadable(t *testing.T) {
 	if files := hostdirs.ServiceLogFiles(false, true, true, true, true); len(files) != 1 || files[0].Path != hostdirs.HostAgentDaemonLog {
 		t.Fatalf("expected only host-agent daemon log without artifact capability, got %#v", files)
 	}
-	files := hostdirs.ServiceLogFiles(true, false, false, false, false)
+	files := hostdirs.ServiceLogFiles(true, false, true)
 	if len(files) != 2 {
 		t.Fatalf("expected host-agent and artifact log files, got %#v", files)
 	}

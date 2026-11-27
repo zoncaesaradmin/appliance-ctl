@@ -98,12 +98,7 @@ func buildFixtureBundle(t *testing.T) (dir string, pub verify.PublicKey) {
 	return buildFixtureBundleWithOptions(t, false, true)
 }
 
-func buildFixtureBundleWithWorkflows(t *testing.T, includeWorkflows bool) (dir string, pub verify.PublicKey) {
-	t.Helper()
-	return buildFixtureBundleWithOptions(t, includeWorkflows, true)
-}
-
-func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPackages bool) (dir string, pub verify.PublicKey) {
+func buildFixtureBundleWithOptions(t *testing.T, _ bool, includeHostPackages bool) (dir string, pub verify.PublicKey) {
 	t.Helper()
 	dir = t.TempDir()
 
@@ -122,21 +117,12 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		{"oci-images/control-plane.tar", "oci-images", "fake control-plane image tar", "internal/control-plane:2.4.0"},
 		{"oci-images/appliance-ui.tar", "oci-images", "fake appliance UI image tar", "internal/appliance-ui:2.4.0"},
 		{"oci-images/appliance-host-agent.tar", "oci-images", "fake appliance host agent image tar", "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
-		{"oci-images/workspace-provisioner.tar", "oci-images", "fake workspace provisioner image tar", "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{"oci-images/artifact-server.tar", "oci-images", "fake artifact server image tar", "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{"oci-images/dns-server.tar", "oci-images", "fake dns-server image tar", "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 		{"oci-images/blob-storage.tar", "oci-images", "fake blob storage image tar", "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"},
 		{"oci-images/postgres.tar", "oci-images", "fake PostgreSQL image tar", "registry.local/postgres@sha256:9999999999999999999999999999999999999999999999999999999999999999"},
 		{"oci-images/inference-runtime.tar", "oci-images", "fake inference-runtime image tar", "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
 		{"oci-images/inference-manager.tar", "oci-images", "fake inference-manager image tar", "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
-	}
-	if includeWorkflows {
-		entries = append(entries,
-			fixtureEntry{"charts/workflows-chart-3.5.10.tgz", "chart", "fake workflows chart bytes", ""},
-			fixtureEntry{"kubernetes/crds/workflows.argoproj.io.yaml", "kubernetes-crds", "kind: CustomResourceDefinition\n", ""},
-			fixtureEntry{"oci-images/workflow-controller.tar", "oci-images", "fake workflow-controller image tar", "quay.io/argoproj/workflow-controller:v3.5.10"},
-			fixtureEntry{"oci-images/workflow-executor.tar", "oci-images", "fake workflow executor image tar", "quay.io/argoproj/argoexec:v3.5.10"},
-		)
 	}
 	if includeHostPackages {
 		entries = append(entries,
@@ -191,9 +177,6 @@ func buildFixtureBundleWithOptions(t *testing.T, includeWorkflows, includeHostPa
 		"compatibility": map[string]any{"k3sVersion": "v1.30.4+k3s1", "chartVersion": "2.4.0", "artifactServerVersion": "2.1.7", "dnsVersion": "1.14.4", "inferenceVersion": "0.9.0"},
 		"signingKeyId":  "release-signing-key",
 		"entries":       manifestEntries,
-	}
-	if includeWorkflows {
-		doc["compatibility"].(map[string]any)["workflowsVersion"] = "3.5.10"
 	}
 	manifestBytes, err := json.Marshal(doc)
 	if err != nil {
@@ -505,14 +488,8 @@ func installTestImageRefsForArchive(path string) []string {
 		return []string{"internal/appliance-ui:2.4.0"}
 	case "appliance-host-agent.tar":
 		return []string{"registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
-	case "workspace-provisioner.tar":
-		return []string{"registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	case "artifact-server.tar":
 		return []string{"registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
-	case "workflow-controller.tar":
-		return []string{"quay.io/argoproj/workflow-controller:v3.5.10"}
-	case "workflow-executor.tar":
-		return []string{"quay.io/argoproj/argoexec:v3.5.10"}
 	default:
 		return nil
 	}
@@ -1199,9 +1176,9 @@ func TestInstall_RefusesStaleInstalledStateWhenK3sArtifactsRemain(t *testing.T) 
 }
 
 func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
-	dir, pub := buildFixtureBundleWithWorkflows(t, true)
+	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
-	opts.ApplianceProfile = "builder"
+	opts.ApplianceProfile = "storage"
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -1211,13 +1188,13 @@ func TestInstall_PersistsAndPassesRequestedApplianceProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected install to succeed, got: %v", err)
 	}
-	if installed.ApplianceProfile != "builder" {
-		t.Fatalf("appliance profile = %q, want builder", installed.ApplianceProfile)
+	if installed.ApplianceProfile != "storage" {
+		t.Fatalf("appliance profile = %q, want storage", installed.ApplianceProfile)
 	}
 
 	controlPlaneValues := fcli.helmValues[opts.ChartReleaseName]
-	if !strings.Contains(controlPlaneValues, "applianceProfile: builder") {
-		t.Fatalf("control-plane values missing builder profile:\n%s", controlPlaneValues)
+	if !strings.Contains(controlPlaneValues, "applianceProfile: storage") {
+		t.Fatalf("control-plane values missing storage profile:\n%s", controlPlaneValues)
 	}
 }
 
@@ -1383,112 +1360,9 @@ func TestInstall_ArtifactProfileUsesApplianceIdentityForRegistry(t *testing.T) {
 	}
 }
 
-// This is the exact production incident: a builder-profile host had
-// /data/zon/workspaces created (e.g. by kubelet's hostPath
-// DirectoryOrCreate) with the wrong owner, and a workflow pod hit
-// "Permission denied" trying to mkdir inside it. Install must seed the
-// correct owner itself, using the real hostdirs.EnsureOwnedDir logic
-// (only the chown syscall is faked, since arbitrary chown targets
-// require root).
-func TestInstall_OwnsWorkspaceDirectoryForBuilderProfile(t *testing.T) {
-	dir, pub := buildFixtureBundleWithWorkflows(t, true)
-	opts := baseOptions(t, dir, pub)
-	opts.ApplianceProfile = "builder"
-	workspaceDir := filepath.Join(t.TempDir(), "workspaces")
-	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	opts.WorkspaceRootDir = workspaceDir
-
-	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
-	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	ownedPaths := map[string][2]int{}
-	ownedFiles := map[string][2]int{}
-	var workspaceChowns [][2]int
-	orch := &install.Orchestrator{
-		K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts,
-		EnsureOwnedDir: func(path string, uid, gid int, perm os.FileMode) error {
-			if path != workspaceDir {
-				ownedPaths[path] = [2]int{uid, gid}
-				return nil
-			}
-			return hostdirs.EnsureOwnedDir(path, uid, gid, perm, func(_ string, u, g int) error {
-				workspaceChowns = append(workspaceChowns, [2]int{u, g})
-				return nil
-			})
-		},
-		EnsureOwnedFile: func(path string, uid, gid int, perm os.FileMode) error {
-			ownedFiles[path] = [2]int{uid, gid}
-			if perm != hostdirs.ServiceLogFileMode {
-				t.Fatalf("log file mode = %o, want %o", perm, hostdirs.ServiceLogFileMode)
-			}
-			return nil
-		},
-	}
-
-	if _, _, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts); err != nil {
-		t.Fatalf("expected install to succeed, got: %v", err)
-	}
-
-	if len(workspaceChowns) != 1 || workspaceChowns[0][0] != hostdirs.ApplianceDirOwnerUID || workspaceChowns[0][1] != hostdirs.ApplianceSharedFSGID {
-		t.Fatalf("expected exactly one workspace chown to %d:%d, got %v", hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, workspaceChowns)
-	}
-	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:             {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:                    {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.HostAgentLogDir:             {hostdirs.HostAgentDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ActionRuntimeLogDir:         {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ArtifactServerLogDir:        {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.WorkflowControllerLogDir:    {hostdirs.WorkflowControllerDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
-		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:              {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-	}
-	if len(ownedPaths) != len(wantOwnedPaths) {
-		t.Fatalf("expected service log ownership for %v, got %v", wantOwnedPaths, ownedPaths)
-	}
-	for path, want := range wantOwnedPaths {
-		if got, ok := ownedPaths[path]; !ok || got != want {
-			t.Fatalf("expected service log ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
-		}
-	}
-	wantOwnedFiles := map[string][2]int{
-		hostdirs.HostAgentDaemonLog:           {0, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ArtifactServerApplicationLog: {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-	}
-	if len(ownedFiles) != len(wantOwnedFiles) {
-		t.Fatalf("expected service log file ownership for %v, got %v", wantOwnedFiles, ownedFiles)
-	}
-	for path, want := range wantOwnedFiles {
-		if got, ok := ownedFiles[path]; !ok || got != want {
-			t.Fatalf("expected service log file ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
-		}
-	}
-	info, err := os.Stat(workspaceDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The setgid bit itself can't be verified here: the kernel silently
-	// strips it on chmod unless the calling process is root or already a
-	// member of the target group (verified by hand: "chmod 2777" as a
-	// non-root, non-member user fails the same way), which is exactly
-	// the unprivileged posture this test runs under. Permission bits are
-	// unaffected by that restriction and are what's checked here; setgid
-	// takes effect for real once zonctl runs as root on the target host.
-	if info.Mode().Perm() != hostdirs.WorkspaceDirMode.Perm() {
-		t.Errorf("expected the pre-existing directory's mode to be corrected to %o, got %o", hostdirs.WorkspaceDirMode.Perm(), info.Mode().Perm())
-	}
-}
-
-// Core profile still runs the control plane, UI, and workflow controller, so
-// zonctl must seed their host-visible paths, including the control-plane's
-// always-mounted video-media hostPath. It must not create builder-only
-// workspace storage.
 func TestInstall_CoreProfileOwnsRequiredHostPaths(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
-	opts.WorkspaceRootDir = filepath.Join(t.TempDir(), "workspaces")
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -1521,16 +1395,12 @@ func TestInstall_CoreProfileOwnsRequiredHostPaths(t *testing.T) {
 			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
 		}
 	}
-	if _, err := os.Stat(opts.WorkspaceRootDir); !os.IsNotExist(err) {
-		t.Error("expected the workspace directory to not be created for a non-builder profile")
-	}
 }
 
 func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.T) {
 	dir, pub := buildFixtureBundle(t)
 	opts := baseOptions(t, dir, pub)
 	opts.ApplianceProfile = "storage"
-	opts.WorkspaceRootDir = filepath.Join(t.TempDir(), "workspaces")
 
 	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
 	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
@@ -1564,54 +1434,6 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		if got, ok := ownedPaths[path]; !ok || got != want {
 			t.Fatalf("expected ownership for %s to be %v, got %v (present=%t)", path, want, got, ok)
 		}
-	}
-	if _, ok := ownedPaths[hostdirs.WorkflowControllerLogDir]; ok {
-		t.Fatalf("storage profile must not prepare %s: %v", hostdirs.WorkflowControllerLogDir, ownedPaths)
-	}
-	if _, err := os.Stat(opts.WorkspaceRootDir); !os.IsNotExist(err) {
-		t.Error("expected the workspace directory to not be created for the storage profile")
-	}
-}
-
-func TestInstall_EndToEndSuccessWithOptionalWorkflowsBringup(t *testing.T) {
-	dir, pub := buildFixtureBundleWithWorkflows(t, true)
-	opts := baseOptions(t, dir, pub)
-	opts.ApplianceProfile = "builder"
-
-	fk3s := &fakeK3s{detected: k3s.ServiceSignal{Detected: false}}
-	fcli := &fakeCLI{kubectlNodes: "appliance-node   Ready   control-plane   1m   v1.30.4+k3s1\n"}
-	orch := &install.Orchestrator{K3s: fk3s.ops(), ImagesRun: fcli.Run, HelmRun: fcli.Run, ClusterRun: fcli.Run, DetectHost: healthyHostFacts, EnsureOwnedDir: func(string, int, int, os.FileMode) error { return nil }}
-
-	installed, checks, err := orch.Install(context.Background(), install.OfflineSource{BundleDir: dir, PublicKey: &pub}, opts)
-	if err != nil {
-		t.Fatalf("expected install with optional Workflows artifacts to succeed, got: %v (checks: %+v)", err, checks)
-	}
-	if installed.InstalledVersion != "2.4.0" {
-		t.Fatalf("unexpected installed state: %+v", installed)
-	}
-
-	var sawCRDApply bool
-	var sawWorkflowsHelm bool
-	var sawBuildNamespacePrepare bool
-	for _, c := range fcli.calls {
-		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "apply -f") && strings.Contains(c, "workflows.argoproj.io.yaml") {
-			sawCRDApply = true
-		}
-		if strings.Contains(c, "helm --kubeconfig") && strings.Contains(c, "upgrade --install appliance-workflows") {
-			sawWorkflowsHelm = true
-		}
-		if strings.Contains(c, "kubectl --kubeconfig") && strings.Contains(c, "get namespace "+productconfig.WorkflowsBuildNamespace) {
-			sawBuildNamespacePrepare = true
-		}
-	}
-	if !sawCRDApply {
-		t.Fatalf("expected Workflows CRDs to be applied, got calls: %v", fcli.calls)
-	}
-	if !sawWorkflowsHelm {
-		t.Fatalf("expected Workflows Helm release to be installed, got calls: %v", fcli.calls)
-	}
-	if !sawBuildNamespacePrepare {
-		t.Fatalf("expected workflows build namespace %s to be prepared, got calls: %v", productconfig.WorkflowsBuildNamespace, fcli.calls)
 	}
 }
 

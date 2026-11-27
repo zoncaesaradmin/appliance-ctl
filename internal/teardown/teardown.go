@@ -146,20 +146,13 @@ func Uninstall(ctx context.Context, ops k3s.Ops, unitName, installedStatePath, b
 // FactoryReset does everything Uninstall does, plus wipes K3s data,
 // control-plane PostgreSQL data, stateDir, host-visible inference models, and
 // removes zonctl itself.
-// Builder workspaces are preserved unless wipeWorkspaces is explicitly
-// requested. It refuses outright unless recentBackupVerified or
+// It refuses outright unless recentBackupVerified or
 // dataLossOverride is true: "factory-reset requires a recent verified
 // backup or a separately confirmed data-loss override," never both
 // silently assumed.
-func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, controlPlaneDatabaseDir, metadataBundlesDir, inferenceModelsDir, workspaceRootDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride, wipeWorkspaces bool) ([]evidence.Check, error) {
+func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir string, cniInterfaceNames []string, dataDir, controlPlaneDatabaseDir, metadataBundlesDir, inferenceModelsDir, zonctlRealPath, zonctlLauncherPath string, recentBackupVerified, dataLossOverride bool) ([]evidence.Check, error) {
 	if !recentBackupVerified && !dataLossOverride {
 		return nil, fmt.Errorf("teardown: factory-reset requires a recent verified backup or an explicit data-loss override")
-	}
-	workspaceRootDir = filepath.Clean(strings.TrimSpace(workspaceRootDir))
-	if wipeWorkspaces {
-		if workspaceRootDir == "." || workspaceRootDir == string(filepath.Separator) || !filepath.IsAbs(workspaceRootDir) {
-			return nil, fmt.Errorf("teardown: refusing to wipe invalid workspace root %q", workspaceRootDir)
-		}
 	}
 
 	checks, err := removeK3s(ops, unitName, binaryPath, configPath, registriesPath, unitPath, kubectlSymlinkPath, cniNetworkDir, cniInterfaceNames)
@@ -210,21 +203,6 @@ func FactoryReset(ctx context.Context, ops k3s.Ops, unitName, stateDir, binaryPa
 		checks = append(checks, evidence.Check{
 			ID: "teardown-wipe-inference-models", Category: "backup-restore", Status: evidence.StatusPass,
 			Message: "host inference models directory removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
-	}
-
-	if wipeWorkspaces {
-		if err := os.RemoveAll(workspaceRootDir); err != nil {
-			return checks, fmt.Errorf("teardown: remove workspace root: %w", err)
-		}
-		checks = append(checks, evidence.Check{
-			ID: "teardown-wipe-workspaces", Category: "backup-restore", Status: evidence.StatusPass,
-			Message: "builder workspace root removed", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
-	} else {
-		checks = append(checks, evidence.Check{
-			ID: "teardown-preserve-workspaces", Category: "backup-restore", Status: evidence.StatusPass,
-			Message: "builder workspace root preserved", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
 

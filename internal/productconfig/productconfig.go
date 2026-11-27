@@ -17,17 +17,12 @@ import (
 )
 
 const (
-	ProfileCore                       = "core"
-	ProfileBuilder                    = "builder"
-	ProfileStorage                    = "storage"
-	ProfileLANDNS                     = "landns"
-	ProfileStorageLANDNS              = "storage-landns"
-	ProfileBuilderLANDNS              = "builder-landns"
-	ProfileBuilderStorageLANDNS       = "builder-storage-landns"
-	ProfileLANLLM                     = "lanllm"
-	ProfileBuilderLANLLM              = "builder-lanllm"
-	ProfileBuilderLANLLMStorageLANDNS = "builder-lanllm-storage-landns"
-	ProfileTraining                   = "training"
+	ProfileCore          = "core"
+	ProfileStorage       = "storage"
+	ProfileLANDNS        = "landns"
+	ProfileStorageLANDNS = "storage-landns"
+	ProfileLANLLM        = "lanllm"
+	ProfileTraining      = "training"
 
 	// ControlPlaneAppsNamespace hosts ui-server, host-agent, and
 	// action-runtime. controlplane itself uses defaultChartNamespace
@@ -47,11 +42,6 @@ const (
 	ArtifactsNamespace = "artifacts"
 	DNSNamespace       = "dns"
 	InferenceNamespace = "inference"
-	// WorkflowsControllerNamespace hosts the workflow-controller release.
-	WorkflowsControllerNamespace = "workflows"
-	// WorkflowsBuildNamespace hosts build/workspace PVCs, workflow jobs, and
-	// related control-plane RBAC for appliance-managed workflows.
-	WorkflowsBuildNamespace = "appliance-builds"
 
 	// ImagePullSecretName mirrors helm.ImagePullSecretName for chart values
 	// injection. Secrets are namespaced; when lab image-pull is configured,
@@ -78,16 +68,14 @@ func ProductNamespaces(controlPlaneNS string) []string {
 		ArtifactsNamespace,
 		DNSNamespace,
 		InferenceNamespace,
-		WorkflowsControllerNamespace,
-		WorkflowsBuildNamespace,
 	}
 }
 
 // Capability is the granular unit appliance behavior should actually be
 // gated on, not the profile name itself. A profile is just a named bundle
 // of capabilities; more than one profile can enable the same capability,
-// so code that cares whether e.g. build/workspace support is present
-// should check the capability, not compare against a specific profile
+// so code that cares whether a capability is present should check the
+// capability, not compare against a specific profile
 // string. This mirrors the canonical mapping in appliance-code
 // (services/controlplane/internal/appliance/appliance.go's Capability
 // type and profileCatalog) — kept in sync by hand, the same way
@@ -103,8 +91,6 @@ const (
 	CapabilityApplicationIdentity Capability = "application-identity"
 	CapabilityLANDiscovery        Capability = "lan-discovery"
 	CapabilityHost                Capability = "host"
-	CapabilityWorkflows           Capability = "workflows"
-	CapabilityBuild               Capability = "build"
 	CapabilityFiles               Capability = "files"
 	CapabilityArtifact            Capability = "artifact"
 	CapabilityDNS                 Capability = "dns"
@@ -311,12 +297,12 @@ func normalizePublicOriginAndTLS(publicOrigin, tlsTermination, internalFQDN stri
 	return publicOrigin, u.Hostname(), tlsTermination, nil
 }
 
-func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, "", "", "", "", registry...)
+func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, "", "", "", "", registry...)
 }
 
-func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, registry ...string) (string, func(), error) {
-	return PrepareValuesFileForRuntimeWithPublicOrigin(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, "", "", registry...)
+func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog ProfileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, registry ...string) (string, func(), error) {
+	return PrepareValuesFileForRuntimeWithPublicOrigin(baseValuesPath, profile, profileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, "", "", registry...)
 }
 
 // PrepareValuesFileForRuntimeWithPublicOrigin renders the installer-owned
@@ -325,27 +311,27 @@ func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog 
 // https URL without a path. tlsTermination is "traefik" (the default) or
 // "cloudflare"; the latter exposes the public routes on Traefik's plaintext
 // web entrypoint because Cloudflare terminates public HTTPS.
-func PrepareValuesFileForRuntimeWithPublicOrigin(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, tlsTermination string, registry ...string) (string, func(), error) {
-	return PrepareValuesFileForRuntimeWithPublicOrigins(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, publicOrigin, "", tlsTermination, registry...)
+func PrepareValuesFileForRuntimeWithPublicOrigin(baseValuesPath, profile string, profileCatalog ProfileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, tlsTermination string, registry ...string) (string, func(), error) {
+	return PrepareValuesFileForRuntimeWithPublicOrigins(baseValuesPath, profile, profileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, publicOrigin, "", tlsTermination, registry...)
 }
 
 // PrepareValuesFileForRuntimeWithPublicOrigins renders the installer-owned
 // values layer with independent browser and channel-integration origins.
 // channelIntegrationOrigin is an absolute HTTPS URL without a path. When it
 // is empty, the application public origin is used for backwards compatibility.
-func PrepareValuesFileForRuntimeWithPublicOrigins(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination string, registry ...string) (string, func(), error) {
-	return PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, "", registry...)
+func PrepareValuesFileForRuntimeWithPublicOrigins(baseValuesPath, profile string, profileCatalog ProfileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination string, registry ...string) (string, func(), error) {
+	return PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(baseValuesPath, profile, profileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, "", registry...)
 }
 
 // PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode renders the
 // installer-owned values layer and selects the Auth Service OTP delivery
 // transport. Empty authServiceOTPDeliveryMode keeps the production default,
 // event; local is intended only for development/test installs.
-func PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode, registry...)
+func PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(baseValuesPath, profile string, profileCatalog ProfileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode, registry...)
 }
 
-func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
+func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", profileCatalog)
 	if err != nil {
 		return "", func() {}, err
@@ -355,7 +341,6 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
 	inferenceEnabled := ModuleEnabled(resolvedModules, ModuleNameInferenceRuntime)
-	buildEnabled := ModuleEnabled(resolvedModules, ModuleNameBuild)
 	identity, err := ResolveApplianceIdentity(applianceName, dnsZone)
 	if err != nil {
 		return "", func() {}, err
@@ -371,8 +356,6 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	if err != nil {
 		return "", func() {}, fmt.Errorf("product config: channel integration origin: %w", err)
 	}
-	workspaceProvisionerImageReference = strings.TrimSpace(workspaceProvisionerImageReference)
-	builderImageReference = strings.TrimSpace(builderImageReference)
 	hostAgentImageReference = strings.TrimSpace(hostAgentImageReference)
 	artifactServerImageReference := ""
 	blobStorageImageReference := ""
@@ -401,16 +384,6 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if len(registry) > 6 {
 		authServiceImageReference = strings.TrimSpace(registry[6])
-	}
-	if buildEnabled {
-		if !validBuilderImageDigest(workspaceProvisionerImageReference) {
-			return "", func() {}, fmt.Errorf("product config: build capability requires a bundled digest-pinned workspace provisioner image reference; got %q", workspaceProvisionerImageReference)
-		}
-		// Builder images are operator-supplied (not packaged). When a digest is
-		// provided (day-2 default), it must be digest-pinned; otherwise omit.
-		if builderImageReference != "" && !validBuilderImageDigest(builderImageReference) {
-			return "", func() {}, fmt.Errorf("product config: builderImageDigest must be digest-pinned when set; got %q", builderImageReference)
-		}
 	}
 	if artifactEnabled && len(registry) > 0 && !validArtifactServerImageDigest(artifactServerImageReference) {
 		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/artifact-server@sha256 image reference; got %q", artifactServerImageReference)
@@ -544,24 +517,12 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	// into the chart so the full UI/API route is available on web as well.
 	ingress["tlsTermination"] = tlsTermination
 	values["ingress"] = ingress
-	if workspaceProvisionerImageReference != "" {
-		config["workspaceProvisionerImageDigest"] = workspaceProvisionerImageReference
-	} else {
-		delete(config, "workspaceProvisionerImageDigest")
-	}
-	if builderImageReference != "" {
-		config["builderImageDigest"] = builderImageReference
-	} else {
-		delete(config, "builderImageDigest")
-	}
 	if registryConfig := ServiceRegistryConfig(resolvedModules); registryConfig != nil {
 		config["serviceRegistry"] = registryConfig
 	} else {
 		delete(config, "serviceRegistry")
 	}
-	delete(config, "allowedBuilderImageDigests")
-	// Runtime build catalogs are uploaded post-install via PUT /api/v1/builder/catalog.
-	config["buildCatalog"] = map[string]any{}
+	delete(config, "buildCatalog")
 	delete(config, "allowedGitSourceHosts")
 	values["config"] = config
 	actionRuntime, _ := values["actionRuntime"].(map[string]any)
@@ -882,7 +843,7 @@ func InjectPlacementNodeName(valuesPath, nodeName string) error {
 }
 
 // PreparePlacementValuesFile writes a tiny values overlay that pins a chart
-// (workflows) to the advertised prime.
+// to the advertised prime.
 func PreparePlacementValuesFile(baseDir, nodeName string) (string, func(), error) {
 	nodeName = strings.TrimSpace(nodeName)
 	values := map[string]any{}
@@ -1427,15 +1388,6 @@ func inferenceNodeResourceSuffix(nodeName string) string {
 	}
 	digest := sha256.Sum256([]byte(nodeName))
 	return nodeName[:max-9] + "-" + fmt.Sprintf("%x", digest[:4])
-}
-
-func validBuilderImageDigest(image string) bool {
-	image = strings.TrimSpace(image)
-	if !sha256ImageDigestRE.MatchString(image) {
-		return false
-	}
-	_, digest, _ := strings.Cut(image, "@sha256:")
-	return digest != placeholderImageDigestHex
 }
 
 func validArtifactServerImageDigest(image string) bool {

@@ -47,9 +47,6 @@ import (
 const (
 	containerdReadyTimeout      = 60 * time.Second
 	containerdReadyPollInterval = 1 * time.Second
-	workflowsReleaseName        = "appliance-workflows"
-	workflowsNamespace          = productconfig.WorkflowsControllerNamespace
-	workflowsBuildNamespace     = productconfig.WorkflowsBuildNamespace
 	registryReleaseName         = "appliance-registry"
 	messageBrokerReleaseName    = "message-broker"
 	messageBrokerNamespace      = productconfig.InfrastructureNamespace
@@ -140,11 +137,6 @@ type Options struct {
 	// AuthServiceOTPDeliveryMode overrides the production-default event
 	// delivery mode for development/test installs. Empty selects event.
 	AuthServiceOTPDeliveryMode string
-	// WorkspaceRootDir is the host directory backing the workspace
-	// storage hostPath PersistentVolume (builder profile only). Prepared
-	// with the correct owner before the chart is applied; see
-	// internal/hostdirs.
-	WorkspaceRootDir string
 	// MetadataBundlesDir is the host directory for extracted metadata bundles
 	// mounted into the control plane. Empty defaults to
 	// hostdirs.MetadataBundlesDir.
@@ -330,7 +322,7 @@ type Orchestrator struct {
 	// inventory. Tests inject addresses without depending on the CI host.
 	LocalAddresses func() ([]netip.Addr, error)
 	// EnsureOwnedDir prepares a host directory backing a static hostPath
-	// PersistentVolume (currently just workspace storage) with the
+	// PersistentVolume for the configured writable storage with the
 	// correct owner before the chart mounts it — see internal/hostdirs
 	// for why this can't just be left to Kubernetes' own fsGroup
 	// handling.
@@ -528,7 +520,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, opts.AuthServiceOTPDeliveryMode, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, opts.AuthServiceOTPDeliveryMode, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -574,35 +566,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, fmt.Errorf("install: %w", err)
 		}
 		defer cleanupInferenceValues()
-	}
-	workflowsValuesPath := ""
-	cleanupWorkflowsValues := func() {}
-	if resolved.WorkflowsEnabled {
-		workflowsValuesPath, cleanupWorkflowsValues, err = productconfig.PreparePlacementValuesFile(filepath.Dir(resolved.ConfigurationPath), opts.NodeName)
-		if err != nil {
-			return nil, checks, fmt.Errorf("install: %w", err)
-		}
-		defer cleanupWorkflowsValues()
-	}
-
-	// Gated on the Build capability, not the "builder" profile name
-	// directly: more than one profile can enable Build, and this
-	// directory only needs to exist when Build does. The workspace
-	// storage PV is a static hostPath, and Kubernetes' fsGroup ownership
-	// recursion is not reliably applied to hostPath volumes (unlike the
-	// main data PV, which K3s's own local-path-provisioner provisions
-	// and permissions correctly). Seed the right owner ourselves, before
-	// Helm ever applies the chart, rather than discover the gap as a
-	// Permission denied inside a workflow pod.
-	if resolved.BuildEnabled && opts.WorkspaceRootDir != "" {
-		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
-			return nil, checks, fmt.Errorf("install: prepare workspace directory: %w", err)
-		}
-		checks = append(checks, evidence.Check{
-			ID: "workspace-directory-owned", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("%s owned by %d:%d", opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
 	}
 	if resolved.InferenceEnabled {
 		if err := o.EnsureOwnedDir(hostdirs.InferenceModelsDir, hostdirs.InferenceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
@@ -1044,7 +1007,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 
 	// Private LAN registry credentials are namespaced. Mirror dockerconfig into
 	// every product namespace (controlplane, apps, applications, artifacts, dns,
-	// inference, workflows — never kube-system) and wire chart imagePullSecrets.
+	// inference — never kube-system) and wire chart imagePullSecrets.
 	if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
 		if err := productconfig.InjectImagePullSecrets(preparedValuesPath, productconfig.ImagePullSecretName); err != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: inject image-pull secrets into values: %w", err), runRollbacks())
@@ -1109,21 +1072,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		defer cleanupDNSSupportValues()
 	}
 
-	workflowsSupportValuesPath := ""
-	cleanupWorkflowsSupportValues := func() {}
-	if resolved.WorkflowsEnabled {
-		var prepErr error
-		workflowsSupportValuesPath, cleanupWorkflowsSupportValues, prepErr = productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.WorkflowsSupportOverlay())
-		if prepErr != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: prepare workflows-support values: %w", prepErr), runRollbacks())
-		}
-		defer cleanupWorkflowsSupportValues()
-	}
-
 	for _, dir := range hostdirs.ServiceLogDirs(
 		resolved.ArtifactEnabled,
 		resolved.FilesEnabled,
-		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,
 		resolved.HostEnabled,
@@ -1141,7 +1092,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	for _, file := range hostdirs.ServiceLogFiles(
 		resolved.ArtifactEnabled,
 		resolved.FilesEnabled,
-		resolved.WorkflowsEnabled,
 		resolved.DNSEnabled,
 		resolved.InferenceEnabled,
 		resolved.HostEnabled,
@@ -1253,10 +1203,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		})
 	}
 
-	clusterRun := o.ClusterRun
-	if clusterRun == nil {
-		clusterRun = cli.Exec
-	}
 	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.InfrastructureNamespace, helm.RestrictedNamespaceLabels()); err != nil {
 		return nil, checks, failInstall(fmt.Errorf("install: prepare infrastructure namespace: %w", err), runRollbacks())
 	}
@@ -1302,12 +1248,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ChartPath:  resolved.ChartPath,
 		Namespace:  opts.ChartNamespace,
 		ValuesPath: dnsSupportValuesPath,
-	}
-	workflowsSupportRelease := helm.ChartRelease{
-		Name:       rolloutsets.WorkflowsSupportReleaseName,
-		ChartPath:  resolved.ChartPath,
-		Namespace:  opts.ChartNamespace,
-		ValuesPath: workflowsSupportValuesPath,
 	}
 
 	set1Releases := []helm.ChartRelease{aceInfraRelease}
@@ -1618,20 +1558,9 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			return nil, checks, failInstall(fmt.Errorf("install: prepare dns namespace %s: %w", dnsNamespace, err), cleanupOnFailure())
 		}
 	}
-	if resolved.WorkflowsEnabled {
-		if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, workflowsNamespace, nil); err != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: prepare workflows namespace %s: %w", workflowsNamespace, err), cleanupOnFailure())
-		}
-		if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, workflowsBuildNamespace, helm.RestrictedNamespaceLabels()); err != nil {
-			return nil, checks, failInstall(fmt.Errorf("install: prepare workflows build namespace %s: %w", workflowsBuildNamespace, err), cleanupOnFailure())
-		}
-	}
 
 	taskCount := 1
 	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled {
-		taskCount++
-	}
-	if resolved.WorkflowsEnabled {
 		taskCount++
 	}
 
@@ -1737,47 +1666,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		}()
 	}
 
-	if resolved.WorkflowsEnabled {
-		parallelWG.Add(1)
-		go func() {
-			defer parallelWG.Done()
-			var out parallelSetResult
-			result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, workflowsSupportRelease)
-			out.checks = append(out.checks, result.checks...)
-			if result.rollback != nil {
-				out.rollbacks = append(out.rollbacks, result.rollback)
-			}
-			if result.err != nil {
-				out.err = result.err
-				parallelResults <- out
-				return
-			}
-			workflowsCRDChecks, applyErr := applyManifestFiles(ctx, clusterRun, opts.KubeconfigPath, resolved.WorkflowsCRDPaths, "workflows-crd")
-			out.checks = append(out.checks, workflowsCRDChecks...)
-			if applyErr != nil {
-				out.err = applyErr
-				parallelResults <- out
-				return
-			}
-			result = applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, helm.ChartRelease{
-				Name:       workflowsReleaseName,
-				ChartPath:  resolved.WorkflowsChartPath,
-				Namespace:  workflowsNamespace,
-				ValuesPath: workflowsValuesPath,
-			})
-			out.checks = append(out.checks, result.checks...)
-			if result.rollback != nil {
-				out.rollbacks = append(out.rollbacks, result.rollback)
-			}
-			if result.err != nil {
-				out.err = result.err
-				parallelResults <- out
-				return
-			}
-			parallelResults <- out
-		}()
-	}
-
 	parallelWG.Wait()
 	close(parallelResults)
 	var parallelRollbacks []func() error
@@ -1795,7 +1683,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	rollbacks = append(rollbacks, parallelRollbacks...)
 
 	// Re-attach image-pull secrets to ServiceAccounts created by charts after the
-	// first pass (for example workflow-controller SA in the workflows namespace).
+	// first pass (for example chart-managed service accounts in a dependent namespace).
 	if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
 		reconcilePull, reconcileErr := helm.EnsureImagePullSecrets(ctx, o.HelmRun, opts.KubeconfigPath, opts.ImagePullRegistry,
 			productconfig.ProductNamespaces(opts.ChartNamespace)...)

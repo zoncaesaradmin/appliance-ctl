@@ -25,7 +25,7 @@ const ImagePullSecretName = "appliance-image-pull"
 
 // EnsureImagePullSecrets creates (or replaces) a dockerconfigjson Secret from
 // cfg in each target namespace, and attaches it to every ServiceAccount in
-// that namespace (default SA and controller SAs such as workflow-controller).
+// that namespace (default service accounts and any chart-managed controllers).
 // Call again after Helm charts that create new SAs so those accounts inherit
 // the pull secret.
 func EnsureImagePullSecrets(ctx context.Context, run cli.Runner, kubeconfig string, cfg k3s.RegistriesConfig, namespaces ...string) (PreparedRelease, error) {

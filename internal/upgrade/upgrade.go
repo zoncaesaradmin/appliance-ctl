@@ -66,11 +66,6 @@ type Options struct {
 	// AuthServiceOTPDeliveryMode overrides the production-default event
 	// delivery mode for development/test upgrades. Empty selects event.
 	AuthServiceOTPDeliveryMode string
-	// WorkspaceRootDir is the host directory backing the workspace
-	// storage hostPath PersistentVolume (builder profile only). See
-	// internal/hostdirs — re-applied on every upgrade so a host whose
-	// directory was created before this fix shipped self-heals.
-	WorkspaceRootDir string
 	// MetadataBundlesDir is the host directory for extracted metadata bundles.
 	// Empty defaults to hostdirs.MetadataBundlesDir.
 	MetadataBundlesDir string
@@ -105,8 +100,6 @@ const (
 	messageBrokerReleaseName = "message-broker"
 	messageBrokerNamespace   = "ace-system"
 	registryNamespace        = "artifacts"
-	workflowsReleaseName     = "appliance-workflows"
-	workflowsNamespace       = "workflows"
 	dnsReleaseName           = "appliance-dns"
 	dnsNamespace             = "dns"
 	inferenceReleaseName     = "appliance-inference"
@@ -165,7 +158,7 @@ func NewOrchestrator() *Orchestrator {
 // restore-based rollback: the K3s binary/config/unit (if changed) are put
 // back and the data directory is restored from the pre-upgrade backup.
 //
-// Coordinating in-flight workflows and running product migration hooks
+// Coordinating product migration hooks
 // (Upgrade Sequence steps 3 and 7's "supported hooks") depend on
 // appliance-code capabilities not yet integrated here; this is a known
 // gap, not a silent omission.
@@ -206,18 +199,15 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	sameVersionRefresh := strings.TrimSpace(installed.InstalledVersion) == targetVersion
 	hadArtifactBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityArtifact, resolved.ProfileCatalog)
 	hadFilesBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityFiles, resolved.ProfileCatalog)
-	hadWorkflowsBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityWorkflows, resolved.ProfileCatalog)
 	hadDNSBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityDNS, resolved.ProfileCatalog)
 	hadInferenceBefore := productconfig.HasCapabilityInCatalog(installed.ApplianceProfile, productconfig.CapabilityInference, resolved.ProfileCatalog)
 	targetArtifact := resolved.ArtifactEnabled
 	targetFiles := resolved.FilesEnabled
-	targetWorkflows := resolved.WorkflowsEnabled
 	targetDNS := resolved.DNSEnabled
 	targetInference := resolved.InferenceEnabled
 	if previous, ok := installed.Runtimes["inference"]; ok && targetInference && !runtimeconfig.Equal(previous, resolved.Runtimes["inference"]) {
 		return nil, checks, fmt.Errorf("upgrade: inference package/engine changes require an explicit supported migration")
 	}
-	targetBuild := resolved.BuildEnabled
 	targetLANDiscovery := resolved.LANDiscoveryEnabled
 	if hadArtifactBefore && !targetArtifact {
 		return nil, checks, fmt.Errorf("upgrade: changing from artifact-capable profile %q to non-artifact profile %q is not supported in place; reinstall with the target profile instead", installed.ApplianceProfile, effectiveProfile)
@@ -305,7 +295,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(
 		resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog,
-		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
+		resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
 		webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, opts.AuthServiceOTPDeliveryMode,
 		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference,
@@ -355,34 +345,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, fmt.Errorf("upgrade: %w", err)
 		}
 		defer cleanupInferenceValues()
-	}
-	workflowsValuesPath := ""
-	cleanupWorkflowsValues := func() {}
-	if targetWorkflows {
-		workflowsValuesPath, cleanupWorkflowsValues, err = productconfig.PreparePlacementValuesFile(filepath.Dir(resolved.ConfigurationPath), opts.NodeName)
-		if err != nil {
-			return nil, checks, fmt.Errorf("upgrade: %w", err)
-		}
-		defer cleanupWorkflowsValues()
-	}
-
-	// Gated on the Build capability, not the "builder" profile name
-	// directly: more than one profile can enable Build, and this
-	// directory only needs to exist when Build does. Re-applied on every
-	// upgrade (not just once at install time) so a host whose workspace
-	// directory was created before this fix shipped — or whose ownership
-	// drifted for any other reason — self-heals here rather than needing
-	// a manual chown. See internal/hostdirs for why this can't be left
-	// to Kubernetes' own fsGroup handling.
-	if targetBuild && opts.WorkspaceRootDir != "" {
-		if err := o.EnsureOwnedDir(opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
-			return nil, checks, fmt.Errorf("upgrade: prepare workspace directory: %w", err)
-		}
-		checks = append(checks, evidence.Check{
-			ID: "workspace-directory-owned", Category: "host", Status: evidence.StatusPass,
-			Message:   fmt.Sprintf("%s owned by %d:%d", opts.WorkspaceRootDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
-			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-		})
 	}
 	if targetInference {
 		if err := o.EnsureOwnedDir(hostdirs.InferenceModelsDir, hostdirs.InferenceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.WorkspaceDirMode); err != nil {
@@ -944,14 +906,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
-	if hadWorkflowsBefore && !targetWorkflows {
-		if err := applier.Uninstall(ctx, workflowsReleaseName); err != nil {
-			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: remove workflows capability: %w", err), rollback)
-			checks = append(checks, rollbackChecks...)
-			return nil, checks, failErr
-		}
-	}
-	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference, resolved.HostEnabled) {
+	for _, dir := range hostdirs.ServiceLogDirs(targetArtifact, targetFiles, targetDNS, targetInference, resolved.HostEnabled) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare service log directory %s: %w", dir.Path, err), rollback)
 			checks = append(checks, rollbackChecks...)
@@ -963,7 +918,7 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetFiles, targetWorkflows, targetDNS, targetInference, resolved.HostEnabled) {
+	for _, file := range hostdirs.ServiceLogFiles(targetArtifact, targetFiles, targetDNS, targetInference, resolved.HostEnabled) {
 		if o.EnsureOwnedFile == nil {
 			continue
 		}
@@ -1186,29 +1141,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			})
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
-		}
-	}
-	if targetWorkflows {
-		for _, crdPath := range resolved.WorkflowsCRDPaths {
-			if _, applyErr := o.HelmRun(ctx, "kubectl", "--kubeconfig", opts.KubeconfigPath, "apply", "-f", crdPath); applyErr != nil {
-				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: apply workflows CRD %s: %w", crdPath, applyErr), rollback)
-				checks = append(checks, rollbackChecks...)
-				return nil, checks, failErr
-			}
-		}
-		if resolved.WorkflowsChartPath != "" {
-			workflowsCheck, workflowsErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
-				Name: workflowsReleaseName, ChartPath: resolved.WorkflowsChartPath, Namespace: workflowsNamespace, ValuesPath: workflowsValuesPath,
-			})
-			checks = append(checks, workflowsCheck)
-			if workflowsErr != nil {
-				rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: %w", workflowsErr), func() []evidence.Check {
-					_ = applier.Rollback(ctx, workflowsReleaseName, false)
-					return rollback()
-				})
-				checks = append(checks, rollbackChecks...)
-				return nil, checks, failErr
-			}
 		}
 	}
 	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{

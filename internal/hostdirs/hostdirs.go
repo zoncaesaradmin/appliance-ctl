@@ -4,11 +4,8 @@
 // correctly. Kubernetes' automatic fsGroup ownership recursion at mount
 // time is designed around volumes Kubernetes itself provisions
 // (emptyDir, CSI-backed PVs, K3s's own local-path-provisioner PVs); it
-// is not reliably applied to a static hostPath volume pointed at a
-// directory Kubernetes didn't create, which is exactly the workspace
-// storage volume's shape. So the appliance seeds correct ownership
-// itself, once, deterministically, instead of discovering the gap as a
-// "Permission denied" inside a workflow pod.
+// is not reliably applied to arbitrary hostPath volumes. The appliance
+// therefore seeds correct ownership itself before any release uses them.
 package hostdirs
 
 import (
@@ -19,14 +16,12 @@ import (
 // ApplianceSharedFSGID is the one numeric group ID shared across every
 // appliance pod type that needs to read/write appliance-managed host
 // storage: the control-plane pod, the UI sidecar, and every
-// workflow pod. Each of those runs as a *different* runAsUser (there is
+// shared-storage workload. Each of those runs as a *different* runAsUser (there is
 // deliberately no single "the appliance UID"), but all of them carry
 // this GID via fsGroup, which is what actually grants shared access to
 // a volume regardless of which UID created a given file in it. This
-// value is independently maintained in appliance-code
-// (deploy/charts/appliance-control-plane/values.yaml podSecurityContext
-// fsGroup, and services/controlplane/internal/workflows/engine/engine.go's
-// sharedFSGID) — if it changes there, it must change here too.
+// value is independently maintained in appliance-code and must remain stable
+// across releases.
 //
 // ApplianceDirOwnerUID is an arbitrary fixed owner for directories this
 // package creates. It doesn't need to match any pod's runAsUser — group
@@ -45,9 +40,6 @@ const (
 	// RegistryDirOwnerUID is the fixed numeric identity for the offline
 	// artifact server registry pod (appliance-registry chart runAsUser).
 	RegistryDirOwnerUID = 10003
-	// WorkflowControllerDirOwnerUID is the fixed numeric identity for the
-	// workflow-controller pod.
-	WorkflowControllerDirOwnerUID = 65532
 	// DNSDirOwnerUID is the fixed numeric identity for the offline
 	// LAN DNS (CoreDNS) pod (appliance-dns chart runAsUser). The wrapper
 	// image tees CoreDNS stdout/stderr into /data/zon/logs/dns.
@@ -105,9 +97,6 @@ const (
 	// file under ArtifactServerLogDir. Upstream zot creates this as 0600;
 	// zonctl reseeds it to ServiceLogFileMode so host operators can read it.
 	ArtifactServerApplicationLog = ArtifactServerLogDir + "/application.log"
-	// WorkflowControllerLogDir is the host-visible workflow-controller log
-	// directory under the shared appliance log tree.
-	WorkflowControllerLogDir = "/data/zon/logs/workflow-controller"
 	// DNSLogDir is the host-visible LAN DNS (CoreDNS) log directory under
 	// the shared appliance log tree.
 	DNSLogDir = "/data/zon/logs/dns"
@@ -154,11 +143,11 @@ type OwnedDir struct {
 
 // ServiceLogDirs returns the host-visible log directories the selected
 // capability set requires. Control-plane and UI always exist; actions
-// runtime, host-agent, registry logs, workflow-controller, DNS, and
+// runtime, host-agent, registry logs, DNS, and
 // inference logs are added only when those capabilities are enabled.
 // The files capability stores objects in foundation blob-storage, so it does
 // not add a dedicated host directory here.
-func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS, includeInference bool, includeOptional ...bool) []OwnedDir {
+func ServiceLogDirs(includeArtifact, includeFiles, includeDNS, includeInference bool, includeOptional ...bool) []OwnedDir {
 	_ = includeFiles
 	hostEnabled := len(includeOptional) == 0 || includeOptional[0]
 	actionsEnabled := len(includeOptional) < 2 || includeOptional[1]
@@ -205,15 +194,6 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS,
 			Mode:    ServiceLogDirMode,
 		})
 	}
-	if includeWorkflows {
-		dirs = append(dirs, OwnedDir{
-			CheckID: "workflow-controller-log-directory-owned",
-			Path:    WorkflowControllerLogDir,
-			UID:     WorkflowControllerDirOwnerUID,
-			GID:     ApplianceSharedFSGID,
-			Mode:    ServiceLogDirMode,
-		})
-	}
 	if includeDNS {
 		dirs = append(dirs, OwnedDir{
 			CheckID: "dns-log-directory-owned",
@@ -238,7 +218,7 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeWorkflows, includeDNS,
 // ServiceLogFiles returns host-visible log files that zonctl must seed (or
 // re-chmod) in addition to ServiceLogDirs. Today this is only the artifact
 // server's application.log, which upstream creates as 0600.
-func ServiceLogFiles(includeArtifact, _, _, _, _ bool, includeHost ...bool) []OwnedDir {
+func ServiceLogFiles(includeArtifact, _ bool, includeHost ...bool) []OwnedDir {
 	hostEnabled := len(includeHost) == 0 || includeHost[0]
 	files := []OwnedDir(nil)
 	if hostEnabled {

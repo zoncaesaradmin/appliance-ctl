@@ -47,7 +47,6 @@ const (
 	defaultPublicKeyPath         = "/etc/zon/keys/release-signing.pub"
 	defaultChartReleaseName      = "appliance"
 	defaultChartNamespace        = "ace-system"
-	defaultWorkspaceRootDir      = "/data/zon/workspaces"
 )
 
 var defaultK3sCNIInterfaces = []string{"cni0", "flannel.1"}
@@ -79,7 +78,6 @@ type cliOptions struct {
 	confirm                  string
 	acknowledgeDataLoss      bool
 	forceDataLoss            bool
-	wipeWorkspaces           bool
 	forceAdopt               bool
 	// Optional image-pull registry (K3s registries.yaml). Host empty = omit.
 	imagePullRegistry             string
@@ -203,7 +201,7 @@ func run(args []string) int {
 	configPath := fs.String("config", "", "path to a bundle assembly config JSON file (required for assemble-bundle)")
 	bundleDir := fs.String("bundle-dir", "", "path to an extracted signed appliance bundle directory (required for install/upgrade)")
 	var packDirs stringListFlag
-	fs.Var(&packDirs, "pack-dir", "additional signed pack bundle directory to merge (app-stack, storage-network, build-workflows, deviceuser, inference); repeatable")
+	fs.Var(&packDirs, "pack-dir", "additional signed pack bundle directory to merge (app-stack, storage-network, deviceuser, inference); repeatable")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile from the signed metadata catalog; install defaults to core and upgrade preserves the installed profile when omitted")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to this host's appliance node from the local receipt, else hostname)")
@@ -222,7 +220,6 @@ func run(args []string) int {
 	confirm := fs.String("confirm", "", "confirmation token acknowledging this destructive operation (required for uninstall, factory-reset, and cluster-node-remove)")
 	acknowledgeDataLoss := fs.Bool("acknowledge-data-loss", false, "explicitly acknowledge permanent data loss (required for factory-reset)")
 	forceDataLoss := fs.Bool("force-data-loss", false, "override the requirement for a verified recent backup before factory-reset (still requires --acknowledge-data-loss)")
-	wipeWorkspaces := fs.Bool("wipe-workspaces", false, "factory-reset only: also remove builder workspaces under /data/zon/workspaces")
 	forceAdopt := fs.Bool("force-adopt", false, "take ownership of an existing K3s cluster even if it isn't obviously safe to adopt (unhealthy and/or carrying foreign workloads)")
 	imagePullRegistry := fs.String("image-pull-registry", "", "optional private registry host for K3s containerd pulls (writes /etc/rancher/k3s/registries.yaml); empty keeps preload-only")
 	imagePullRegistryUsernameEnv := fs.String("image-pull-registry-username-env", "", "env var name holding the image-pull registry username (required when --image-pull-registry is set; e.g. DEV_REGISTRY_USER)")
@@ -288,7 +285,6 @@ func run(args []string) int {
 		confirm:                       *confirm,
 		acknowledgeDataLoss:           *acknowledgeDataLoss,
 		forceDataLoss:                 *forceDataLoss,
-		wipeWorkspaces:                *wipeWorkspaces,
 		forceAdopt:                    *forceAdopt,
 		imagePullRegistry:             *imagePullRegistry,
 		imagePullRegistryUsernameEnv:  *imagePullRegistryUsernameEnv,

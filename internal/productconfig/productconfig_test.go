@@ -11,18 +11,16 @@ import (
 )
 
 const (
-	workspaceProvisionerImage = "registry.local/workspace-provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	builderImage              = "registry.local/dev-build@sha256:5ccdfda08e940614d030e377b75f048a55e3f61cbb0234294ad333f27afe222c"
-	hostAgentImage            = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-	artifactServerImage       = "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	corednsImage              = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	inferenceRuntimeImage     = "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-	inferenceManagerImage     = "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-	openWebUIImage            = "registry.local/open-webui@sha256:1111111111111111111111111111111111111111111111111111111111111111"
-	openWebUIGatewayImage     = "registry.local/open-webui-gateway@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-	blobStorageImage          = "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
-	channelIntegrationImage   = "registry.local/channel-integration@sha256:abababababababababababababababababababababababababababababababab"
-	authServiceImage          = "registry.local/auth-service@sha256:abababababababababababababababababababababababababababababababab"
+	hostAgentImage          = "registry.local/appliance-host-agent@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	artifactServerImage     = "registry.local/artifact-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	corednsImage            = "registry.local/coredns@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	inferenceRuntimeImage   = "registry.local/inference-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	inferenceManagerImage   = "registry.local/inference-manager@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	openWebUIImage          = "registry.local/open-webui@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	openWebUIGatewayImage   = "registry.local/open-webui-gateway@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	blobStorageImage        = "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
+	channelIntegrationImage = "registry.local/channel-integration@sha256:abababababababababababababababababababababababababababababababab"
+	authServiceImage        = "registry.local/auth-service@sha256:abababababababababababababababababababababababababababababababab"
 )
 
 func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T) {
@@ -30,7 +28,7 @@ func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T)
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, testProfileCatalog(), "", "", hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage, blobStorageImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileStorage, testProfileCatalog(), hostAgentImage, "registry1", "appliance.internal", "192.0.2.10", artifactServerImage, blobStorageImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +68,7 @@ func TestPrepareValuesFile_DNSCapabilityInjectsReadyURL(t *testing.T) {
 	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, testProfileCatalog(), "", "", hostAgentImage, "dns1", "appliance.internal", "192.0.2.10", "", blobStorageImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileLANDNS, testProfileCatalog(), hostAgentImage, "dns1", "appliance.internal", "192.0.2.10", "", blobStorageImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,8 +126,6 @@ func TestPrepareValuesFile_ActionRuntimeFollowsCapability(t *testing.T) {
 				profile,
 				catalog,
 				"",
-				"",
-				"",
 				"appliance",
 				"appliance.internal",
 				"",
@@ -157,7 +153,7 @@ func TestPrepareValuesFileForRuntime_EnablesWebUIOnlyForInferencePackPair(t *tes
 		t.Fatal(err)
 	}
 	runtime := runtimeconfig.Selection{Package: "std-llm", InferenceEngine: "ollama", Architecture: "amd64"}
-	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntime(valuesPath, productconfig.ProfileLANLLM, testProfileCatalog(), "", "", "", "llm1", "appliance.internal", "", runtime, true, "", blobStorageImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntime(valuesPath, productconfig.ProfileLANLLM, testProfileCatalog(), "", "llm1", "appliance.internal", "", runtime, true, "", blobStorageImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +170,7 @@ func TestPrepareValuesFileForRuntime_EnablesWebUIOnlyForInferencePackPair(t *tes
 		t.Fatalf("complete inference image pair must configure the session-bridge health gate:\n%s", text)
 	}
 
-	disabled, disabledCleanup, err := productconfig.PrepareValuesFileForRuntime(valuesPath, productconfig.ProfileLANLLM, testProfileCatalog(), "", "", "", "llm1", "appliance.internal", "", runtime, false, "", blobStorageImage)
+	disabled, disabledCleanup, err := productconfig.PrepareValuesFileForRuntime(valuesPath, productconfig.ProfileLANLLM, testProfileCatalog(), "", "llm1", "appliance.internal", "", runtime, false, "", blobStorageImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +196,7 @@ func TestPrepareValuesFileForRuntimeWithPublicOrigin_CloudflareUsesHTTPChannelRo
 		"application-core": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityHost, productconfig.CapabilityActions, productconfig.CapabilityChannelIntegrations}},
 	}
 	runtime := runtimeconfig.Selection{}
-	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(valuesPath, "application-core", catalog, "", "", hostAgentImage, "big-machine", "appliance.internal", "", runtime, false, "https://local-app.zonited.com", "cloudflare", "", blobStorageImage, "", channelIntegrationImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigin(valuesPath, "application-core", catalog, hostAgentImage, "big-machine", "appliance.internal", "", runtime, false, "https://local-app.zonited.com", "cloudflare", "", blobStorageImage, "", channelIntegrationImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +225,7 @@ func TestPrepareValuesFileForRuntimeWithPublicOriginsSeparatesChannelHost(t *tes
 		"application-core": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityHost, productconfig.CapabilityActions, productconfig.CapabilityChannelIntegrations}},
 	}
 	runtime := runtimeconfig.Selection{}
-	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigins(valuesPath, "application-core", catalog, "", "", hostAgentImage, "big-machine", "appliance.internal", "", runtime, false, "https://app.zonited.com", "https://channels.zonited.com", "cloudflare", "", blobStorageImage, "", channelIntegrationImage)
+	rendered, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigins(valuesPath, "application-core", catalog, hostAgentImage, "big-machine", "appliance.internal", "", runtime, false, "https://app.zonited.com", "https://channels.zonited.com", "cloudflare", "", blobStorageImage, "", channelIntegrationImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +261,7 @@ func TestPrepareValuesFileForRuntime_AuthDeliveryDefaultsToEventAndAllowsLocalOv
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			rendered, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(
-				valuesPath, "auth-only", catalog, "", "", "", "auth", "appliance.internal", "", runtime, false,
+				valuesPath, "auth-only", catalog, "", "auth", "appliance.internal", "", runtime, false,
 				"https://auth.example.com", "", "traefik", test.mode,
 				"", blobStorageImage, "", "", "", "", authServiceImage,
 			)
@@ -284,7 +280,7 @@ func TestPrepareValuesFileForRuntime_AuthDeliveryDefaultsToEventAndAllowsLocalOv
 	}
 
 	_, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(
-		valuesPath, "auth-only", catalog, "", "", "", "auth", "appliance.internal", "", runtime, false,
+		valuesPath, "auth-only", catalog, "", "auth", "appliance.internal", "", runtime, false,
 		"https://auth.example.com", "", "traefik", "sms",
 		"", blobStorageImage, "", "", "", "", authServiceImage,
 	)
@@ -608,7 +604,7 @@ func TestResolveApplianceProfileWithCatalog_PreservesCurrentWhenRequestedEmpty(t
 
 func TestResolveApplianceProfileWithCatalog_AcceptsLANDNSProfiles(t *testing.T) {
 	catalog := testProfileCatalog()
-	for _, requested := range []string{"landns", "storage-landns", "builder-landns", "builder-storage-landns"} {
+	for _, requested := range []string{"landns", "storage-landns"} {
 		t.Run(requested, func(t *testing.T) {
 			profile, err := productconfig.ResolveApplianceProfileWithCatalog(requested, "", catalog)
 			if err != nil {
@@ -646,31 +642,6 @@ func TestResolveApplianceProfileWithCatalog_RejectsUnknownProfile(t *testing.T) 
 	}
 }
 
-func TestPrepareValuesFile_InjectsApplianceProfile(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("replicaCount: 1\nsecrets:\n  keysSecretName: appliance-keys\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, testProfileCatalog(), workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", artifactServerImage, blobStorageImage)
-	defer cleanup()
-	if err != nil {
-		t.Fatalf("PrepareValuesFile returned error: %v", err)
-	}
-	prepared, err := os.ReadFile(preparedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(prepared)
-	if !strings.Contains(text, "applianceProfile: builder") {
-		t.Fatalf("prepared values missing applianceProfile override: %s", text)
-	}
-	if !strings.Contains(text, "keysSecretName: appliance-keys") {
-		t.Fatalf("prepared values lost existing content: %s", text)
-	}
-}
-
 func TestPrepareValuesFile_UsesMetadataProfileCatalog(t *testing.T) {
 	dir := t.TempDir()
 	valuesPath := filepath.Join(dir, "values.yaml")
@@ -681,7 +652,7 @@ func TestPrepareValuesFile_UsesMetadataProfileCatalog(t *testing.T) {
 		"custom": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityHost}},
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "custom", catalog, "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "custom", catalog, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -709,7 +680,7 @@ func TestPrepareValuesFile_ApplicationCapabilityEnablesLifecycle(t *testing.T) {
 		"media": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityApplications}},
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "media", catalog, "", "", hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "media", catalog, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -733,7 +704,7 @@ func TestPrepareValuesFile_PlaintextHTTPProjectsCapability(t *testing.T) {
 		"lan-kiosk": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityPlaintextHTTP}},
 	}
 
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "lan-kiosk", catalog, "", "", "", "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
+	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "lan-kiosk", catalog, "", "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("PrepareValuesFile returned error: %v", err)
@@ -744,43 +715,6 @@ func TestPrepareValuesFile_PlaintextHTTPProjectsCapability(t *testing.T) {
 	}
 	if !strings.Contains(string(prepared), "- plaintext-http") {
 		t.Fatalf("plaintext-http capability must be projected into chart values:\n%s", prepared)
-	}
-}
-
-func TestPrepareValuesFile_RejectsPlaceholderWorkspaceProvisionerImageDigest(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  applianceProfile: core\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-
-	_, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilder, testProfileCatalog(), "registry.local/workspace-provisioner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
-	defer cleanup()
-	if err == nil {
-		t.Fatal("expected placeholder workspace provisioner image digest to be rejected")
-	}
-	if !strings.Contains(err.Error(), "workspace provisioner image") {
-		t.Fatalf("error = %v, want placeholder digest validation failure", err)
-	}
-}
-
-func TestPrepareValuesFile_LeavesEmptyBuildCatalogForBuildProfile(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config:\n  buildCatalog: {}\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	path, cleanup, err := productconfig.PrepareValuesFile(valuesPath, productconfig.ProfileBuilderLANDNS, testProfileCatalog(), workspaceProvisionerImage, builderImage, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", artifactServerImage, blobStorageImage)
-	defer cleanup()
-	if err != nil {
-		t.Fatalf("PrepareValuesFile for builder profile: %v", err)
-	}
-	text, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(text), "buildCatalog:") {
-		t.Fatalf("prepared values missing empty buildCatalog:\n%s", text)
 	}
 }
 

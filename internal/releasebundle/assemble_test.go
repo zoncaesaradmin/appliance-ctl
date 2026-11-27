@@ -324,10 +324,6 @@ func TestAssemblePackFoundationExcludesWorkflowAndInference(t *testing.T) {
 	writeTestFile(t, staging, "auth-service.oci.tar.zst", "auth service", 0o640)
 	writeTestFile(t, staging, "chart.tgz", "chart", 0o640)
 	writeTestFile(t, staging, "values.yaml", "replicaCount: 1\n", 0o640)
-	writeTestFile(t, staging, "workflows-chart.tgz", "workflows", 0o640)
-	writeTestFile(t, staging, "workflow-controller.oci.tar.zst", "controller", 0o640)
-	writeTestFile(t, staging, "workspace-provisioner.oci.tar.zst", "provisioner", 0o640)
-	writeTestFile(t, staging, "workflows.argoproj.io.yaml", "crd", 0o640)
 
 	_, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -360,19 +356,12 @@ func TestAssemblePackFoundationExcludesWorkflowAndInference(t *testing.T) {
 			{SourcePath: filepath.Join(staging, "auth-service.oci.tar.zst"), TargetPath: "oci-images/auth-service.oci.tar.zst", Component: "oci-images", ImageReference: "registry.local/auth-service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			{SourcePath: filepath.Join(staging, "chart.tgz"), TargetPath: "charts/appliance-chart-2.4.0.tgz", Component: "chart"},
 			{SourcePath: filepath.Join(staging, "values.yaml"), TargetPath: "configuration/values.yaml", Component: "configuration"},
-			{SourcePath: filepath.Join(staging, "workflows-chart.tgz"), TargetPath: "charts/workflows-chart-1.0.0.tgz", Component: "chart"},
-			{SourcePath: filepath.Join(staging, "workflow-controller.oci.tar.zst"), TargetPath: "oci-images/workflow-controller.oci.tar.zst", Component: "oci-images", ImageReference: "quay.io/argoproj/workflow-controller:v3.5.0"},
-			{SourcePath: filepath.Join(staging, "workspace-provisioner.oci.tar.zst"), TargetPath: "oci-images/workspace-provisioner.oci.tar.zst", Component: "oci-images", ImageReference: "registry.local/workspace-provisioner@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
-			{SourcePath: filepath.Join(staging, "workflows.argoproj.io.yaml"), TargetPath: "kubernetes/crds/workflows.argoproj.io.yaml", Component: "kubernetes-crds"},
 		},
 	}
 
 	result, err := releasebundle.Assemble(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("expected foundation pack assembly to succeed, got: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(result.BundleDir, "charts", "workflows-chart-1.0.0.tgz")); !os.IsNotExist(err) {
-		t.Fatalf("foundation pack must exclude workflows chart, stat err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(result.BundleDir, "oci-images", "inference-runtime.oci.tar.zst")); !os.IsNotExist(err) {
 		t.Fatalf("foundation pack must exclude inference image, stat err=%v", err)

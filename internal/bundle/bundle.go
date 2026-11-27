@@ -37,7 +37,6 @@ type Compatibility struct {
 	K3sVersion            string
 	ChartVersion          string
 	DeploymentTopology    string
-	WorkflowsVersion      string
 	ArtifactServerVersion string
 	DNSVersion            string
 	InferenceVersion      string
@@ -81,7 +80,6 @@ type manifestDoc struct {
 		K3sVersion              string   `json:"k3sVersion"`
 		ChartVersion            string   `json:"chartVersion"`
 		DeploymentTopology      string   `json:"deploymentTopology"`
-		WorkflowsVersion        string   `json:"workflowsVersion"`
 		ArtifactServerVersion   string   `json:"artifactServerVersion"`
 		DNSVersion              string   `json:"dnsVersion"`
 		InferenceVersion        string   `json:"inferenceVersion"`
@@ -145,7 +143,6 @@ func Load(rootDir string, pub *verify.PublicKey) (*Bundle, []evidence.Check, err
 			K3sVersion:              doc.Compatibility.K3sVersion,
 			ChartVersion:            doc.Compatibility.ChartVersion,
 			DeploymentTopology:      doc.Compatibility.DeploymentTopology,
-			WorkflowsVersion:        doc.Compatibility.WorkflowsVersion,
 			ArtifactServerVersion:   doc.Compatibility.ArtifactServerVersion,
 			DNSVersion:              doc.Compatibility.DNSVersion,
 			InferenceVersion:        doc.Compatibility.InferenceVersion,

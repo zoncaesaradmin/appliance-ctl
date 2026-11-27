@@ -18,7 +18,7 @@ func TestEnsureImagePullSecretsCreatesInAllProductNamespaces(t *testing.T) {
 		joined := name + " " + strings.Join(args, " ")
 		calls = append(calls, joined)
 		if strings.Contains(joined, "get serviceaccount -o jsonpath") {
-			return "default\nworkflow-controller\n", nil
+			return "default\n", nil
 		}
 		if strings.Contains(joined, "get serviceaccount default") {
 			return "default", nil
@@ -45,7 +45,7 @@ func TestEnsureImagePullSecretsCreatesInAllProductNamespaces(t *testing.T) {
 	}
 
 	for _, ns := range namespaces {
-		var create, patchDefault, patchController bool
+		var create, patchDefault bool
 		for _, call := range calls {
 			if strings.Contains(call, "create secret generic "+helm.ImagePullSecretName) && strings.Contains(call, ns) {
 				create = true
@@ -53,15 +53,12 @@ func TestEnsureImagePullSecretsCreatesInAllProductNamespaces(t *testing.T) {
 			if strings.Contains(call, "patch serviceaccount default") && strings.Contains(call, ns) {
 				patchDefault = true
 			}
-			if strings.Contains(call, "patch serviceaccount workflow-controller") && strings.Contains(call, ns) {
-				patchController = true
-			}
 		}
 		if !create {
 			t.Fatalf("expected secret create in %s; calls=%v", ns, calls)
 		}
-		if !patchDefault || !patchController {
-			t.Fatalf("expected SA patches in %s (default+workflow-controller); calls=%v", ns, calls)
+		if !patchDefault {
+			t.Fatalf("expected default SA patch in %s; calls=%v", ns, calls)
 		}
 	}
 	// Must not touch kube-system.
@@ -75,16 +72,14 @@ func TestEnsureImagePullSecretsCreatesInAllProductNamespaces(t *testing.T) {
 func TestProductNamespacesExcludesSystemNamespaces(t *testing.T) {
 	got := productconfig.ProductNamespaces("ace-system")
 	want := map[string]bool{
-		"ace-infra":        true,
-		"ace-system":       true,
-		"ace-app-core":     true,
-		"ace-apps":         true,
-		"apps":             true,
-		"artifacts":        true,
-		"dns":              true,
-		"inference":        true,
-		"workflows":        true,
-		"appliance-builds": true,
+		"ace-infra":    true,
+		"ace-system":   true,
+		"ace-app-core": true,
+		"ace-apps":     true,
+		"apps":         true,
+		"artifacts":    true,
+		"dns":          true,
+		"inference":    true,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("ProductNamespaces = %v", got)

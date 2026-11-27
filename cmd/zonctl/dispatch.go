@@ -584,7 +584,6 @@ func runInstall(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		TLSSecretName:                   opts.tlsSecretName,
 		ChannelIntegrationRuntimePath:   opts.channelIntegrationRuntimeFile,
 		AuthServiceOTPDeliveryMode:      opts.authServiceOTPDeliveryMode,
-		WorkspaceRootDir:                defaultWorkspaceRootDir,
 		MetadataBundlesDir:              hostdirs.MetadataBundlesDir,
 		NodeName:                        opts.nodeName,
 		ApplianceName:                   opts.applianceName,

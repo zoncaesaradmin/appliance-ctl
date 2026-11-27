@@ -21,7 +21,7 @@ var systemNamespaces = map[string]bool{
 // platformNamespaces are product-owned namespaces that install places
 // alongside the control-plane ChartNamespace (default ace-system). The
 // apps package (ui, host-agent, action-runtime) lives in ace-apps;
-// message broker also uses ace-system; registry/DNS/inference/workflows
+// message broker also uses ace-system; registry/DNS/inference
 // each have fixed names.
 var platformNamespaces = map[string]bool{
 	"ace-apps":   true,
@@ -30,7 +30,6 @@ var platformNamespaces = map[string]bool{
 	"dns":        true,
 	"inference":  true,
 	"video":      true,
-	"workflows":  true,
 }
 
 // InspectCluster queries an already-active K3s cluster via kubectl for

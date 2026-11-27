@@ -40,7 +40,6 @@ const (
 	PackFoundation     = "foundation"
 	PackAppStack       = "app-stack"
 	PackStorageNetwork = "storage-network"
-	PackBuildWorkflows = "build-workflows"
 	PackDeviceUser     = "deviceuser"
 	PackStdLLM         = "std-llm"
 	PackAccLLM         = "acc-llm"
@@ -66,7 +65,7 @@ type Config struct {
 	Entries               []EntryConfig `json:"entries"`
 	// Pack selects which signed deliverable to assemble.
 	// Empty means legacy full bundle (everything). PackFoundation excludes
-	// app-stack, storage-network, build-workflows, deviceuser, and the selected inference package artifacts.
+	// app-stack, storage-network, deviceuser, and the selected inference package artifacts.
 	Pack string `json:"pack,omitempty"`
 }
 
@@ -120,9 +119,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackAppStack, PackStorageNetwork, PackBuildWorkflows, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
+	case "", PackFoundation, PackAppStack, PackStorageNetwork, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, %q, %q, or %q", PackFoundation, PackAppStack, PackStorageNetwork, PackBuildWorkflows, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, %q, or %q", PackFoundation, PackAppStack, PackStorageNetwork, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -164,7 +163,6 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	includeProductAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
 	includeFoundationMDNSAutoAdds := cfg.Pack == "" || cfg.Pack == PackFoundation
 	includeStorageNetworkAutoAdds := cfg.Pack == "" || cfg.Pack == PackStorageNetwork
-	includeBuildWorkflowsAutoAdds := cfg.Pack == "" || cfg.Pack == PackBuildWorkflows
 	includeDeviceUserAutoAdds := cfg.Pack == "" || cfg.Pack == PackDeviceUser
 	includeInferenceAutoAdd := cfg.Pack == "" || IsInferencePack(cfg.Pack)
 	includeOpenWebUIAutoAdd := cfg.Pack == "" || IsOpenWebUIPack(cfg.Pack)
@@ -264,30 +262,6 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 		}
 		/* DNS is delivered with the deviceuser pack below. */
 		/* Keep artifact-server entries isolated from device-user entries. */
-	}
-
-	if includeBuildWorkflowsAutoAdds {
-		if cfg.Pack == PackBuildWorkflows && (strings.TrimSpace(input.Artifacts.WorkflowsChart.Path) == "" || strings.TrimSpace(input.Artifacts.WorkflowControllerImage.Path) == "" || strings.TrimSpace(input.Artifacts.WorkflowExecutorImage.Path) == "") {
-			return Result{}, fmt.Errorf("releasebundle: build-workflows pack requires workflows chart and controller/executor images in release-input")
-		}
-		workflowControllerImageTarget := "oci-images/" + filepath.Base(input.Artifacts.WorkflowControllerImage.Path)
-		if input.Artifacts.WorkflowControllerImage.Path != "" {
-			if _, exists := entryByTarget[workflowControllerImageTarget]; !exists {
-				entryByTarget[workflowControllerImageTarget] = EntryConfig{SourcePath: input.Artifacts.WorkflowControllerImage.Path, TargetPath: workflowControllerImageTarget, Component: "oci-images", ImageReference: input.Artifacts.WorkflowControllerImage.ImageReference}
-			}
-		}
-		workflowExecutorImageTarget := "oci-images/" + filepath.Base(input.Artifacts.WorkflowExecutorImage.Path)
-		if input.Artifacts.WorkflowExecutorImage.Path != "" {
-			if _, exists := entryByTarget[workflowExecutorImageTarget]; !exists {
-				entryByTarget[workflowExecutorImageTarget] = EntryConfig{SourcePath: input.Artifacts.WorkflowExecutorImage.Path, TargetPath: workflowExecutorImageTarget, Component: "oci-images", ImageReference: input.Artifacts.WorkflowExecutorImage.ImageReference}
-			}
-		}
-		workflowsChartTarget := "chart/" + filepath.Base(input.Artifacts.WorkflowsChart.Path)
-		if input.Artifacts.WorkflowsChart.Path != "" {
-			if _, exists := entryByTarget[workflowsChartTarget]; !exists {
-				entryByTarget[workflowsChartTarget] = EntryConfig{SourcePath: input.Artifacts.WorkflowsChart.Path, TargetPath: workflowsChartTarget, Component: "chart"}
-			}
-		}
 	}
 
 	if includeDeviceUserAutoAdds {
@@ -534,9 +508,6 @@ func Assemble(ctx context.Context, cfg Config) (Result, error) {
 	}
 	if strings.TrimSpace(input.Compatibility.InferenceVersion) != "" {
 		compatibility["inferenceVersion"] = input.Compatibility.InferenceVersion
-	}
-	if strings.TrimSpace(input.Compatibility.WorkflowsVersion) != "" {
-		compatibility["workflowsVersion"] = input.Compatibility.WorkflowsVersion
 	}
 
 	doc := manifestDoc{
@@ -855,9 +826,6 @@ func knownDigestsFromReleaseInput(input *releaseinput.Input) map[string]string {
 	add(input.Artifacts.MetadataBundle)
 	add(input.Artifacts.MessageBrokerImage)
 	add(input.Artifacts.MessageBrokerChart)
-	add(input.Artifacts.WorkflowsChart)
-	add(input.Artifacts.WorkflowControllerImage)
-	add(input.Artifacts.WorkflowExecutorImage)
 	add(input.Artifacts.ConfigurationSchema)
 	add(input.Artifacts.Compatibility)
 	add(input.Artifacts.Checksums)
@@ -918,11 +886,6 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		}
 		if !registryImage || !registryChart {
 			return fmt.Errorf("releasebundle: storage-network pack requires Artifact Server image and chart")
-		}
-		return nil
-	case PackBuildWorkflows:
-		if counts["chart"] == 0 || counts["kubernetes-crds"] == 0 || counts["oci-images"] == 0 {
-			return fmt.Errorf("releasebundle: build-workflows pack requires workflows chart, CRDs, and images")
 		}
 		return nil
 	case PackDeviceUser:
@@ -1040,13 +1003,11 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	case "":
 		return true
 	case PackFoundation:
-		return !entryIsAppStack(entry) && !entryIsStorageNetwork(entry) && !entryIsBuildWorkflows(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry) && !entryIsOpenWebUI(entry)
+		return !entryIsAppStack(entry) && !entryIsStorageNetwork(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry) && !entryIsOpenWebUI(entry)
 	case PackAppStack:
 		return entryIsAppStack(entry)
 	case PackStorageNetwork:
 		return entryIsStorageNetwork(entry)
-	case PackBuildWorkflows:
-		return entryIsBuildWorkflows(entry)
 	case PackDeviceUser:
 		return entryIsDeviceUser(entry)
 	case PackStdLLM, PackAccLLM:
@@ -1056,31 +1017,6 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	default:
 		return false
 	}
-}
-
-func entryIsBuildWorkflows(entry EntryConfig) bool {
-	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
-	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
-	base := strings.ToLower(filepath.Base(target))
-	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
-
-	if strings.HasPrefix(target, "kubernetes/crds/") || entry.Component == "kubernetes-crds" {
-		return true
-	}
-	if entry.Component == "chart" && (strings.Contains(base, "workflows") || strings.Contains(sourceBase, "workflows")) {
-		return true
-	}
-	if strings.Contains(ref, "workflow-controller") || strings.Contains(ref, "argoexec") ||
-		strings.Contains(ref, "workflow-executor") || strings.Contains(base, "workflow-controller") ||
-		strings.Contains(base, "workflow-executor") || strings.Contains(sourceBase, "workflow-controller") ||
-		strings.Contains(sourceBase, "workflow-executor") {
-		return true
-	}
-	if strings.Contains(ref, "workspace-provisioner") || strings.Contains(target, "workspace-provisioner") ||
-		strings.Contains(sourceBase, "workspace-provisioner") {
-		return true
-	}
-	return false
 }
 
 func entryIsStorageNetwork(entry EntryConfig) bool {

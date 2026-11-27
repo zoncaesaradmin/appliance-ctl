@@ -31,7 +31,6 @@ type Compatibility struct {
 	K3sVersion              string
 	ChartVersion            string
 	DeploymentTopology      string `json:"deploymentTopology"`
-	WorkflowsVersion        string
 	ArtifactServerVersion   string
 	DnsVersion              string
 	InferenceVersion        string
@@ -52,78 +51,70 @@ type DirArtifact struct {
 }
 
 type Artifacts struct {
-	ControlPlaneImage       FileArtifact
-	UIImage                 FileArtifact
-	HostAgentImage          FileArtifact
-	HostAgentBinary         FileArtifact
-	CloudflaredBinary       FileArtifact
-	HostPackages            DirArtifact
-	ApplianceChart          FileArtifact
-	ArtifactServerImage     FileArtifact
-	ArtifactServerChart     FileArtifact
-	DnsImage                FileArtifact
-	DnsChart                FileArtifact
-	BlobStorageImage        FileArtifact
-	InferenceRuntimeImage   FileArtifact
-	InferenceManagerImage   FileArtifact
-	OpenWebUIImage          FileArtifact
-	OpenWebUIGatewayImage   FileArtifact
-	InferenceChart          FileArtifact
-	MetadataBundle          FileArtifact
-	MessageBrokerImage      FileArtifact
-	PostgresImage           FileArtifact
-	MessageBrokerChart      FileArtifact
-	WorkflowsChart          FileArtifact
-	WorkflowControllerImage FileArtifact
-	WorkflowExecutorImage   FileArtifact
-	ExtraOCIImages          []FileArtifact
-	ConfigurationSchema     FileArtifact
-	Compatibility           FileArtifact
-	Checksums               FileArtifact
-	WorkflowsCRDs           DirArtifact
-	SBOM                    DirArtifact
-	Provenance              DirArtifact
-	Notices                 DirArtifact
-	Tests                   DirArtifact
+	ControlPlaneImage     FileArtifact
+	UIImage               FileArtifact
+	HostAgentImage        FileArtifact
+	HostAgentBinary       FileArtifact
+	CloudflaredBinary     FileArtifact
+	HostPackages          DirArtifact
+	ApplianceChart        FileArtifact
+	ArtifactServerImage   FileArtifact
+	ArtifactServerChart   FileArtifact
+	DnsImage              FileArtifact
+	DnsChart              FileArtifact
+	BlobStorageImage      FileArtifact
+	InferenceRuntimeImage FileArtifact
+	InferenceManagerImage FileArtifact
+	OpenWebUIImage        FileArtifact
+	OpenWebUIGatewayImage FileArtifact
+	InferenceChart        FileArtifact
+	MetadataBundle        FileArtifact
+	MessageBrokerImage    FileArtifact
+	PostgresImage         FileArtifact
+	MessageBrokerChart    FileArtifact
+	ExtraOCIImages        []FileArtifact
+	ConfigurationSchema   FileArtifact
+	Compatibility         FileArtifact
+	Checksums             FileArtifact
+	SBOM                  DirArtifact
+	Provenance            DirArtifact
+	Notices               DirArtifact
+	Tests                 DirArtifact
 }
 
 type doc struct {
 	CodeVersion string `json:"codeVersion"`
 	ReleaseID   string `json:"releaseId"`
 	Artifacts   struct {
-		ControlPlaneImage       fileArtifact   `json:"controlPlaneImage"`
-		UIImage                 fileArtifact   `json:"uiImage"`
-		HostAgentImage          fileArtifact   `json:"hostAgentImage"`
-		HostAgentBinary         fileArtifact   `json:"hostAgentBinary"`
-		CloudflaredBinary       fileArtifact   `json:"cloudflaredBinary"`
-		HostPackages            dirArtifact    `json:"hostPackages"`
-		ApplianceChart          fileArtifact   `json:"applianceChart"`
-		ArtifactServerImage     fileArtifact   `json:"artifactServerImage"`
-		ArtifactServerChart     fileArtifact   `json:"artifactServerChart"`
-		DnsImage                fileArtifact   `json:"dnsImage"`
-		DnsChart                fileArtifact   `json:"dnsChart"`
-		BlobStorageImage        fileArtifact   `json:"blobStorageImage"`
-		InferenceRuntimeImage   fileArtifact   `json:"inferenceRuntimeImage"`
-		InferenceManagerImage   fileArtifact   `json:"inferenceManagerImage"`
-		OpenWebUIImage          fileArtifact   `json:"openWebUIImage"`
-		OpenWebUIGatewayImage   fileArtifact   `json:"openWebUIGatewayImage"`
-		InferenceChart          fileArtifact   `json:"inferenceChart"`
-		MetadataBundle          fileArtifact   `json:"metadataBundle"`
-		MessageBrokerImage      fileArtifact   `json:"messageBrokerImage"`
-		PostgresImage           fileArtifact   `json:"postgresImage"`
-		MessageBrokerChart      fileArtifact   `json:"messageBrokerChart"`
-		WorkflowsChart          fileArtifact   `json:"workflowsChart"`
-		WorkflowControllerImage fileArtifact   `json:"workflowControllerImage"`
-		WorkflowExecutorImage   fileArtifact   `json:"workflowExecutorImage"`
-		ExtraOCIImages          []fileArtifact `json:"extraOCIImages"`
-		ConfigurationSchema     fileArtifact   `json:"configurationSchema"`
-		Compatibility           fileArtifact   `json:"compatibility"`
-		Checksums               fileArtifact   `json:"checksums"`
-		WorkflowsCRDs           dirArtifact    `json:"workflowsCRDs"`
-		SBOM                    dirArtifact    `json:"sbom"`
-		Provenance              dirArtifact    `json:"provenance"`
-		Notices                 dirArtifact    `json:"notices"`
-		Tests                   dirArtifact    `json:"tests"`
+		ControlPlaneImage     fileArtifact   `json:"controlPlaneImage"`
+		UIImage               fileArtifact   `json:"uiImage"`
+		HostAgentImage        fileArtifact   `json:"hostAgentImage"`
+		HostAgentBinary       fileArtifact   `json:"hostAgentBinary"`
+		CloudflaredBinary     fileArtifact   `json:"cloudflaredBinary"`
+		HostPackages          dirArtifact    `json:"hostPackages"`
+		ApplianceChart        fileArtifact   `json:"applianceChart"`
+		ArtifactServerImage   fileArtifact   `json:"artifactServerImage"`
+		ArtifactServerChart   fileArtifact   `json:"artifactServerChart"`
+		DnsImage              fileArtifact   `json:"dnsImage"`
+		DnsChart              fileArtifact   `json:"dnsChart"`
+		BlobStorageImage      fileArtifact   `json:"blobStorageImage"`
+		InferenceRuntimeImage fileArtifact   `json:"inferenceRuntimeImage"`
+		InferenceManagerImage fileArtifact   `json:"inferenceManagerImage"`
+		OpenWebUIImage        fileArtifact   `json:"openWebUIImage"`
+		OpenWebUIGatewayImage fileArtifact   `json:"openWebUIGatewayImage"`
+		InferenceChart        fileArtifact   `json:"inferenceChart"`
+		MetadataBundle        fileArtifact   `json:"metadataBundle"`
+		MessageBrokerImage    fileArtifact   `json:"messageBrokerImage"`
+		PostgresImage         fileArtifact   `json:"postgresImage"`
+		MessageBrokerChart    fileArtifact   `json:"messageBrokerChart"`
+		ExtraOCIImages        []fileArtifact `json:"extraOCIImages"`
+		ConfigurationSchema   fileArtifact   `json:"configurationSchema"`
+		Compatibility         fileArtifact   `json:"compatibility"`
+		Checksums             fileArtifact   `json:"checksums"`
+		SBOM                  dirArtifact    `json:"sbom"`
+		Provenance            dirArtifact    `json:"provenance"`
+		Notices               dirArtifact    `json:"notices"`
+		Tests                 dirArtifact    `json:"tests"`
 	} `json:"artifacts"`
 	Compatibility Compatibility `json:"compatibility"`
 }
@@ -165,39 +156,35 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 		ReleaseID:     parsed.ReleaseID,
 		Compatibility: parsed.Compatibility,
 		Artifacts: Artifacts{
-			ControlPlaneImage:       toFileArtifact(rootDir, parsed.Artifacts.ControlPlaneImage),
-			UIImage:                 toFileArtifact(rootDir, parsed.Artifacts.UIImage),
-			HostAgentImage:          toFileArtifact(rootDir, parsed.Artifacts.HostAgentImage),
-			HostAgentBinary:         toFileArtifact(rootDir, parsed.Artifacts.HostAgentBinary),
-			CloudflaredBinary:       toFileArtifact(rootDir, parsed.Artifacts.CloudflaredBinary),
-			HostPackages:            toDirArtifact(rootDir, parsed.Artifacts.HostPackages),
-			ApplianceChart:          toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
-			ArtifactServerImage:     toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerImage),
-			ArtifactServerChart:     toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerChart),
-			DnsImage:                toFileArtifact(rootDir, parsed.Artifacts.DnsImage),
-			DnsChart:                toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
-			BlobStorageImage:        toFileArtifact(rootDir, parsed.Artifacts.BlobStorageImage),
-			InferenceRuntimeImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceRuntimeImage),
-			InferenceManagerImage:   toFileArtifact(rootDir, parsed.Artifacts.InferenceManagerImage),
-			OpenWebUIImage:          toFileArtifact(rootDir, parsed.Artifacts.OpenWebUIImage),
-			OpenWebUIGatewayImage:   toFileArtifact(rootDir, parsed.Artifacts.OpenWebUIGatewayImage),
-			InferenceChart:          toFileArtifact(rootDir, parsed.Artifacts.InferenceChart),
-			MetadataBundle:          toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
-			MessageBrokerImage:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerImage),
-			PostgresImage:           toFileArtifact(rootDir, parsed.Artifacts.PostgresImage),
-			MessageBrokerChart:      toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerChart),
-			WorkflowsChart:          toFileArtifact(rootDir, parsed.Artifacts.WorkflowsChart),
-			WorkflowControllerImage: toFileArtifact(rootDir, parsed.Artifacts.WorkflowControllerImage),
-			WorkflowExecutorImage:   toFileArtifact(rootDir, parsed.Artifacts.WorkflowExecutorImage),
-			ExtraOCIImages:          toFileArtifacts(rootDir, parsed.Artifacts.ExtraOCIImages),
-			ConfigurationSchema:     toFileArtifact(rootDir, parsed.Artifacts.ConfigurationSchema),
-			Compatibility:           toFileArtifact(rootDir, parsed.Artifacts.Compatibility),
-			Checksums:               toFileArtifact(rootDir, parsed.Artifacts.Checksums),
-			WorkflowsCRDs:           toDirArtifact(rootDir, parsed.Artifacts.WorkflowsCRDs),
-			SBOM:                    toDirArtifact(rootDir, parsed.Artifacts.SBOM),
-			Provenance:              toDirArtifact(rootDir, parsed.Artifacts.Provenance),
-			Notices:                 toDirArtifact(rootDir, parsed.Artifacts.Notices),
-			Tests:                   toDirArtifact(rootDir, parsed.Artifacts.Tests),
+			ControlPlaneImage:     toFileArtifact(rootDir, parsed.Artifacts.ControlPlaneImage),
+			UIImage:               toFileArtifact(rootDir, parsed.Artifacts.UIImage),
+			HostAgentImage:        toFileArtifact(rootDir, parsed.Artifacts.HostAgentImage),
+			HostAgentBinary:       toFileArtifact(rootDir, parsed.Artifacts.HostAgentBinary),
+			CloudflaredBinary:     toFileArtifact(rootDir, parsed.Artifacts.CloudflaredBinary),
+			HostPackages:          toDirArtifact(rootDir, parsed.Artifacts.HostPackages),
+			ApplianceChart:        toFileArtifact(rootDir, parsed.Artifacts.ApplianceChart),
+			ArtifactServerImage:   toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerImage),
+			ArtifactServerChart:   toFileArtifact(rootDir, parsed.Artifacts.ArtifactServerChart),
+			DnsImage:              toFileArtifact(rootDir, parsed.Artifacts.DnsImage),
+			DnsChart:              toFileArtifact(rootDir, parsed.Artifacts.DnsChart),
+			BlobStorageImage:      toFileArtifact(rootDir, parsed.Artifacts.BlobStorageImage),
+			InferenceRuntimeImage: toFileArtifact(rootDir, parsed.Artifacts.InferenceRuntimeImage),
+			InferenceManagerImage: toFileArtifact(rootDir, parsed.Artifacts.InferenceManagerImage),
+			OpenWebUIImage:        toFileArtifact(rootDir, parsed.Artifacts.OpenWebUIImage),
+			OpenWebUIGatewayImage: toFileArtifact(rootDir, parsed.Artifacts.OpenWebUIGatewayImage),
+			InferenceChart:        toFileArtifact(rootDir, parsed.Artifacts.InferenceChart),
+			MetadataBundle:        toFileArtifact(rootDir, parsed.Artifacts.MetadataBundle),
+			MessageBrokerImage:    toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerImage),
+			PostgresImage:         toFileArtifact(rootDir, parsed.Artifacts.PostgresImage),
+			MessageBrokerChart:    toFileArtifact(rootDir, parsed.Artifacts.MessageBrokerChart),
+			ExtraOCIImages:        toFileArtifacts(rootDir, parsed.Artifacts.ExtraOCIImages),
+			ConfigurationSchema:   toFileArtifact(rootDir, parsed.Artifacts.ConfigurationSchema),
+			Compatibility:         toFileArtifact(rootDir, parsed.Artifacts.Compatibility),
+			Checksums:             toFileArtifact(rootDir, parsed.Artifacts.Checksums),
+			SBOM:                  toDirArtifact(rootDir, parsed.Artifacts.SBOM),
+			Provenance:            toDirArtifact(rootDir, parsed.Artifacts.Provenance),
+			Notices:               toDirArtifact(rootDir, parsed.Artifacts.Notices),
+			Tests:                 toDirArtifact(rootDir, parsed.Artifacts.Tests),
 		},
 	}
 
@@ -279,30 +266,6 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			ExpectedSizeBytes: input.Artifacts.InferenceChart.SizeBytes,
 		})
 	}
-	if input.Artifacts.WorkflowsChart.Path != "" {
-		artifacts = append(artifacts, verify.Artifact{
-			Name:              "workflows-chart",
-			Path:              input.Artifacts.WorkflowsChart.Path,
-			ExpectedDigest:    input.Artifacts.WorkflowsChart.Digest,
-			ExpectedSizeBytes: input.Artifacts.WorkflowsChart.SizeBytes,
-		})
-	}
-	if input.Artifacts.WorkflowControllerImage.Path != "" {
-		artifacts = append(artifacts, verify.Artifact{
-			Name:              "workflow-controller-image",
-			Path:              input.Artifacts.WorkflowControllerImage.Path,
-			ExpectedDigest:    input.Artifacts.WorkflowControllerImage.Digest,
-			ExpectedSizeBytes: input.Artifacts.WorkflowControllerImage.SizeBytes,
-		})
-	}
-	if input.Artifacts.WorkflowExecutorImage.Path != "" {
-		artifacts = append(artifacts, verify.Artifact{
-			Name:              "workflow-executor-image",
-			Path:              input.Artifacts.WorkflowExecutorImage.Path,
-			ExpectedDigest:    input.Artifacts.WorkflowExecutorImage.Digest,
-			ExpectedSizeBytes: input.Artifacts.WorkflowExecutorImage.SizeBytes,
-		})
-	}
 	for idx, image := range input.Artifacts.ExtraOCIImages {
 		artifacts = append(artifacts, verify.Artifact{
 			Name:              fmt.Sprintf("extra-oci-image-%d", idx+1),
@@ -344,16 +307,6 @@ func Load(rootDir string) (*Input, []evidence.Check, error) {
 			{Name: "host-packages", DirArtifact: input.Artifacts.HostPackages},
 		})
 		checks = append(checks, hostPackageChecks...)
-		if err != nil {
-			return nil, checks, fmt.Errorf("release-input: %w", err)
-		}
-	}
-	if input.Artifacts.WorkflowsCRDs.Path != "" {
-		var workflowsChecks []evidence.Check
-		workflowsChecks, err = verifyDirArtifacts([]namedDirArtifact{
-			{Name: "workflows-crds", DirArtifact: input.Artifacts.WorkflowsCRDs},
-		})
-		checks = append(checks, workflowsChecks...)
 		if err != nil {
 			return nil, checks, fmt.Errorf("release-input: %w", err)
 		}

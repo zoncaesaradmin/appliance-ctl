@@ -128,7 +128,6 @@ func runClusterFinalize(ctx context.Context, opts cliOptions, txnID string, logg
 		TLSSecretName:                 opts.tlsSecretName,
 		ChannelIntegrationRuntimePath: opts.channelIntegrationRuntimeFile,
 		AuthServiceOTPDeliveryMode:    opts.authServiceOTPDeliveryMode,
-		WorkspaceRootDir:              defaultWorkspaceRootDir,
 		MetadataBundlesDir:            hostdirs.MetadataBundlesDir,
 		ControlPlaneDatabaseDataDir:   hostdirs.ControlPlaneDatabaseDataDir,
 		NodeName:                      opts.nodeName,
