@@ -137,6 +137,9 @@ type Options struct {
 	// ChannelIntegrationRuntimePath is an operator-provided protected JSON
 	// descriptor mounted into the optional channel integration pod.
 	ChannelIntegrationRuntimePath string
+	// AuthServiceOTPDeliveryMode overrides the production-default event
+	// delivery mode for development/test installs. Empty selects event.
+	AuthServiceOTPDeliveryMode string
 	// WorkspaceRootDir is the host directory backing the workspace
 	// storage hostPath PersistentVolume (builder profile only). Prepared
 	// with the correct owner before the chart is applied; see
@@ -525,7 +528,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigins(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, opts.AuthServiceOTPDeliveryMode, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}

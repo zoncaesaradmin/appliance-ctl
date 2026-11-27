@@ -312,7 +312,7 @@ func normalizePublicOriginAndTLS(publicOrigin, tlsTermination, internalFQDN stri
 }
 
 func PrepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, "", "", "", registry...)
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, nil, false, "", "", "", "", registry...)
 }
 
 func PrepareValuesFileForRuntime(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, registry ...string) (string, func(), error) {
@@ -334,10 +334,18 @@ func PrepareValuesFileForRuntimeWithPublicOrigin(baseValuesPath, profile string,
 // channelIntegrationOrigin is an absolute HTTPS URL without a path. When it
 // is empty, the application public origin is used for backwards compatibility.
 func PrepareValuesFileForRuntimeWithPublicOrigins(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination string, registry ...string) (string, func(), error) {
-	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, registry...)
+	return PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, "", registry...)
 }
 
-func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination string, registry ...string) (string, func(), error) {
+// PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode renders the
+// installer-owned values layer and selects the Auth Service OTP delivery
+// transport. Empty authServiceOTPDeliveryMode keeps the production default,
+// event; local is intended only for development/test installs.
+func PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
+	return prepareValuesFile(baseValuesPath, profile, profileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode, registry...)
+}
+
+func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, workspaceProvisionerImageReference, builderImageReference, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", profileCatalog)
 	if err != nil {
 		return "", func() {}, err
@@ -428,6 +436,13 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	authEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityApplicationAuth, profileCatalog)
 	if authEnabled && !validAuthServiceImageDigest(authServiceImageReference) {
 		return "", func() {}, fmt.Errorf("product config: application-auth capability requires a bundled registry.local/auth-service@sha256 image reference; got %q", authServiceImageReference)
+	}
+	authServiceOTPDeliveryMode = strings.ToLower(strings.TrimSpace(authServiceOTPDeliveryMode))
+	if authServiceOTPDeliveryMode != "" && authServiceOTPDeliveryMode != "local" && authServiceOTPDeliveryMode != "event" {
+		return "", func() {}, fmt.Errorf("product config: auth service OTP delivery mode must be local or event, got %q", authServiceOTPDeliveryMode)
+	}
+	if authServiceOTPDeliveryMode != "" && !authEnabled {
+		return "", func() {}, fmt.Errorf("product config: auth service OTP delivery mode requires the application-auth capability")
 	}
 	if hostAgentEnabled && !validHostAgentImageDigest(hostAgentImageReference) {
 		return "", func() {}, fmt.Errorf("product config: host or application capability requires a bundled digest-pinned appliance host agent image reference; got %q", hostAgentImageReference)
@@ -653,10 +668,11 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	if identityOrigin, ok := identityService["origin"].(string); ok && identityOrigin != "" {
 		authService["origin"] = identityOrigin
 	}
-	if channelIntegrationsEnabled && identityEnabled {
-		authService["deliveryMode"] = "event"
-	} else if _, ok := authService["deliveryMode"]; !ok {
-		authService["deliveryMode"] = "local"
+	if authEnabled {
+		if authServiceOTPDeliveryMode == "" {
+			authServiceOTPDeliveryMode = "event"
+		}
+		authService["deliveryMode"] = authServiceOTPDeliveryMode
 	}
 	authImage, _ := authService["image"].(map[string]any)
 	if authImage == nil {

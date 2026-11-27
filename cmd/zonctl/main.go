@@ -106,6 +106,7 @@ type cliOptions struct {
 	preparedConfigurationArchive  string
 	channelIntegrationRuntimeFile string
 	cloudflareTunnelTokenFile     string
+	authServiceOTPDeliveryMode    string
 }
 
 type commandSpec struct {
@@ -247,6 +248,7 @@ func run(args []string) int {
 	preparedConfigurationArchive := fs.String("prepared-configuration-archive", "", "internal: sealed configuration archive supplied by the host-agent backup operation")
 	channelIntegrationRuntimeFile := fs.String("channel-integration-runtime-file", "", "protected JSON runtime descriptor for the channel-integrations capability")
 	cloudflareTunnelTokenFile := fs.String("cloudflare-tunnel-token-file", "", "protected Cloudflare Tunnel token file for local LAN installs; omit for cloud installs")
+	authServiceOTPDeliveryMode := fs.String("auth-service-otp-delivery-mode", "", "Auth Service OTP delivery mode: event (default) or local (development/test only)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -312,6 +314,7 @@ func run(args []string) int {
 		preparedConfigurationArchive:  *preparedConfigurationArchive,
 		channelIntegrationRuntimeFile: *channelIntegrationRuntimeFile,
 		cloudflareTunnelTokenFile:     *cloudflareTunnelTokenFile,
+		authServiceOTPDeliveryMode:    *authServiceOTPDeliveryMode,
 	}
 
 	logger := newLogger(redact.New(), opts.output)

@@ -63,6 +63,9 @@ type Options struct {
 	TLSKeyPath                    string
 	TLSSecretName                 string
 	ChannelIntegrationRuntimePath string
+	// AuthServiceOTPDeliveryMode overrides the production-default event
+	// delivery mode for development/test upgrades. Empty selects event.
+	AuthServiceOTPDeliveryMode string
 	// WorkspaceRootDir is the host directory backing the workspace
 	// storage hostPath PersistentVolume (builder profile only). See
 	// internal/hostdirs — re-applied on every upgrade so a host whose
@@ -300,11 +303,11 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOrigins(
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(
 		resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog,
 		resolved.WorkspaceProvisionerImageReference, resolved.BuilderImageReference, resolved.HostAgentImageReference,
 		identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime,
-		webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination,
+		webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, opts.AuthServiceOTPDeliveryMode,
 		resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference,
 	)
 	if err != nil {

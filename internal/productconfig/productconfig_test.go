@@ -22,6 +22,7 @@ const (
 	openWebUIGatewayImage     = "registry.local/open-webui-gateway@sha256:2222222222222222222222222222222222222222222222222222222222222222"
 	blobStorageImage          = "registry.local/blob-storage@sha256:abababababababababababababababababababababababababababababababab"
 	channelIntegrationImage   = "registry.local/channel-integration@sha256:abababababababababababababababababababababababababababababababab"
+	authServiceImage          = "registry.local/auth-service@sha256:abababababababababababababababababababababababababababababababab"
 )
 
 func TestPrepareValuesFile_ArtifactCapabilityInjectsRegistryConfig(t *testing.T) {
@@ -242,6 +243,54 @@ func TestPrepareValuesFileForRuntimeWithPublicOriginsSeparatesChannelHost(t *tes
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered values missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestPrepareValuesFileForRuntime_AuthDeliveryDefaultsToEventAndAllowsLocalOverride(t *testing.T) {
+	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("config: {}\napplicationServices:\n  auth: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	catalog := productconfig.ProfileCatalog{
+		"auth-only": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityApplicationAuth}},
+	}
+	runtime := runtimeconfig.Selection{}
+	for _, test := range []struct {
+		name string
+		mode string
+		want string
+	}{
+		{name: "production default", want: "deliveryMode: event"},
+		{name: "local test override", mode: "local", want: "deliveryMode: local"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rendered, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(
+				valuesPath, "auth-only", catalog, "", "", "", "auth", "appliance.internal", "", runtime, false,
+				"https://auth.example.com", "", "traefik", test.mode,
+				"", blobStorageImage, "", "", "", "", authServiceImage,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cleanup()
+			data, err := os.ReadFile(rendered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(data), test.want) {
+				t.Fatalf("rendered values missing %q:\n%s", test.want, data)
+			}
+		})
+	}
+
+	_, cleanup, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(
+		valuesPath, "auth-only", catalog, "", "", "", "auth", "appliance.internal", "", runtime, false,
+		"https://auth.example.com", "", "traefik", "sms",
+		"", blobStorageImage, "", "", "", "", authServiceImage,
+	)
+	if err == nil {
+		cleanup()
+		t.Fatal("invalid Auth Service OTP delivery mode should fail")
 	}
 }
 
