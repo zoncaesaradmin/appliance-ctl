@@ -39,6 +39,7 @@ type EntryConfig struct {
 const (
 	PackFoundation     = "foundation"
 	PackAppStack       = "app-stack"
+	PackGeoStack       = "geo-stack"
 	PackStorageNetwork = "storage-network"
 	PackDeviceUser     = "deviceuser"
 	PackStdLLM         = "std-llm"
@@ -119,9 +120,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("releasebundle: hostBaseline.os, hostBaseline.osVersion, and hostBaseline.arch are required")
 	}
 	switch cfg.Pack {
-	case "", PackFoundation, PackAppStack, PackStorageNetwork, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
+	case "", PackFoundation, PackAppStack, PackGeoStack, PackStorageNetwork, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI:
 	default:
-		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, %q, or %q", PackFoundation, PackAppStack, PackStorageNetwork, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
+		return Config{}, fmt.Errorf("releasebundle: pack must be empty, %q, %q, %q, %q, %q, %q, %q, or %q", PackFoundation, PackAppStack, PackGeoStack, PackStorageNetwork, PackDeviceUser, PackStdLLM, PackAccLLM, PackOpenWebUI)
 	}
 	if len(cfg.Entries) == 0 {
 		return Config{}, fmt.Errorf("releasebundle: at least one entry is required")
@@ -965,6 +966,21 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 			return fmt.Errorf("releasebundle: app-stack pack requires channel-integration and ordering images")
 		}
 		return nil
+	case PackGeoStack:
+		var hasGeoImage, hasGeoChart bool
+		for _, entry := range entries {
+			if entry.Component == "oci-images" && strings.Contains(strings.ToLower(entry.ImageReference), "geo-zone") {
+				hasGeoImage = true
+			}
+			base := strings.ToLower(filepath.Base(entry.Path))
+			if entry.Component == "chart" && strings.HasPrefix(base, "geo-zone-") {
+				hasGeoChart = true
+			}
+		}
+		if !hasGeoImage || !hasGeoChart {
+			return fmt.Errorf("releasebundle: geo-stack pack requires Geo-Zone image and chart")
+		}
+		return nil
 	}
 	if pack == PackFoundation {
 		var hasHostAgentDaemon, hasMDNSPackage, hasAuthServiceImage bool
@@ -1003,9 +1019,11 @@ func entryBelongsToPack(entry EntryConfig, pack string) bool {
 	case "":
 		return true
 	case PackFoundation:
-		return !entryIsAppStack(entry) && !entryIsStorageNetwork(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry) && !entryIsOpenWebUI(entry)
+		return !entryIsAppStack(entry) && !entryIsGeo(entry) && !entryIsStorageNetwork(entry) && !entryIsDeviceUser(entry) && !entryIsInference(entry) && !entryIsOpenWebUI(entry)
 	case PackAppStack:
 		return entryIsAppStack(entry)
+	case PackGeoStack:
+		return entryIsGeo(entry)
 	case PackStorageNetwork:
 		return entryIsStorageNetwork(entry)
 	case PackDeviceUser:
@@ -1030,6 +1048,14 @@ func entryIsStorageNetwork(entry EntryConfig) bool {
 		return true
 	}
 	return false
+}
+
+func entryIsGeo(entry EntryConfig) bool {
+	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
+	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
+	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
+	return strings.Contains(ref, "geo-zone") || strings.Contains(target, "geo-zone") || strings.Contains(sourceBase, "geo-zone") ||
+		(entry.Component == "chart" && (strings.HasPrefix(strings.ToLower(filepath.Base(entry.TargetPath)), "geo-zone-") || strings.HasPrefix(strings.ToLower(filepath.Base(entry.SourcePath)), "geo-zone-")))
 }
 
 func entryIsDeviceUser(entry EntryConfig) bool {

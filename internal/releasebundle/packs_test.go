@@ -16,6 +16,8 @@ func TestDeliveryPacksAreDisjoint(t *testing.T) {
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/open-webui-gateway@sha256:pin"}, PackOpenWebUI},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/channel-integration@sha256:pin"}, PackAppStack},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/ordering@sha256:pin"}, PackAppStack},
+		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/geo-zone@sha256:pin"}, PackGeoStack},
+		{EntryConfig{Component: "chart", TargetPath: "chart/geo-zone-0.1.0.tgz"}, PackGeoStack},
 		{EntryConfig{Component: "appliance", TargetPath: "bin/appliance-host-agentd"}, PackFoundation},
 		{EntryConfig{Component: "host-packages", TargetPath: "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb"}, PackFoundation},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/artifact-server@sha256:pin"}, PackStorageNetwork},
@@ -24,7 +26,7 @@ func TestDeliveryPacksAreDisjoint(t *testing.T) {
 		{EntryConfig{Component: "chart", TargetPath: "chart/appliance-dns-1.tgz"}, PackDeviceUser},
 	}
 	for _, tc := range cases {
-		for _, pack := range []string{PackFoundation, PackAppStack, PackStorageNetwork, PackDeviceUser, PackStdLLM, PackOpenWebUI} {
+		for _, pack := range []string{PackFoundation, PackAppStack, PackGeoStack, PackStorageNetwork, PackDeviceUser, PackStdLLM, PackOpenWebUI} {
 			if got := entryBelongsToPack(tc.entry, pack); got != (pack == tc.pack) {
 				t.Errorf("entry %+v belongs to %s = %v, want owner %s", tc.entry, pack, got, tc.pack)
 			}

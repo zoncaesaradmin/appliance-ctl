@@ -23,6 +23,7 @@ const (
 	ProfileStorageLANDNS = "storage-landns"
 	ProfileLANLLM        = "lanllm"
 	ProfileTraining      = "training"
+	ProfileGeoZone       = "geo-zone"
 
 	// ControlPlaneAppsNamespace hosts ui-server, host-agent, and
 	// action-runtime. controlplane itself uses defaultChartNamespace
@@ -99,6 +100,10 @@ const (
 	CapabilityVideo               Capability = "video"
 	CapabilityApplications        Capability = "applications"
 	CapabilityPlaintextHTTP       Capability = "plaintext-http"
+	CapabilityGeoSpatialStore     Capability = "geo-spatial-store"
+	CapabilityGeoDataAPI          Capability = "geo-data-api"
+	CapabilityGeoBasemap          Capability = "geo-basemap"
+	CapabilityGeoZoneEditor       Capability = "geo-zone-editor"
 )
 
 type ProfileDefinition struct {

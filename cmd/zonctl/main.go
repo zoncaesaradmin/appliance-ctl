@@ -201,7 +201,7 @@ func run(args []string) int {
 	configPath := fs.String("config", "", "path to a bundle assembly config JSON file (required for assemble-bundle)")
 	bundleDir := fs.String("bundle-dir", "", "path to an extracted signed appliance bundle directory (required for install/upgrade)")
 	var packDirs stringListFlag
-	fs.Var(&packDirs, "pack-dir", "additional signed pack bundle directory to merge (app-stack, storage-network, deviceuser, inference); repeatable")
+	fs.Var(&packDirs, "pack-dir", "additional signed pack bundle directory to merge (app-stack, geo-stack, storage-network, deviceuser, inference); repeatable")
 	publicKey := fs.String("public-key", defaultPublicKeyPath, "path to the pinned release-signing public key for bundle verification")
 	applianceProfile := fs.String("appliance-profile", "", "product-facing appliance profile from the signed metadata catalog; install defaults to core and upgrade preserves the installed profile when omitted")
 	nodeName := fs.String("node-name", "", "K3s node name (defaults to this host's appliance node from the local receipt, else hostname)")
