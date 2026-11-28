@@ -298,6 +298,25 @@ func collectWaitFailureSnapshot(ctx context.Context, run cli.Runner, kubeconfig,
 			args:  []string{"--kubeconfig", kubeconfig, "--namespace", namespace, "get", "pods,pvc", "-o", "wide"},
 		},
 		{
+			// The current container can still be waiting in a restart backoff;
+			// put the prior instance first so its startup failure survives the
+			// bounded snapshot even when describe output is large.
+			label: "workload previous logs",
+			args: []string{
+				"--kubeconfig", kubeconfig, "--namespace", namespace,
+				"logs", "--previous", "--all-containers=true", "--tail=200",
+				"-l", "app.kubernetes.io/name=" + name,
+			},
+		},
+		{
+			label: "workload logs",
+			args: []string{
+				"--kubeconfig", kubeconfig, "--namespace", namespace,
+				"logs", "--all-containers=true", "--tail=200",
+				"-l", "app.kubernetes.io/name=" + name,
+			},
+		},
+		{
 			label: kind,
 			args:  []string{"--kubeconfig", kubeconfig, "--namespace", namespace, "describe", kind, name},
 		},

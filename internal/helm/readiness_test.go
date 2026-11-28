@@ -105,12 +105,16 @@ func TestEnsureClusterBaseline_SkipsStorageChecksWhenPersistenceDisabled(t *test
 	}
 }
 
-func TestCollectWaitFailureSnapshot_IncludesPodsPVCAndEvents(t *testing.T) {
+func TestCollectWaitFailureSnapshot_IncludesWorkloadLogsBeforeVerboseOutput(t *testing.T) {
 	run := func(_ context.Context, name string, args ...string) (string, error) {
 		joined := name + " " + strings.Join(args, " ")
 		switch {
 		case strings.Contains(joined, "get pods,pvc"):
 			return "NAME READY\ncontrolplane-zkgbm 0/1\ncontrolplane-data Pending", nil
+		case strings.Contains(joined, "logs --previous"):
+			return "fatal: database connection refused", nil
+		case strings.Contains(joined, "logs --all-containers=true"):
+			return "starting controlplane", nil
 		case strings.Contains(joined, "describe deployment controlplane"):
 			return "Replicas: 1 desired | 0 available\nPVC ace-system/controlplane-data: PVC is not bound", nil
 		case strings.Contains(joined, "get events"):
@@ -120,10 +124,13 @@ func TestCollectWaitFailureSnapshot_IncludesPodsPVCAndEvents(t *testing.T) {
 		}
 	}
 	got := collectWaitFailureSnapshot(context.Background(), run, "kubeconfig", "ace-system", "deployment", "controlplane")
-	for _, want := range []string{"controlplane-data Pending", "PVC is not bound", "FailedMount"} {
+	for _, want := range []string{"controlplane-data Pending", "fatal: database connection refused", "starting controlplane", "PVC is not bound", "FailedMount"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("snapshot missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Index(got, "fatal: database connection refused") > strings.Index(got, "Replicas: 1 desired") {
+		t.Fatalf("expected previous logs before verbose deployment output:\n%s", got)
 	}
 }
 
