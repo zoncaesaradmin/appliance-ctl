@@ -24,13 +24,16 @@ var systemNamespaces = map[string]bool{
 // message broker also uses ace-system; registry/DNS/inference
 // each have fixed names.
 var platformNamespaces = map[string]bool{
-	"ace-apps":   true,
-	"ace-system": true,
-	"artifacts":  true,
-	"dns":        true,
-	"inference":  true,
-	"geo":        true,
-	"video":      true,
+	"ace-apps":    true,
+	"ace-system":  true,
+	"artifacts":   true,
+	"dns":         true,
+	"inference":   true,
+	"ace-app-geo": true,
+	// Retain the former Geo namespace as appliance-owned for read-only
+	// adoption inspection. The chart migration guard prevents deleting it.
+	"geo":   true,
+	"video": true,
 }
 
 // InspectCluster queries an already-active K3s cluster via kubectl for

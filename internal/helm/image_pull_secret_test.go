@@ -79,7 +79,7 @@ func TestProductNamespacesExcludesSystemNamespaces(t *testing.T) {
 		"artifacts":    true,
 		"dns":          true,
 		"inference":    true,
-		"geo":          true,
+		"ace-app-geo":  true,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("ProductNamespaces = %v", got)

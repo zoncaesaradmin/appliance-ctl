@@ -39,7 +39,7 @@ const (
 	ArtifactsNamespace = "artifacts"
 	DNSNamespace       = "dns"
 	InferenceNamespace = "inference"
-	GeoNamespace       = "geo"
+	GeoNamespace       = "ace-app-geo"
 
 	// ImagePullSecretName mirrors helm.ImagePullSecretName for chart values
 	// injection. Secrets are namespaced; when lab image-pull is configured,

@@ -83,7 +83,7 @@ func BuiltInModuleCatalog() []ModuleDescriptor {
 			RequiredCapabilities: []Capability{CapabilityGeoDataAPI},
 			ExecutionMode:        ExecutionModeClusterService,
 			EntitlementKey:       ModuleNameGeoDataAPI,
-			BaseURL:              "http://geo-data-api.geo.svc.cluster.local:8080",
+			BaseURL:              "http://geo-data-api.ace-app-geo.svc.cluster.local:8080",
 			SecurityClass:        SecurityClassRestricted,
 			Routes: []ModuleRoute{
 				{Method: "GET", ExternalPath: "/api/v1/geo/{path...}", UpstreamPath: "/api/v1/geo/{path...}", Permission: "geo.read"},
