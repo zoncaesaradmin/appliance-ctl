@@ -39,6 +39,26 @@ type ProfileDefinition struct {
 	Capabilities []string `yaml:"capabilities"`
 }
 
+type ModuleRouteDefinition struct {
+	Method       string `yaml:"method"`
+	ExternalPath string `yaml:"externalPath"`
+	UpstreamPath string `yaml:"upstreamPath"`
+	StripPrefix  string `yaml:"stripPrefix"`
+	Permission   string `yaml:"permission"`
+}
+
+type ModuleDefinition struct {
+	Name                 string                  `yaml:"name"`
+	Kind                 string                  `yaml:"kind"`
+	RequiredCapabilities []string                `yaml:"requiredCapabilities"`
+	Dependencies         []string                `yaml:"dependencies"`
+	ExecutionMode        string                  `yaml:"executionMode"`
+	EntitlementKey       string                  `yaml:"entitlementKey"`
+	BaseURL              string                  `yaml:"baseURL"`
+	Routes               []ModuleRouteDefinition `yaml:"routes"`
+	SecurityClass        string                  `yaml:"securityClass"`
+}
+
 // VersionFromArchiveName derives X.Y.Z.N from appliance-metadata-bundle-X.Y.Z.N.tar.zst.
 func VersionFromArchiveName(name string) (string, error) {
 	base := filepath.Base(name)
@@ -153,6 +173,19 @@ func LoadProfileCatalogArchive(archivePath string) (map[string]ProfileDefinition
 		return nil, fmt.Errorf("metadatabundle: profiles catalog in archive is empty")
 	}
 	return catalog.Profiles, nil
+}
+
+func LoadModuleCatalogArchive(archivePath string) ([]ModuleDefinition, error) {
+	var catalog struct {
+		Modules []ModuleDefinition `yaml:"modules"`
+	}
+	if err := readCatalogArchive(archivePath, "modules/catalog.yaml", &catalog); err != nil {
+		return nil, err
+	}
+	if len(catalog.Modules) == 0 {
+		return nil, fmt.Errorf("metadatabundle: modules catalog in archive is empty")
+	}
+	return catalog.Modules, nil
 }
 
 type PackageDefinition struct {

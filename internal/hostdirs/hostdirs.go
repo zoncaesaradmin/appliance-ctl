@@ -56,6 +56,8 @@ const (
 	// action-runtime pod (metadata-bundle + DSL execution). Distinct from
 	// InferenceDirOwnerUID — never reuse service UIDs across components.
 	ActionRuntimeDirOwnerUID = 10007
+	// GeoDataAPIDirOwnerUID is the fixed numeric identity for the Geo API pod.
+	GeoDataAPIDirOwnerUID = 10008
 	// BlobStorageDirOwnerUID is the fixed numeric identity for the local
 	// S3-compatible blob-storage service.
 	BlobStorageDirOwnerUID = 10009
@@ -64,6 +66,7 @@ const (
 	// unlike shared appliance storage, it must not be made writable through the
 	// appliance-wide fsGroup.
 	ControlPlaneDatabaseDirOwnerUID = 70
+	GeoPostgresDirOwnerUID          = 999
 
 	// ServiceLogDirMode keeps runtime service logs service-owner writable and
 	// host-user readable/traversable (setgid + 0755 → 2755).
@@ -103,6 +106,9 @@ const (
 	// InferenceLogDir is the host-visible inference runtime log directory
 	// under the shared appliance log tree.
 	InferenceLogDir = "/data/zon/logs/inference"
+	// GeoDataAPILogDir is the host-visible Geo data API log directory under
+	// the shared appliance log tree.
+	GeoDataAPILogDir = "/data/zon/logs/geo-data-api"
 	// ActionRuntimeLogDir is the host-visible action-runtime log
 	// directory under the shared appliance log tree.
 	ActionRuntimeLogDir = "/data/zon/logs/action-runtime"
@@ -116,6 +122,7 @@ const (
 	// database StatefulSet.
 	// It is prepared by zonctl before Helm creates the static hostPath PV.
 	ControlPlaneDatabaseDataDir = "/data/zon/controlplane-database"
+	GeoPostgresDataDir          = "/data/zon/geo-postgres"
 	// HostAgentLogDir is the host-visible appliance host agent log directory
 	// under the shared appliance log tree.
 	HostAgentLogDir = "/data/zon/logs/host-agent"
@@ -147,6 +154,7 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeDNS, includeInference 
 	_ = includeFiles
 	hostEnabled := len(includeOptional) == 0 || includeOptional[0]
 	actionsEnabled := len(includeOptional) < 2 || includeOptional[1]
+	geoEnabled := len(includeOptional) >= 3 && includeOptional[2]
 	dirs := []OwnedDir{
 		{
 			CheckID: "api-server-log-directory-owned",
@@ -204,6 +212,15 @@ func ServiceLogDirs(includeArtifact, includeFiles, includeDNS, includeInference 
 			CheckID: "inference-log-directory-owned",
 			Path:    InferenceLogDir,
 			UID:     InferenceDirOwnerUID,
+			GID:     ApplianceSharedFSGID,
+			Mode:    ServiceLogDirMode,
+		})
+	}
+	if geoEnabled {
+		dirs = append(dirs, OwnedDir{
+			CheckID: "geo-data-api-log-directory-owned",
+			Path:    GeoDataAPILogDir,
+			UID:     GeoDataAPIDirOwnerUID,
 			GID:     ApplianceSharedFSGID,
 			Mode:    ServiceLogDirMode,
 		})

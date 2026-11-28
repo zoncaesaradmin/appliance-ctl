@@ -6,6 +6,40 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
 )
 
+func TestGeoDataRoutesRequireCapabilityAndPermissions(t *testing.T) {
+	catalog := productconfig.ProfileCatalog{
+		"geo":  {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityGeoDataAPI}},
+		"core": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase}},
+	}
+	for _, tc := range []struct {
+		profile string
+		enabled bool
+	}{{"geo", true}, {"core", false}} {
+		t.Run(tc.profile, func(t *testing.T) {
+			modules := productconfig.ResolveModulesWithCatalog(tc.profile, catalog, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+			module, ok := productconfig.ModuleNamed(modules, productconfig.ModuleNameGeoDataAPI)
+			if ok != tc.enabled {
+				t.Fatalf("geo module enabled=%v, want %v", ok, tc.enabled)
+			}
+			if !ok {
+				return
+			}
+			if len(module.Routes) != 5 {
+				t.Fatalf("routes=%d, want 5", len(module.Routes))
+			}
+			for _, route := range module.Routes {
+				want := "geo.write"
+				if route.Method == "GET" {
+					want = "geo.read"
+				}
+				if route.Permission != want || route.ExternalPath != "/api/v1/geo/{path...}" || route.UpstreamPath != route.ExternalPath {
+					t.Fatalf("unexpected geo route: %+v", route)
+				}
+			}
+		})
+	}
+}
+
 func TestResolveModulesIncludesHostAgentForHostCapableProfiles(t *testing.T) {
 	modules := productconfig.ResolveModulesWithCatalog(productconfig.ProfileStorageLANDNS, testProfileCatalog(), productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
 	if !productconfig.ModuleEnabled(modules, productconfig.ModuleNameHostAgent) {

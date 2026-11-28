@@ -39,6 +39,7 @@ const (
 	ArtifactsNamespace = "artifacts"
 	DNSNamespace       = "dns"
 	InferenceNamespace = "inference"
+	GeoNamespace       = "geo"
 
 	// ImagePullSecretName mirrors helm.ImagePullSecretName for chart values
 	// injection. Secrets are namespaced; when lab image-pull is configured,
@@ -64,6 +65,7 @@ func ProductNamespaces(controlPlaneNS string) []string {
 		ArtifactsNamespace,
 		DNSNamespace,
 		InferenceNamespace,
+		GeoNamespace,
 	}
 }
 
@@ -332,12 +334,23 @@ func PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(baseValuesP
 	return prepareValuesFile(baseValuesPath, profile, profileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode, registry...)
 }
 
+func PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryModeAndModules(baseValuesPath, profile string, profileCatalog ProfileCatalog, modules []ModuleDescriptor, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
+	return prepareValuesFileWithModules(baseValuesPath, profile, profileCatalog, modules, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, &runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode, registry...)
+}
+
 func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCatalog, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
+	return prepareValuesFileWithModules(baseValuesPath, profile, profileCatalog, nil, hostAgentImageReference, applianceName, dnsZone, nodeIPv4, runtime, webUIEnabled, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode, registry...)
+}
+
+func prepareValuesFileWithModules(baseValuesPath, profile string, profileCatalog ProfileCatalog, modules []ModuleDescriptor, hostAgentImageReference, applianceName, dnsZone, nodeIPv4 string, runtime *runtimeconfig.Selection, webUIEnabled bool, publicOrigin, channelIntegrationOrigin, tlsTermination, authServiceOTPDeliveryMode string, registry ...string) (string, func(), error) {
 	effectiveProfile, err := ResolveApplianceProfileWithCatalog(profile, "", profileCatalog)
 	if err != nil {
 		return "", func() {}, err
 	}
-	resolvedModules := ResolveModulesWithCatalog(effectiveProfile, profileCatalog, AlwaysEntitled{}, BuiltInModuleCatalog())
+	if len(modules) == 0 {
+		modules = BuiltInModuleCatalog()
+	}
+	resolvedModules := ResolveModulesWithCatalog(effectiveProfile, profileCatalog, AlwaysEntitled{}, modules)
 	hostAgentEnabled := HostAgentEnabled(resolvedModules)
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
@@ -365,6 +378,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	orderingImageReference := ""
 	applicationIdentityImageReference := ""
 	authServiceImageReference := ""
+	postGISImageReference := ""
 	if len(registry) > 0 {
 		artifactServerImageReference = strings.TrimSpace(registry[0])
 	}
@@ -385,6 +399,9 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	}
 	if len(registry) > 6 {
 		authServiceImageReference = strings.TrimSpace(registry[6])
+	}
+	if len(registry) > 7 {
+		postGISImageReference = strings.TrimSpace(registry[7])
 	}
 	if artifactEnabled && len(registry) > 0 && !validArtifactServerImageDigest(artifactServerImageReference) {
 		return "", func() {}, fmt.Errorf("product config: artifact capability requires bundled registry.local/artifact-server@sha256 image reference; got %q", artifactServerImageReference)
@@ -410,6 +427,10 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	authEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityApplicationAuth, profileCatalog)
 	if authEnabled && !validAuthServiceImageDigest(authServiceImageReference) {
 		return "", func() {}, fmt.Errorf("product config: application-auth capability requires a bundled registry.local/auth-service@sha256 image reference; got %q", authServiceImageReference)
+	}
+	geoEnabled := HasCapabilityInCatalog(effectiveProfile, CapabilityGeoSpatialStore, profileCatalog)
+	if geoEnabled && !validPostGISImageDigest(postGISImageReference) {
+		return "", func() {}, fmt.Errorf("product config: geo profile requires a bundled registry.local/postgis@sha256 image reference; got %q", postGISImageReference)
 	}
 	authServiceOTPDeliveryMode = strings.ToLower(strings.TrimSpace(authServiceOTPDeliveryMode))
 	if authServiceOTPDeliveryMode != "" && authServiceOTPDeliveryMode != "local" && authServiceOTPDeliveryMode != "event" {
@@ -646,6 +667,27 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	applicationServices["identity"] = identityService
 	applicationServices["ordering"] = ordering
 	values["applicationServices"] = applicationServices
+	geo, _ := values["geo"].(map[string]any)
+	if geo == nil {
+		geo = map[string]any{}
+	}
+	geo["enabled"] = geoEnabled
+	if geoEnabled {
+		geoPostgres, _ := geo["postgres"].(map[string]any)
+		if geoPostgres == nil {
+			geoPostgres = map[string]any{}
+		}
+		geoImage, _ := geoPostgres["image"].(map[string]any)
+		if geoImage == nil {
+			geoImage = map[string]any{}
+		}
+		geoImage["repository"] = "registry.local/postgis"
+		geoImage["digest"] = strings.TrimPrefix(postGISImageReference, "registry.local/postgis@")
+		geoImage["pullPolicy"] = "IfNotPresent"
+		geoPostgres["image"] = geoImage
+		geo["postgres"] = geoPostgres
+	}
+	values["geo"] = geo
 	blobStorage, _ := values["blobStorage"].(map[string]any)
 	if blobStorage == nil {
 		blobStorage = map[string]any{}
@@ -1409,6 +1451,14 @@ func validPostgresImageDigest(image string) bool {
 		return false
 	}
 	return strings.TrimPrefix(image, "registry.local/postgres@sha256:") != placeholderImageDigestHex
+}
+
+func validPostGISImageDigest(image string) bool {
+	image = strings.TrimSpace(image)
+	if !strings.HasPrefix(image, "registry.local/postgis@sha256:") || !sha256ImageDigestRE.MatchString(image) {
+		return false
+	}
+	return strings.TrimPrefix(image, "registry.local/postgis@sha256:") != placeholderImageDigestHex
 }
 
 func validChannelIntegrationImageDigest(image string) bool {

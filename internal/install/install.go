@@ -520,7 +520,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		openWebUIImageReference = resolved.OpenWebUIImageReference
 		openWebUIGatewayImageReference = resolved.OpenWebUIGatewayImageReference
 	}
-	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryMode(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, opts.AuthServiceOTPDeliveryMode, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference)
+	preparedValuesPath, cleanupPreparedValues, err := productconfig.PrepareValuesFileForRuntimeWithPublicOriginsAndAuthDeliveryModeAndModules(resolved.ConfigurationPath, effectiveProfile, resolved.ProfileCatalog, resolved.Modules, resolved.HostAgentImageReference, identity.Name, identity.Zone, nodeIPv4, selectedInferenceRuntime, webUIEnabled, opts.PublicOrigin, opts.ChannelIntegrationOrigin, opts.TLSTermination, opts.AuthServiceOTPDeliveryMode, resolved.ArtifactServerImageReference, resolved.BlobStorageImageReference, resolved.PostgresImageReference, resolved.ChannelIntegrationImageReference, resolved.OrderingImageReference, resolved.ApplicationIdentityImageReference, resolved.AuthServiceImageReference, resolved.PostGISImageReference)
 	if err != nil {
 		return nil, checks, fmt.Errorf("install: %w", err)
 	}
@@ -598,6 +598,12 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Message:   fmt.Sprintf("%s owned by %d:%d", databaseDir, hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID),
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
+	}
+	if resolved.GeoEnabled {
+		if err := o.EnsureOwnedDir(hostdirs.GeoPostgresDataDir, hostdirs.GeoPostgresDirOwnerUID, hostdirs.GeoPostgresDirOwnerUID, hostdirs.PrivateServiceDirMode); err != nil {
+			return nil, checks, fmt.Errorf("install: prepare geo database directory: %w", err)
+		}
+		checks = append(checks, evidence.Check{ID: "geo-database-directory-owned", Category: "host", Status: evidence.StatusPass, Message: fmt.Sprintf("%s owned by %d:%d", hostdirs.GeoPostgresDataDir, hostdirs.GeoPostgresDirOwnerUID, hostdirs.GeoPostgresDirOwnerUID), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 	}
 	checks = append(checks, evidence.Check{
 		ID: "blob-storage-directory-owned", Category: "host", Status: evidence.StatusPass,
@@ -1062,6 +1068,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		resolved.InferenceEnabled,
 		resolved.HostEnabled,
 		resolved.ActionsEnabled,
+		resolved.GeoEnabled,
 	) {
 		if err := o.EnsureOwnedDir(dir.Path, dir.UID, dir.GID, dir.Mode); err != nil {
 			return nil, checks, fmt.Errorf("install: prepare service log directory %s: %w", dir.Path, err)
@@ -1471,41 +1478,53 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		rollbacks = append(rollbacks, set2Result.rollback)
 	}
 	waits := []struct {
-		deploy string
-		id     string
+		deploy    string
+		id        string
+		namespace string
 	}{
-		{deploy: "ui-server", id: "appliance-ui-ready"},
+		{deploy: "ui-server", id: "appliance-ui-ready", namespace: productconfig.ControlPlaneAppsNamespace},
 	}
 	if resolved.ActionsEnabled {
 		waits = append(waits, struct {
-			deploy string
-			id     string
-		}{deploy: "action-runtime", id: "appliance-action-runtime-ready"})
+			deploy    string
+			id        string
+			namespace string
+		}{deploy: "action-runtime", id: "appliance-action-runtime-ready", namespace: productconfig.ControlPlaneAppsNamespace})
 	}
 	if resolved.ChannelIntegrationsEnabled {
 		waits = append(waits, struct {
-			deploy string
-			id     string
-		}{deploy: "channel-integration", id: "channel-integration-ready"})
+			deploy    string
+			id        string
+			namespace string
+		}{deploy: "channel-integration", id: "channel-integration-ready", namespace: productconfig.ControlPlaneAppsNamespace})
 	}
 	if resolved.CommerceEnabled {
 		waits = append(waits, struct {
-			deploy string
-			id     string
-		}{deploy: "ordering", id: "ordering-ready"})
+			deploy    string
+			id        string
+			namespace string
+		}{deploy: "ordering", id: "ordering-ready", namespace: productconfig.ControlPlaneAppsNamespace})
 	}
 	if resolved.ApplicationIdentityEnabled {
 		waits = append(waits, struct {
-			deploy string
-			id     string
-		}{deploy: "identity", id: "identity-ready"})
+			deploy    string
+			id        string
+			namespace string
+		}{deploy: "identity", id: "identity-ready", namespace: productconfig.ControlPlaneAppsNamespace})
+	}
+	if resolved.GeoEnabled {
+		waits = append(waits, struct {
+			deploy    string
+			id        string
+			namespace string
+		}{deploy: "geo-data-api", id: "geo-data-api-ready", namespace: productconfig.GeoNamespace})
 	}
 	for _, wait := range waits {
-		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ControlPlaneAppsNamespace, wait.deploy, wait.id)
+		ready, waitErr = helm.WaitDeploymentAvailable(ctx, o.HelmRun, opts.KubeconfigPath, wait.namespace, wait.deploy, wait.id)
 		checks = append(checks, ready)
 		if waitErr != nil {
 			appsDiag := aceAppsRelease
-			appsDiag.Namespace = productconfig.ControlPlaneAppsNamespace
+			appsDiag.Namespace = wait.namespace
 			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, appsDiag)...)
 			return nil, checks, failInstall(fmt.Errorf("install: wait for %s: %w", wait.deploy, waitErr), cleanupOnFailure())
 		}

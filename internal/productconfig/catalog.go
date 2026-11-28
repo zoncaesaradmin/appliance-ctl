@@ -6,6 +6,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/zoncaesaradmin/appliance-ctl/internal/metadatabundle"
 )
 
 const CatalogVersionV1Alpha1 = "appliance.catalog/v1alpha1"
@@ -37,6 +39,7 @@ type CatalogRoute struct {
 	Method       string `json:"method"`
 	ExternalPath string `json:"externalPath"`
 	UpstreamPath string `json:"upstreamPath"`
+	StripPrefix  string `json:"stripPrefix,omitempty"`
 	Permission   string `json:"permission"`
 }
 
@@ -44,6 +47,33 @@ type LoadedCatalog struct {
 	Document CatalogDocument
 	Profiles ProfileCatalog
 	Modules  []ModuleDescriptor
+}
+
+func ModuleCatalogFromMetadata(definitions []metadatabundle.ModuleDefinition) ([]ModuleDescriptor, error) {
+	if len(definitions) == 0 {
+		return nil, fmt.Errorf("module catalog is empty")
+	}
+	document := CatalogDocument{Version: CatalogVersionV1Alpha1}
+	for _, definition := range definitions {
+		routes := make([]CatalogRoute, len(definition.Routes))
+		for i, route := range definition.Routes {
+			routes[i] = CatalogRoute{Method: route.Method, ExternalPath: route.ExternalPath, UpstreamPath: route.UpstreamPath, StripPrefix: route.StripPrefix, Permission: route.Permission}
+		}
+		document.Modules = append(document.Modules, CatalogModule{
+			Name: definition.Name, Kind: ModuleKind(definition.Kind), RequiredCapabilities: mapCapabilities(definition.RequiredCapabilities),
+			Dependencies: definition.Dependencies, ExecutionMode: ExecutionMode(definition.ExecutionMode), EntitlementKey: definition.EntitlementKey,
+			BaseURL: definition.BaseURL, Routes: routes, SecurityClass: SecurityClass(definition.SecurityClass),
+		})
+	}
+	return ModuleCatalogFromDocument(document)
+}
+
+func mapCapabilities(values []string) []Capability {
+	out := make([]Capability, len(values))
+	for i, value := range values {
+		out[i] = Capability(strings.TrimSpace(value))
+	}
+	return out
 }
 
 // CatalogDocumentFromProfileCatalog is used only for compatibility with
@@ -76,6 +106,7 @@ func CatalogDocumentFromProfileCatalog(catalog ProfileCatalog) CatalogDocument {
 				Method:       route.Method,
 				ExternalPath: route.ExternalPath,
 				UpstreamPath: route.UpstreamPath,
+				StripPrefix:  route.StripPrefix,
 				Permission:   route.Permission,
 			})
 		}
@@ -174,6 +205,7 @@ func ModuleCatalogFromDocument(document CatalogDocument) ([]ModuleDescriptor, er
 				Method:       route.Method,
 				ExternalPath: route.ExternalPath,
 				UpstreamPath: route.UpstreamPath,
+				StripPrefix:  route.StripPrefix,
 				Permission:   route.Permission,
 			})
 		}

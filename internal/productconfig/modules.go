@@ -15,6 +15,7 @@ const (
 	ModuleNameArtifactRegistry = "artifact-registry"
 	ModuleNameLANDNS           = "lan-dns"
 	ModuleNameInferenceRuntime = "inference-runtime"
+	ModuleNameGeoDataAPI       = "geo-data-api"
 )
 
 type ExecutionMode string
@@ -76,6 +77,22 @@ func (AlwaysEntitled) IsEntitled(ModuleDescriptor, EntitlementContext) bool {
 
 func BuiltInModuleCatalog() []ModuleDescriptor {
 	return []ModuleDescriptor{
+		{
+			Name:                 ModuleNameGeoDataAPI,
+			Kind:                 ModuleKindPlatform,
+			RequiredCapabilities: []Capability{CapabilityGeoDataAPI},
+			ExecutionMode:        ExecutionModeClusterService,
+			EntitlementKey:       ModuleNameGeoDataAPI,
+			BaseURL:              "http://geo-data-api.geo.svc.cluster.local:8080",
+			SecurityClass:        SecurityClassRestricted,
+			Routes: []ModuleRoute{
+				{Method: "GET", ExternalPath: "/api/v1/geo/{path...}", UpstreamPath: "/api/v1/geo/{path...}", Permission: "geo.read"},
+				{Method: "POST", ExternalPath: "/api/v1/geo/{path...}", UpstreamPath: "/api/v1/geo/{path...}", Permission: "geo.write"},
+				{Method: "PUT", ExternalPath: "/api/v1/geo/{path...}", UpstreamPath: "/api/v1/geo/{path...}", Permission: "geo.write"},
+				{Method: "PATCH", ExternalPath: "/api/v1/geo/{path...}", UpstreamPath: "/api/v1/geo/{path...}", Permission: "geo.write"},
+				{Method: "DELETE", ExternalPath: "/api/v1/geo/{path...}", UpstreamPath: "/api/v1/geo/{path...}", Permission: "geo.write"},
+			},
+		},
 		{
 			Name:                 ModuleNameHostAgent,
 			Kind:                 ModuleKindPlatform,

@@ -967,26 +967,26 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 		}
 		return nil
 	case PackGeoStack:
-		var hasGeoImage, hasGeoChart bool
+		var hasGeoImage, hasGeoChart, hasPostGIS bool
 		for _, entry := range entries {
 			if entry.Component == "oci-images" && strings.Contains(strings.ToLower(entry.ImageReference), "geo-zone") {
 				hasGeoImage = true
+			}
+			if entry.Component == "oci-images" && isCanonicalPostGISReference(entry.ImageReference) {
+				hasPostGIS = true
 			}
 			base := strings.ToLower(filepath.Base(entry.Path))
 			if entry.Component == "chart" && strings.HasPrefix(base, "geo-zone-") {
 				hasGeoChart = true
 			}
 		}
-		// The Geo-Zone profile is metadata/routing-only until its producer
-		// publishes signed image and chart artifacts.  Keep an explicitly empty
-		// pack installable so the foundation bundle can be exercised without
-		// pretending that Geo runtime services are present.  Once either runtime
-		// artifact is supplied, require the complete pair below.
-		if !hasGeoImage && !hasGeoChart {
-			return nil
+		if hasGeoImage || hasGeoChart {
+			if !hasGeoImage || !hasGeoChart {
+				return fmt.Errorf("releasebundle: geo-stack pack requires Geo-Zone image and chart")
+			}
 		}
-		if !hasGeoImage || !hasGeoChart {
-			return fmt.Errorf("releasebundle: geo-stack pack requires Geo-Zone image and chart")
+		if !hasPostGIS {
+			return fmt.Errorf("releasebundle: geo-stack pack requires PostGIS image")
 		}
 		return nil
 	}
@@ -1014,11 +1014,8 @@ func validateInstallableBundle(entries []manifestEntry, pack string) error {
 	if counts["k3s-images"] == 0 {
 		return fmt.Errorf("releasebundle: assembled bundle must include at least one k3s-images archive")
 	}
-	if pack == PackGeoStack && counts["oci-images"] == 0 && counts["chart"] == 0 {
-		// A metadata-only Geo pack intentionally contains only its signed
-		// manifest/public key.  The foundation pack owns the installable
-		// appliance payload until Geo runtime artifacts are added.
-		return nil
+	if pack == PackGeoStack && counts["oci-images"] == 0 {
+		return fmt.Errorf("releasebundle: geo-stack pack must include PostGIS image")
 	}
 	if counts["oci-images"] == 0 {
 		return fmt.Errorf("releasebundle: assembled bundle must include at least one oci-images archive")
@@ -1068,8 +1065,12 @@ func entryIsGeo(entry EntryConfig) bool {
 	target := strings.ToLower(filepath.ToSlash(entry.TargetPath))
 	ref := strings.ToLower(strings.TrimSpace(entry.ImageReference))
 	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
-	return strings.Contains(ref, "geo-zone") || strings.Contains(target, "geo-zone") || strings.Contains(sourceBase, "geo-zone") ||
+	return strings.Contains(ref, "geo-zone") || strings.Contains(ref, "postgis") || strings.Contains(target, "geo-zone") || strings.Contains(target, "postgis") || strings.Contains(sourceBase, "geo-zone") || strings.Contains(sourceBase, "postgis") ||
 		(entry.Component == "chart" && (strings.HasPrefix(strings.ToLower(filepath.Base(entry.TargetPath)), "geo-zone-") || strings.HasPrefix(strings.ToLower(filepath.Base(entry.SourcePath)), "geo-zone-")))
+}
+
+func isCanonicalPostGISReference(ref string) bool {
+	return isCanonicalRegistryLocalReference(strings.ToLower(strings.TrimSpace(ref)), "postgis")
 }
 
 func entryIsDeviceUser(entry EntryConfig) bool {

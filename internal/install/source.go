@@ -29,6 +29,7 @@ type Resolved struct {
 	Compatibility              bundle.Compatibility
 	EffectiveProfile           string
 	ProfileCatalog             productconfig.ProfileCatalog
+	Modules                    []productconfig.ModuleDescriptor
 	ActionsEnabled             bool
 	ChannelIntegrationsEnabled bool
 	CommerceEnabled            bool
@@ -40,6 +41,7 @@ type Resolved struct {
 	ArtifactEnabled            bool
 	DNSEnabled                 bool
 	InferenceEnabled           bool
+	GeoEnabled                 bool
 	ZonctlBinaryPath           string
 	// HelperBinaryPaths are durable host tools (currently helm) installed
 	// next to zonctl-real so status/verify work without the temp bundle PATH.
@@ -63,6 +65,7 @@ type Resolved struct {
 	ArtifactServerImageReference string
 	BlobStorageImageReference    string
 	PostgresImageReference       string
+	PostGISImageReference        string
 	// DNSImageReference is the bundled, digest-pinned registry.local/coredns
 	// image reference used for the landns/storage-landns capability.
 	DNSImageReference string
@@ -184,11 +187,26 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: convert profile catalog from metadata bundle: %w", err)
 	}
+	metadataModules, err := metadatabundle.LoadModuleCatalogArchive(metadataBundleArchivePath)
+	var moduleCatalog []productconfig.ModuleDescriptor
+	if err != nil && strings.Contains(err.Error(), "archive has no modules/catalog.yaml") {
+		// Legacy fixture bundles predate the signed module catalog. Real
+		// releases generated with the current metadata bundle always take the
+		// manifest-driven path below.
+		moduleCatalog = productconfig.BuiltInModuleCatalog()
+	} else if err != nil {
+		return Resolved{}, checks, fmt.Errorf("install: load module catalog from metadata bundle: %w", err)
+	} else {
+		moduleCatalog, err = productconfig.ModuleCatalogFromMetadata(metadataModules)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: convert module catalog from metadata bundle: %w", err)
+		}
+	}
 	effectiveProfile, err := productconfig.ResolveApplianceProfileWithCatalog(requestedProfile, "", profileCatalog)
 	if err != nil {
 		return Resolved{}, checks, fmt.Errorf("install: %w", err)
 	}
-	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, profileCatalog, productconfig.AlwaysEntitled{}, productconfig.BuiltInModuleCatalog())
+	resolvedModules := productconfig.ResolveModulesWithCatalog(effectiveProfile, profileCatalog, productconfig.AlwaysEntitled{}, moduleCatalog)
 	actionsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityActions, profileCatalog)
 	lanDiscoveryEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityLANDiscovery, profileCatalog)
 	// Direct application endpoints require the same deviceuser host-agent
@@ -282,7 +300,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	for _, e := range view.Entries("oci-images") {
 		name, requireReference := imageName(e)
 		category := images.CategoryApplication
-		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isOrderingImageReference(e.ImageReference) || isApplicationIdentityImageReference(e.ImageReference) || isAuthServiceImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) {
+		if isArtifactServerImageReference(e.ImageReference) || isBlobStorageImageReference(e.ImageReference) || isPostgresImageReference(e.ImageReference) || isPostGISImageReference(e.ImageReference) || isChannelIntegrationImageReference(e.ImageReference) || isOrderingImageReference(e.ImageReference) || isApplicationIdentityImageReference(e.ImageReference) || isAuthServiceImageReference(e.ImageReference) || isDNSImageReference(e.ImageReference) || isInferenceRuntimeImageReference(e.ImageReference) || isInferenceManagerImageReference(e.ImageReference) || isOpenWebUIImageReference(e.ImageReference) || isOpenWebUIGatewayImageReference(e.ImageReference) || isMessageBrokerImageReference(e.ImageReference) {
 			category = images.CategoryDependency
 		}
 		ociImages = append(ociImages, images.Image{Name: name, ArchivePath: e.Path, ExpectedDigest: e.Digest, Category: category, RequireReference: requireReference})
@@ -339,6 +357,14 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 	}
 	messageBrokerImageReference := optionalMessageBrokerImageReference(view)
 	postgresImageReference := optionalPostgresImageReference(view)
+	geoEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityGeoSpatialStore, profileCatalog)
+	postGISImageReference := ""
+	if geoEnabled {
+		postGISImageReference, err = requiredPostGISImageReference(view)
+		if err != nil {
+			return Resolved{}, checks, fmt.Errorf("install: profile %q requires geo PostGIS image: %w", effectiveProfile, err)
+		}
+	}
 	channelIntegrationsEnabled := productconfig.HasCapabilityInCatalog(effectiveProfile, productconfig.CapabilityChannelIntegrations, profileCatalog)
 	channelIntegrationImageReference := ""
 	if channelIntegrationsEnabled {
@@ -380,6 +406,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		Compatibility:                     compat,
 		EffectiveProfile:                  effectiveProfile,
 		ProfileCatalog:                    profileCatalog,
+		Modules:                           moduleCatalog,
 		ActionsEnabled:                    actionsEnabled,
 		ChannelIntegrationsEnabled:        channelIntegrationsEnabled,
 		CommerceEnabled:                   commerceEnabled,
@@ -391,6 +418,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ArtifactEnabled:                   artifactEnabled,
 		DNSEnabled:                        dnsEnabled,
 		InferenceEnabled:                  inferenceEnabled,
+		GeoEnabled:                        geoEnabled,
 		ZonctlBinaryPath:                  zonctlBinaryPath,
 		HelperBinaryPaths:                 helperBinaryPaths,
 		K3sBinaryPath:                     k3sBinaryPath,
@@ -408,6 +436,7 @@ func (s OfflineSource) Resolve(ctx context.Context, requestedProfile string) (Re
 		ArtifactServerImageReference:      artifactServerImageReference,
 		BlobStorageImageReference:         blobStorageImageReference,
 		PostgresImageReference:            postgresImageReference,
+		PostGISImageReference:             postGISImageReference,
 		DNSImageReference:                 dnsImageReference,
 		InferenceImageReference:           inferenceImageReference,
 		InferenceManagerImageReference:    inferenceManagerImageReference,
@@ -478,6 +507,10 @@ func isBlobStorageImageReference(ref string) bool {
 
 func isPostgresImageReference(ref string) bool {
 	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/postgres@sha256:")
+}
+
+func isPostGISImageReference(ref string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref), "registry.local/postgis@sha256:")
 }
 
 func isChannelIntegrationImageReference(ref string) bool {
@@ -576,6 +609,23 @@ func optionalPostgresImageReference(b entrySource) string {
 		found = strings.TrimSpace(e.ImageReference)
 	}
 	return found
+}
+
+func requiredPostGISImageReference(b entrySource) (string, error) {
+	var found string
+	for _, e := range b.Entries("oci-images") {
+		if !isPostGISImageReference(e.ImageReference) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("bundle has multiple postgis image entries")
+		}
+		found = strings.TrimSpace(e.ImageReference)
+	}
+	if found == "" {
+		return "", fmt.Errorf("bundle has no registry.local/postgis@sha256 image entry")
+	}
+	return found, nil
 }
 
 func isDNSImageReference(ref string) bool {
@@ -965,6 +1015,9 @@ func (r Resolved) FilterOCIImages(all []images.Image) []images.Image {
 			continue
 		}
 		if strings.HasPrefix(image.Name, "registry.local/auth-service@") && !r.ApplicationAuthEnabled {
+			continue
+		}
+		if strings.HasPrefix(image.Name, "registry.local/postgis@") && !r.GeoEnabled {
 			continue
 		}
 		if image.Category == images.CategoryDependency {

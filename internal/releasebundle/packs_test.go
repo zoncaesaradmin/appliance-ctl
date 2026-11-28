@@ -17,6 +17,7 @@ func TestDeliveryPacksAreDisjoint(t *testing.T) {
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/channel-integration@sha256:pin"}, PackAppStack},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/ordering@sha256:pin"}, PackAppStack},
 		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/geo-zone@sha256:pin"}, PackGeoStack},
+		{EntryConfig{Component: "oci-images", ImageReference: "registry.local/postgis@sha256:pin"}, PackGeoStack},
 		{EntryConfig{Component: "chart", TargetPath: "chart/geo-zone-0.1.0.tgz"}, PackGeoStack},
 		{EntryConfig{Component: "appliance", TargetPath: "bin/appliance-host-agentd"}, PackFoundation},
 		{EntryConfig{Component: "host-packages", TargetPath: "host-packages/ubuntu/24.04/amd64/avahi-daemon.deb"}, PackFoundation},
@@ -54,15 +55,16 @@ func TestStorageNetworkPackRequiresItsServices(t *testing.T) {
 }
 
 func TestGeoStackPackAllowsMetadataOnlyStage(t *testing.T) {
-	if err := validateInstallableBundle(nil, PackGeoStack); err != nil {
-		t.Fatalf("metadata-only geo-stack pack rejected: %v", err)
+	if err := validateInstallableBundle(nil, PackGeoStack); err == nil {
+		t.Fatal("empty geo-stack pack accepted")
 	}
 	entries := []manifestEntry{
-		{Component: "oci-images", ImageReference: "registry.local/geo-zone@sha256:" + strings.Repeat("a", 64)},
+		{Component: "oci-images", ImageReference: "registry.local/postgis@sha256:" + strings.Repeat("a", 64)},
 	}
-	if err := validateInstallableBundle(entries, PackGeoStack); err == nil {
-		t.Fatal("geo-stack pack with only an image accepted")
+	if err := validateInstallableBundle(entries, PackGeoStack); err != nil {
+		t.Fatalf("geo-stack pack with PostGIS rejected: %v", err)
 	}
+	entries = append(entries, manifestEntry{Component: "oci-images", ImageReference: "registry.local/geo-zone@sha256:" + strings.Repeat("b", 64)})
 	entries = append(entries, manifestEntry{Component: "chart", Path: "chart/geo-zone-0.1.0.tgz"})
 	if err := validateInstallableBundle(entries, PackGeoStack); err != nil {
 		t.Fatalf("complete geo-stack pack rejected: %v", err)
