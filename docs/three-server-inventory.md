@@ -77,11 +77,14 @@ healthy response from every peer via the K3s-managed client certificate.
 Passing this check does not establish application HA. `cluster-finalize` is
 the separate product-deployment step after this substrate gate.
 
-Cluster-wide recovery and day-two maintenance are not part of this first
-Kubernetes-HA milestone. On any staged or finalized embedded-etcd host,
-`backup`, `restore`, `repair`, `upgrade`, `uninstall`, and `factory-reset`
-must fail closed rather than operate on one local etcd member. Preserve the
-state and use the documented recovery procedure until a quorum-aware snapshot,
-restore, rolling-upgrade, and member-replacement implementation has passed its
-failure drills. Read-only `status`, `verify`, support bundles, and
-`cluster-ha-check` remain available for diagnosis.
+Cluster-wide recovery and most day-two maintenance remain out of scope for
+this first Kubernetes-HA milestone. On any staged or finalized embedded-etcd
+host, `backup`, `restore`, `repair`, `uninstall`, and `factory-reset` still
+fail closed rather than operate on one local etcd member. `upgrade` is the
+narrow exception: it must be invoked on the inventory bootstrap node with the
+signed inventory, refuses K3s-version changes, verifies every planned node and
+direct API endpoint, checkpoints PostgreSQL when present, and applies charts
+with Helm atomic rollback. Quorum-aware K3s rolling upgrades, snapshots,
+restore, and member replacement remain separately qualified work.
+Read-only `status`, `verify`, support bundles, and `cluster-ha-check` remain
+available for diagnosis.

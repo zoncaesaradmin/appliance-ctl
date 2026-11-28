@@ -160,6 +160,25 @@ func TestInstallOrUpgrade_UsesUpgradeInstall(t *testing.T) {
 	}
 }
 
+func TestInstallOrUpgrade_CoordinatedUpgradeUsesAtomicWait(t *testing.T) {
+	dir := t.TempDir()
+	rel := sampleRelease(t, dir)
+	rel.Atomic = true
+	rel.Wait = true
+	rel.Timeout = "15m"
+	fake := &fakeCLI{}
+	a := &helm.Applier{Run: fake.Run, Kubeconfig: "kubeconfig"}
+	if _, err := a.InstallOrUpgrade(context.Background(), rel); err != nil {
+		t.Fatal(err)
+	}
+	call := joinCall(fake.calls[len(fake.calls)-1])
+	for _, want := range []string{"--atomic", "--wait", "--timeout 15m"} {
+		if !strings.Contains(call, want) {
+			t.Fatalf("coordinated upgrade missing %q: %s", want, call)
+		}
+	}
+}
+
 func TestInstallOrUpgrade_CreatesNamespaceWhenMissing(t *testing.T) {
 	dir := t.TempDir()
 	rel := sampleRelease(t, dir)

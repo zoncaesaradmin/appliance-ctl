@@ -17,6 +17,11 @@ type ChartRelease struct {
 	ChartPath  string
 	Namespace  string
 	ValuesPath string
+	// Atomic and Wait are enabled by coordinated day-2 upgrades. The fresh
+	// install path keeps its asynchronous behavior unless callers opt in.
+	Atomic  bool
+	Wait    bool
+	Timeout string
 	// NamespaceLabels are applied via kubectl before Helm runs so PSA
 	// exceptions exist before the first pod is admitted.
 	NamespaceLabels map[string]string
@@ -62,6 +67,15 @@ func (a *Applier) InstallOrUpgrade(ctx context.Context, rel ChartRelease) (evide
 	}
 	if strings.TrimSpace(rel.ValuesPath) != "" {
 		args = append(args, "--values", rel.ValuesPath)
+	}
+	if rel.Atomic {
+		args = append(args, "--atomic")
+	}
+	if rel.Wait {
+		args = append(args, "--wait")
+		if timeout := strings.TrimSpace(rel.Timeout); timeout != "" {
+			args = append(args, "--timeout", timeout)
+		}
 	}
 	if _, err := a.Run(ctx, "helm", args...); err != nil {
 		check.Status = evidence.StatusFail

@@ -23,8 +23,16 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 	if loadErr != nil {
 		return finish(result, "failed", 1, "upgrade: "+loadErr.Error(), nil)
 	}
-	if err := requireLegacySingleHostLifecycle(opts, installed, "upgrade"); err != nil {
-		return finish(result, "failed", 1, err.Error(), nil)
+	// Legacy upgrades keep their single-host lifecycle guard. Embedded-etcd
+	// upgrades are admitted only with the signed, inventory-bound coordinator
+	// input; the orchestrator then applies the unchanged-K3s safety gates.
+	coordinatedEmbedded := installed != nil && installed.Cluster != nil && installed.Cluster.DeploymentTopology == state.DeploymentTopologyEmbeddedEtcdV1
+	if !coordinatedEmbedded {
+		if err := requireLegacySingleHostLifecycle(opts, installed, "upgrade"); err != nil {
+			return finish(result, "failed", 1, err.Error(), nil)
+		}
+	} else if strings.TrimSpace(opts.clusterInventoryPath) == "" {
+		return finish(result, "failed", 2, "upgrade: embedded-etcd upgrades require --cluster-inventory", nil)
 	}
 	currentProfile := ""
 	if installed != nil {
@@ -53,6 +61,10 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 			}
 		}
 		return finish(result, "failed", 1, withFailureDiagnostics("upgrade: "+err.Error(), resolveChecks, reportPath), nil)
+	}
+	resolvedEmbedded := strings.TrimSpace(resolved.Compatibility.DeploymentTopology) == state.DeploymentTopologyEmbeddedEtcdV1
+	if coordinatedEmbedded != resolvedEmbedded {
+		return finish(result, "failed", 1, "upgrade: signed bundle topology does not match the installed appliance topology; refusing a cross-topology upgrade", nil)
 	}
 	if installed != nil && installed.Cluster != nil && installed.Cluster.Topology == state.TopologyServerWorkers {
 		readiness := cluster.ValidateWorkerUpgradeReadiness(ctx, cli.Exec, defaultKubeconfigPath, installed.Cluster.Nodes, resolved.Compatibility.K3sVersion)
@@ -118,6 +130,8 @@ func runUpgrade(ctx context.Context, opts cliOptions, txn *lifecycle.Transaction
 		ChartNamespace:                defaultChartNamespace,
 		BackupRoot:                    backupRootDir(opts.stateDir),
 		TransactionID:                 txn.ID,
+		CoordinatedEmbeddedEtcd:       coordinatedEmbedded,
+		ClusterInventoryPath:          opts.clusterInventoryPath,
 	}
 	imagePullRegistry, regErr := resolveImagePullRegistry(opts, nil)
 	if regErr != nil {

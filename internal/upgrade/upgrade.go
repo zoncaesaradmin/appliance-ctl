@@ -14,6 +14,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cli"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cloudflared"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/cluster"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/clustertopology"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/evidence"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/helm"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/host"
@@ -26,6 +27,7 @@ import (
 	"github.com/zoncaesaradmin/appliance-ctl/internal/k3s"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/nvidia"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/productconfig"
+	"github.com/zoncaesaradmin/appliance-ctl/internal/recoveryset"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/runtimeconfig"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/state"
 	"github.com/zoncaesaradmin/appliance-ctl/internal/zonctlhost"
@@ -88,6 +90,12 @@ type Options struct {
 
 	BackupRoot    string
 	TransactionID string
+
+	// CoordinatedEmbeddedEtcd enables the narrow, same-K3s embedded-etcd
+	// workload upgrade. It never replaces or stops K3s and requires the signed
+	// inventory to be healthy on the bootstrap node.
+	CoordinatedEmbeddedEtcd bool
+	ClusterInventoryPath    string
 
 	// PreserveFailedState disables rollback-to-backup on failure so the
 	// partially upgraded host can be inspected in place for debugging.
@@ -185,8 +193,56 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	if err != nil {
 		return nil, checks, fmt.Errorf("upgrade: %w", err)
 	}
-	if resolved.Compatibility.DeploymentTopology == state.DeploymentTopologyEmbeddedEtcdV1 {
-		return nil, checks, fmt.Errorf("upgrade: signed embedded-etcd-v1 release requires a coordinated recovery and rolling-upgrade coordinator")
+	coordinatedEmbedded := resolved.Compatibility.DeploymentTopology == state.DeploymentTopologyEmbeddedEtcdV1
+	if coordinatedEmbedded && !opts.CoordinatedEmbeddedEtcd {
+		return nil, checks, fmt.Errorf("upgrade: signed embedded-etcd-v1 release requires the coordinated upgrade operation")
+	}
+	if coordinatedEmbedded {
+		if installed.Cluster == nil || installed.Cluster.DeploymentTopology != state.DeploymentTopologyEmbeddedEtcdV1 {
+			return nil, checks, fmt.Errorf("upgrade: installed appliance is not an owned embedded-etcd installation")
+		}
+		if strings.TrimSpace(opts.ClusterInventoryPath) == "" {
+			return nil, checks, fmt.Errorf("upgrade: coordinated embedded-etcd upgrades require --cluster-inventory")
+		}
+		if strings.TrimSpace(opts.BackupRoot) == "" {
+			return nil, checks, fmt.Errorf("upgrade: coordinated embedded-etcd upgrades require a protected backup root")
+		}
+		if strings.TrimSpace(installed.Components.K3sVersion) == "" || strings.TrimSpace(resolved.Compatibility.K3sVersion) != strings.TrimSpace(installed.Components.K3sVersion) {
+			return nil, checks, fmt.Errorf("upgrade: coordinated embedded-etcd upgrades require the signed K3s version to remain unchanged (installed %q, target %q)", installed.Components.K3sVersion, resolved.Compatibility.K3sVersion)
+		}
+		inventory, inventoryErr := clustertopology.Load(opts.ClusterInventoryPath)
+		if inventoryErr != nil {
+			return nil, checks, fmt.Errorf("upgrade: load embedded-etcd inventory: %w", inventoryErr)
+		}
+		if !inventory.HasNode(opts.NodeName) || inventory.BootstrapNode != opts.NodeName {
+			return nil, checks, fmt.Errorf("upgrade: coordinated embedded-etcd upgrade must run on bootstrap node %q (got %q)", inventory.BootstrapNode, opts.NodeName)
+		}
+		localAddresses, localErr := clustertopology.LocalAddresses()
+		if localErr != nil {
+			return nil, checks, fmt.Errorf("upgrade: inspect local addresses for embedded-etcd inventory: %w", localErr)
+		}
+		if localErr := inventory.ValidateLocalAddress(opts.NodeName, localAddresses); localErr != nil {
+			return nil, checks, fmt.Errorf("upgrade: embedded-etcd inventory is not local to this bootstrap node: %w", localErr)
+		}
+		recordedUIDs := make(map[string]string, len(installed.Cluster.Nodes))
+		for _, node := range installed.Cluster.Nodes {
+			recordedUIDs[node.Name] = node.NodeUID
+		}
+		nodeHealth := cluster.ValidateEmbeddedEtcdNodeReadiness(ctx, o.HelmRun, opts.KubeconfigPath, inventory, resolved.Compatibility.K3sVersion, recordedUIDs)
+		if !nodeHealth.Healthy {
+			return nil, checks, fmt.Errorf("upgrade: embedded-etcd node readiness gate: %s", nodeHealth.Message)
+		}
+		apiHealth := cluster.ValidateEmbeddedEtcdAPIEndpoints(ctx, o.HelmRun, opts.KubeconfigPath, inventory)
+		if !apiHealth.Healthy {
+			return nil, checks, fmt.Errorf("upgrade: embedded-etcd API endpoint gate: %s", apiHealth.Message)
+		}
+		checks = append(checks,
+			evidence.Check{ID: "upgrade-embedded-etcd-nodes-ready", Category: "k3s", Status: evidence.StatusPass, Message: nodeHealth.Message, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true},
+			evidence.Check{ID: "upgrade-embedded-etcd-api-ready", Category: "k3s", Status: evidence.StatusPass, Message: apiHealth.Message, Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true},
+		)
+		if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
+			return nil, checks, fmt.Errorf("upgrade: coordinated embedded-etcd upgrades do not change the K3s image-pull registry; keep the existing registry configuration unchanged")
+		}
 	}
 	effectiveProfile := resolved.EffectiveProfile
 	targetVersion := strings.TrimSpace(resolved.BundleVersion)
@@ -398,27 +454,58 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	// The legacy upgrade rollback takes a K3s-directory snapshot. PostgreSQL
 	// deliberately lives outside that directory, so proceeding would advertise
 	// a rollback guarantee that cannot restore the control-plane database.
-	if install.DatabaseEngine(resolved) == "postgres" {
+	if install.DatabaseEngine(resolved) == "postgres" && !coordinatedEmbedded {
 		return nil, checks, fmt.Errorf("upgrade: PostgreSQL recovery-set backup is not yet implemented; refusing upgrade because legacy rollback would omit the control-plane database")
 	}
 	k3sBinarySrc := resolved.K3sBinaryPath
 	chartPath := resolved.ChartPath
 
-	// Mandatory pre-upgrade recovery set.
-	backupManifest, backupChecks, err := backup.Create(ctx, o.K3s, opts.K3sUnitName, opts.K3sDataDir, opts.BackupRoot, installed.InstalledVersion, metadataBundlesDir, installed.Components.MetadataVersion, installed.Components.MetadataDigest)
-	checks = append(checks, backupChecks...)
-	if err != nil {
-		return nil, checks, fmt.Errorf("upgrade: pre-upgrade backup failed: %w", err)
-	}
-	backupDir := filepath.Join(opts.BackupRoot, backupManifest.BackupID)
-	verifyChecks, err := backup.Verify(backupDir)
-	checks = append(checks, verifyChecks...)
-	if err != nil {
-		return nil, checks, fmt.Errorf("upgrade: pre-upgrade backup failed integrity verification: %w", err)
+	// Legacy upgrades require a full K3s-directory recovery set. The
+	// coordinated embedded-etcd path deliberately does not stop K3s or copy
+	// its live data; it first creates and verifies a PostgreSQL logical
+	// checkpoint, then relies on Helm rollback for workload changes.
+	backupDir := ""
+	if !coordinatedEmbedded {
+		backupManifest, backupChecks, backupErr := backup.Create(ctx, o.K3s, opts.K3sUnitName, opts.K3sDataDir, opts.BackupRoot, installed.InstalledVersion, metadataBundlesDir, installed.Components.MetadataVersion, installed.Components.MetadataDigest)
+		checks = append(checks, backupChecks...)
+		if backupErr != nil {
+			return nil, checks, fmt.Errorf("upgrade: pre-upgrade backup failed: %w", backupErr)
+		}
+		backupDir = filepath.Join(opts.BackupRoot, backupManifest.BackupID)
+		verifyChecks, verifyErr := backup.Verify(backupDir)
+		checks = append(checks, verifyChecks...)
+		if verifyErr != nil {
+			return nil, checks, fmt.Errorf("upgrade: pre-upgrade backup failed integrity verification: %w", verifyErr)
+		}
+	} else if install.DatabaseEngine(resolved) == "postgres" {
+		checkpointDir := filepath.Join(opts.BackupRoot, "coordinated-upgrade", opts.TransactionID)
+		if err := os.MkdirAll(checkpointDir, 0o700); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: create PostgreSQL checkpoint directory: %w", err)
+		}
+		dumpPath := filepath.Join(checkpointDir, "database.dump")
+		exporter := recoveryset.KubernetesPostgresExporter{Kubeconfig: opts.KubeconfigPath, Namespace: "ace-infra", StatefulSet: "platform-postgres", Image: resolved.PostgresImageReference}
+		database, exportErr := exporter.Export(ctx, dumpPath)
+		if exportErr != nil {
+			return nil, checks, fmt.Errorf("upgrade: PostgreSQL checkpoint failed: %w", exportErr)
+		}
+		if verifyErr := exporter.VerifyRestore(ctx, database); verifyErr != nil {
+			return nil, checks, fmt.Errorf("upgrade: PostgreSQL checkpoint failed restore verification: %w", verifyErr)
+		}
+		manifest := recoveryset.Manifest{Format: recoveryset.Format, ID: opts.TransactionID, CreatedAt: time.Now().UTC(), PlatformVersion: installed.InstalledVersion, Database: recoveryset.DatabaseArtifact{Engine: database.Engine, Format: database.Format, Path: "database.dump", SHA256: database.SHA256}}
+		if err := recoveryset.Save(checkpointDir, manifest); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: save PostgreSQL checkpoint manifest: %w", err)
+		}
+		if err := recoveryset.VerifyFiles(checkpointDir, manifest); err != nil {
+			return nil, checks, fmt.Errorf("upgrade: verify PostgreSQL checkpoint files: %w", err)
+		}
+		checks = append(checks, evidence.Check{ID: "upgrade-postgres-checkpoint", Category: "backup", Status: evidence.StatusPass, Message: "verified PostgreSQL logical checkpoint created before coordinated workload upgrade", Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
 	}
 	failUpgrade := func(primary error, cleanup func() []evidence.Check) ([]evidence.Check, error) {
 		if opts.PreserveFailedState {
 			return nil, fmt.Errorf("%w (failed state preserved due to --preserve-failed-state)", primary)
+		}
+		if coordinatedEmbedded {
+			return cleanup(), fmt.Errorf("%w (Helm rollback attempted; K3s and persistent data were not reset)", primary)
 		}
 		return cleanup(), fmt.Errorf("%w (rolled back to pre-upgrade backup)", primary)
 	}
@@ -464,10 +551,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 				rollbackErrs = append(rollbackErrs, err)
 			}
 		}
-		restoreChecks, restoreErr := backup.Restore(ctx, o.K3s, opts.K3sUnitName, backupDir, opts.K3sDataDir, metadataBundlesDir)
-		rc = append(rc, restoreChecks...)
-		if restoreErr != nil {
-			rollbackErrs = append(rollbackErrs, restoreErr)
+		if !coordinatedEmbedded {
+			restoreChecks, restoreErr := backup.Restore(ctx, o.K3s, opts.K3sUnitName, backupDir, opts.K3sDataDir, metadataBundlesDir)
+			rc = append(rc, restoreChecks...)
+			if restoreErr != nil {
+				rollbackErrs = append(rollbackErrs, restoreErr)
+			}
 		}
 		if len(rollbackErrs) > 0 {
 			rc = append(rc, evidence.Check{
@@ -877,8 +966,16 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 	}
 
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
+	coordinatedChart := func(rel helm.ChartRelease) helm.ChartRelease {
+		if coordinatedEmbedded {
+			rel.Atomic = true
+			rel.Wait = true
+			rel.Timeout = "15m"
+		}
+		return rel
+	}
 	if resolved.MessageBrokerChartPath != "" {
-		messageBrokerCheck, messageBrokerErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: messageBrokerNamespace})
+		messageBrokerCheck, messageBrokerErr := applier.InstallOrUpgrade(ctx, coordinatedChart(helm.ChartRelease{Name: messageBrokerReleaseName, ChartPath: resolved.MessageBrokerChartPath, Namespace: messageBrokerNamespace}))
 		checks = append(checks, messageBrokerCheck)
 		if messageBrokerErr != nil {
 			rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: message broker: %w", messageBrokerErr), rollback)
@@ -1012,9 +1109,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
-		registryCheck, registryErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+		registryCheck, registryErr := applier.InstallOrUpgrade(ctx, coordinatedChart(helm.ChartRelease{
 			Name: registryReleaseName, ChartPath: resolved.RegistryChartPath, Namespace: registryNamespace, ValuesPath: registryValuesPath,
-		})
+		}))
 		checks = append(checks, registryCheck)
 		if registryErr != nil {
 			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
@@ -1072,10 +1169,10 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
-		dnsCheck, dnsErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+		dnsCheck, dnsErr := applier.InstallOrUpgrade(ctx, coordinatedChart(helm.ChartRelease{
 			Name: dnsReleaseName, ChartPath: resolved.DNSChartPath, Namespace: dnsNamespace, ValuesPath: dnsValuesPath,
 			NamespaceLabels: helm.PrivilegedNamespaceLabels(),
-		})
+		}))
 		checks = append(checks, dnsCheck)
 		if dnsErr != nil {
 			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
@@ -1098,10 +1195,10 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		}
 	}
 	if targetInference {
-		inferenceCheck, inferenceErr := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+		inferenceCheck, inferenceErr := applier.InstallOrUpgrade(ctx, coordinatedChart(helm.ChartRelease{
 			Name: inferenceReleaseName, ChartPath: resolved.InferenceChartPath, Namespace: inferenceNamespace, ValuesPath: inferenceValuesPath,
 			NamespaceLabels: helm.RestrictedNamespaceLabels(),
-		})
+		}))
 		checks = append(checks, inferenceCheck)
 		if inferenceErr != nil {
 			checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
@@ -1123,12 +1220,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			return nil, checks, failErr
 		}
 	}
-	chartCheck, err := applier.InstallOrUpgrade(ctx, helm.ChartRelease{
+	chartCheck, err := applier.InstallOrUpgrade(ctx, coordinatedChart(helm.ChartRelease{
 		Name:       opts.ChartReleaseName,
 		ChartPath:  chartPath,
 		Namespace:  opts.ChartNamespace,
 		ValuesPath: preparedValuesPath,
-	})
+	}))
 	checks = append(checks, chartCheck)
 	if err != nil {
 		checks = append(checks, helm.CollectFailureDiagnostics(ctx, o.HelmRun, opts.KubeconfigPath, helm.ChartRelease{
