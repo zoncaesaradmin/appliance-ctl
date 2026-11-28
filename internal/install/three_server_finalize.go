@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -93,6 +94,11 @@ func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, 
 		}
 		return installed, checks, nil
 	}
+	cleanupChecks, err := o.cleanupTerminatingProductNamespaces(ctx, opts.KubeconfigPath, opts.ChartNamespace)
+	checks = append(checks, cleanupChecks...)
+	if err != nil {
+		return nil, checks, err
+	}
 	members := make([]state.ClusterNode, 0, len(inventory.Nodes))
 	bootstrapUID := ""
 	for _, node := range inventory.Nodes {
@@ -129,6 +135,72 @@ func (o *Orchestrator) FinalizeEmbeddedEtcd(ctx context.Context, source Source, 
 		return nil, checks, fmt.Errorf("cluster finalize: record completion: %w", err)
 	}
 	return installed, checks, nil
+}
+
+type namespaceMetadata struct {
+	Metadata struct {
+		DeletionTimestamp string            `json:"deletionTimestamp"`
+		Labels            map[string]string `json:"labels"`
+		Annotations       map[string]string `json:"annotations"`
+	} `json:"metadata"`
+}
+
+// cleanupTerminatingProductNamespaces removes only pod/PVC objects in
+// namespaces that Kubernetes is already deleting and that carry the chart's
+// Zon ownership markers. A failed release can leave a postStart hook or PVC
+// protection finalizer blocking namespace deletion; embedded-etcd finalization
+// must be able to retry without asking an operator to perform cluster surgery.
+// The retained hostPath/PV data is not touched by this cleanup.
+func (o *Orchestrator) cleanupTerminatingProductNamespaces(ctx context.Context, kubeconfig, chartNamespace string) ([]evidence.Check, error) {
+	var checks []evidence.Check
+	for _, namespace := range productconfig.ProductNamespaces(chartNamespace) {
+		output, err := o.HelmRun(ctx, "kubectl", "--kubeconfig", kubeconfig, "get", "namespace", namespace, "-o", "json")
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "notfound") || strings.Contains(strings.ToLower(err.Error()), "not found") {
+				continue
+			}
+			return checks, fmt.Errorf("cluster finalize: inspect product namespace %s: %w", namespace, err)
+		}
+		var metadata namespaceMetadata
+		if err := json.Unmarshal([]byte(output), &metadata); err != nil {
+			return checks, fmt.Errorf("cluster finalize: decode product namespace %s: %w", namespace, err)
+		}
+		if strings.TrimSpace(metadata.Metadata.DeletionTimestamp) == "" {
+			continue
+		}
+		if metadata.Metadata.Labels["app.kubernetes.io/part-of"] != "zon-appliance" && metadata.Metadata.Annotations["meta.helm.sh/release-name"] == "" {
+			return checks, fmt.Errorf("cluster finalize: refusing cleanup of terminating unowned namespace %s", namespace)
+		}
+		if _, err := o.HelmRun(ctx, "kubectl", "--kubeconfig", kubeconfig, "delete", "pod", "--all", "--namespace", namespace, "--force", "--grace-period=0", "--ignore-not-found"); err != nil {
+			return checks, fmt.Errorf("cluster finalize: remove terminating pods in %s: %w", namespace, err)
+		}
+		if _, err := o.HelmRun(ctx, "kubectl", "--kubeconfig", kubeconfig, "delete", "pvc", "--all", "--namespace", namespace, "--wait=false", "--ignore-not-found"); err != nil {
+			return checks, fmt.Errorf("cluster finalize: remove terminating PVCs in %s: %w", namespace, err)
+		}
+		deadline := time.Now().Add(2 * time.Minute)
+		for {
+			remaining, err := o.HelmRun(ctx, "kubectl", "--kubeconfig", kubeconfig, "get", "namespace", namespace, "-o", "jsonpath={.metadata.deletionTimestamp}")
+			if err != nil {
+				if strings.Contains(strings.ToLower(err.Error()), "notfound") || strings.Contains(strings.ToLower(err.Error()), "not found") {
+					break
+				}
+				return checks, fmt.Errorf("cluster finalize: wait for product namespace %s deletion: %w", namespace, err)
+			}
+			if strings.TrimSpace(remaining) == "" {
+				break
+			}
+			if time.Now().After(deadline) {
+				return checks, fmt.Errorf("cluster finalize: product namespace %s remains terminating after cleanup", namespace)
+			}
+			select {
+			case <-ctx.Done():
+				return checks, fmt.Errorf("cluster finalize: wait for product namespace %s deletion: %w", namespace, ctx.Err())
+			case <-time.After(time.Second):
+			}
+		}
+		checks = append(checks, evidence.Check{ID: "terminating-product-namespace-cleaned-" + namespace, Category: "k3s", Status: evidence.StatusPass, Message: fmt.Sprintf("removed stale resources from installer-owned terminating namespace %s; retained host data was not modified", namespace), Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true})
+	}
+	return checks, nil
 }
 
 // embeddedEtcdClusterNode records one planned server on the installed-state
