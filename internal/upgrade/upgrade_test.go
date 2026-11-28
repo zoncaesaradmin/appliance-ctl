@@ -954,12 +954,11 @@ func TestUpgrade_CoreProfilePreparesServiceLogDirectories(t *testing.T) {
 	}
 
 	wantOwnedPaths := map[string][2]int{
-		hostdirs.APIServerLogDir:         {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.UILogDir:                {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.ActionRuntimeLogDir:     {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.BlobStorageDir:          {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		hostdirs.VideoMediaProjectionDir: {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
-		opts.MetadataBundlesDir:          {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.APIServerLogDir:     {hostdirs.ControlPlaneDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.UILogDir:            {hostdirs.UIDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.ActionRuntimeLogDir: {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		hostdirs.BlobStorageDir:      {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
+		opts.MetadataBundlesDir:      {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
 		t.Fatalf("expected only core-profile log directory prep %v, got %v", wantOwnedPaths, ownedPaths)

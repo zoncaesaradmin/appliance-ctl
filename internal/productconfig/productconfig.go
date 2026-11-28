@@ -34,10 +34,6 @@ const (
 	// from ace-apps so those prerequisites can be enabled or moved as a unit.
 	ApplicationCoreNamespace = "ace-app-core"
 	InfrastructureNamespace  = "ace-infra"
-	// ApplicationNamespace is permanently provisioned for user-managed
-	// application workloads and is independent from co-packaged services.
-	ApplicationNamespace = "apps"
-
 	// Fixed product namespaces for capability-scoped charts (in addition to
 	// the control-plane release namespace and ControlPlaneAppsNamespace).
 	ArtifactsNamespace = "artifacts"
@@ -51,8 +47,8 @@ const (
 )
 
 // ProductNamespaces returns every appliance-owned namespace that may run product
-// pods. controlPlaneNS is the chart release namespace for controlplane, the
-// controlplane. Shared message broker and blob storage live in ace-infra.
+// pods. controlPlaneNS is the chart release namespace for controlplane.
+// Shared message broker and blob storage live in ace-infra.
 // kube-system
 // and other K3s system namespaces are intentionally excluded.
 func ProductNamespaces(controlPlaneNS string) []string {
@@ -65,7 +61,6 @@ func ProductNamespaces(controlPlaneNS string) []string {
 		controlPlaneNS,
 		ApplicationCoreNamespace,
 		ControlPlaneAppsNamespace,
-		ApplicationNamespace,
 		ArtifactsNamespace,
 		DNSNamespace,
 		InferenceNamespace,
@@ -98,7 +93,8 @@ const (
 	CapabilityInference           Capability = "inference"
 	CapabilityOpenWebUI           Capability = "open-webui"
 	CapabilityVideo               Capability = "video"
-	CapabilityApplications        Capability = "applications"
+	CapabilityGuestAccess         Capability = "guest-access"
+	CapabilityFocusContent        Capability = "focus-content"
 	CapabilityPlaintextHTTP       Capability = "plaintext-http"
 	CapabilityGeoSpatialStore     Capability = "geo-spatial-store"
 	CapabilityGeoDataAPI          Capability = "geo-data-api"
@@ -342,7 +338,7 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 		return "", func() {}, err
 	}
 	resolvedModules := ResolveModulesWithCatalog(effectiveProfile, profileCatalog, AlwaysEntitled{}, BuiltInModuleCatalog())
-	hostAgentEnabled := HostAgentEnabled(resolvedModules) || HasCapabilityInCatalog(effectiveProfile, CapabilityApplications, profileCatalog)
+	hostAgentEnabled := HostAgentEnabled(resolvedModules)
 	artifactEnabled := ModuleEnabled(resolvedModules, ModuleNameArtifactRegistry)
 	dnsEnabled := ModuleEnabled(resolvedModules, ModuleNameLANDNS)
 	inferenceEnabled := ModuleEnabled(resolvedModules, ModuleNameInferenceRuntime)
@@ -714,11 +710,6 @@ func prepareValuesFile(baseValuesPath, profile string, profileCatalog ProfileCat
 	if _, has := values["imagePullSecrets"]; !has {
 		values["imagePullSecrets"] = []any{}
 	}
-	values["applicationNamespace"] = map[string]any{
-		"create": true,
-		"name":   ApplicationNamespace,
-	}
-
 	networkPolicy, _ := values["networkPolicy"].(map[string]any)
 	if networkPolicy == nil {
 		networkPolicy = map[string]any{}

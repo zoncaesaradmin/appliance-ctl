@@ -670,30 +670,6 @@ func TestPrepareValuesFile_UsesMetadataProfileCatalog(t *testing.T) {
 	}
 }
 
-func TestPrepareValuesFile_ApplicationCapabilityEnablesLifecycle(t *testing.T) {
-	dir := t.TempDir()
-	valuesPath := filepath.Join(dir, "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("config: {}\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	catalog := productconfig.ProfileCatalog{
-		"media": {Capabilities: []productconfig.Capability{productconfig.CapabilityBase, productconfig.CapabilityApplications}},
-	}
-
-	preparedPath, cleanup, err := productconfig.PrepareValuesFile(valuesPath, "media", catalog, hostAgentImage, "testapp", productconfig.DefaultLANDNSZone, "", "", blobStorageImage)
-	defer cleanup()
-	if err != nil {
-		t.Fatalf("PrepareValuesFile returned error: %v", err)
-	}
-	prepared, err := os.ReadFile(preparedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(prepared), "enabledCapabilities:") || !strings.Contains(string(prepared), "- applications") {
-		t.Fatalf("application capability must be projected into chart values:\n%s", prepared)
-	}
-}
-
 func TestPrepareValuesFile_PlaintextHTTPProjectsCapability(t *testing.T) {
 	dir := t.TempDir()
 	valuesPath := filepath.Join(dir, "values.yaml")

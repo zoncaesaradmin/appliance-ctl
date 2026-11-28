@@ -14,7 +14,7 @@ import (
 )
 
 func TestConfigurationExportAndImportOverHTTPS(t *testing.T) {
-	payload := json.RawMessage(`{"apiVersion":"configuration.zon/v1","customProfiles":[],"profileActivation":{},"dnsRecords":[],"applicationDefinitions":[],"applicationInstances":[]}`)
+	payload := json.RawMessage(`{"apiVersion":"configuration.zon/v1","customProfiles":[],"profileActivation":{},"dnsRecords":[]}`)
 	var imported json.RawMessage
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer operator-token" {

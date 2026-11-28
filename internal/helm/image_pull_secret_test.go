@@ -76,7 +76,6 @@ func TestProductNamespacesExcludesSystemNamespaces(t *testing.T) {
 		"ace-system":   true,
 		"ace-app-core": true,
 		"ace-apps":     true,
-		"apps":         true,
 		"artifacts":    true,
 		"dns":          true,
 		"inference":    true,

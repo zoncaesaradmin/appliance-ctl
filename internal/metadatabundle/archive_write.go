@@ -22,7 +22,7 @@ func InstallTestProfileCatalog() map[string][]string {
 		"landns":         {"base", "actions", "lan-discovery", "host", "files", "dns"},
 		"storage-landns": {"base", "actions", "lan-discovery", "host", "files", "artifact", "dns"},
 		"lanllm":         {"base", "actions", "lan-discovery", "inference"},
-		"training":       {"base", "actions", "lan-discovery", "files", "video", "plaintext-http"},
+		"training":       {"base", "actions", "lan-discovery", "files", "video", "guest-access", "focus-content", "plaintext-http"},
 	}
 }
 
@@ -129,9 +129,12 @@ func installTestCapabilitiesYAML() string {
   video:
     displayName: Video
     requires: [base]
-  applications:
-    displayName: Applications
-    requires: [base, host]
+  guest-access:
+    displayName: Guest Access
+    requires: [base]
+  focus-content:
+    displayName: Focus Content
+    requires: [base]
   plaintext-http:
     displayName: Plaintext HTTP
     requires: [base]

@@ -364,18 +364,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 		Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID),
 		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 	})
-	// The control-plane chart mounts this static hostPath for every profile.
-	// Re-apply its ownership on upgrade to repair hosts installed before this
-	// prerequisite was enforced.
-	if err := o.EnsureOwnedDir(hostdirs.VideoMediaProjectionDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
-		return nil, checks, fmt.Errorf("upgrade: prepare video media projection directory: %w", err)
-	}
-	checks = append(checks, evidence.Check{
-		ID: "video-media-projection-directory-owned", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.VideoMediaProjectionDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
-		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-	})
-
 	metadataBundlesDir := strings.TrimSpace(opts.MetadataBundlesDir)
 	if metadataBundlesDir == "" {
 		metadataBundlesDir = hostdirs.MetadataBundlesDir
@@ -660,15 +648,6 @@ func (o *Orchestrator) Upgrade(ctx context.Context, source install.Source, opts 
 			checks = append(checks, rollbackChecks...)
 			return nil, checks, failErr
 		}
-	}
-
-	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, helm.RestrictedNamespaceLabels()); err != nil {
-		rollbackChecks, failErr := failUpgrade(fmt.Errorf("upgrade: prepare application namespace %s: %w", productconfig.ApplicationNamespace, err), func() []evidence.Check {
-			_ = importer.Rollback(ctx, preloadResult.NewlyImported)
-			return rollback()
-		})
-		checks = append(checks, rollbackChecks...)
-		return nil, checks, failErr
 	}
 
 	keysReplica, keysReplicaErr := helm.EnsureKeysSecretReplica(ctx, o.HelmRun, opts.KubeconfigPath,

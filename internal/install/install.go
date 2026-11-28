@@ -599,17 +599,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 			Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
 		})
 	}
-	// The control-plane chart mounts this static hostPath for every profile.
-	// Create it before Helm so kubelet never rejects the control-plane pod on
-	// profiles that do not enable the Applications capability.
-	if err := o.EnsureOwnedDir(hostdirs.VideoMediaProjectionDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID, hostdirs.SharedWritableDirMode); err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: prepare video media projection directory: %w", err), runRollbacks())
-	}
-	checks = append(checks, evidence.Check{
-		ID: "video-media-projection-directory-owned", Category: "host", Status: evidence.StatusPass,
-		Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.VideoMediaProjectionDir, hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID),
-		Timestamp: time.Now().UTC(), Idempotent: true, SecretsRedacted: true,
-	})
 	checks = append(checks, evidence.Check{
 		ID: "blob-storage-directory-owned", Category: "host", Status: evidence.StatusPass,
 		Message:   fmt.Sprintf("%s owned by %d:%d", hostdirs.BlobStorageDir, hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID),
@@ -1006,7 +995,7 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 	applier := &helm.Applier{Run: o.HelmRun, Kubeconfig: opts.KubeconfigPath}
 
 	// Private LAN registry credentials are namespaced. Mirror dockerconfig into
-	// every product namespace (controlplane, apps, applications, artifacts, dns,
+	// every product namespace (controlplane, apps, artifacts, dns,
 	// inference — never kube-system) and wire chart imagePullSecrets.
 	if strings.TrimSpace(opts.ImagePullRegistry.Registry) != "" {
 		if err := productconfig.InjectImagePullSecrets(preparedValuesPath, productconfig.ImagePullSecretName); err != nil {
@@ -1055,12 +1044,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		return nil, checks, failInstall(fmt.Errorf("install: prepare ace-apps values: %w", err), runRollbacks())
 	}
 	defer cleanupAceAppsValues()
-	applicationSupportValuesPath, cleanupApplicationSupportValues, err := productconfig.PrepareValuesOverlayFile(preparedValuesPath, rolloutsets.ApplicationSupportOverlay())
-	if err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: prepare application-support values: %w", err), runRollbacks())
-	}
-	defer cleanupApplicationSupportValues()
-
 	dnsSupportValuesPath := ""
 	cleanupDNSSupportValues := func() {}
 	if resolved.DNSEnabled {
@@ -1236,12 +1219,6 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		ChartPath:  resolved.ChartPath,
 		Namespace:  opts.ChartNamespace,
 		ValuesPath: aceAppsValuesPath,
-	}
-	applicationSupportRelease := helm.ChartRelease{
-		Name:       rolloutsets.ApplicationSupportReleaseName,
-		ChartPath:  resolved.ChartPath,
-		Namespace:  opts.ChartNamespace,
-		ValuesPath: applicationSupportValuesPath,
 	}
 	dnsSupportRelease := helm.ChartRelease{
 		Name:       rolloutsets.DNSSupportReleaseName,
@@ -1550,33 +1527,19 @@ func (o *Orchestrator) Install(ctx context.Context, source Source, opts Options)
 		err       error
 	}
 
-	if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, productconfig.ApplicationNamespace, helm.RestrictedNamespaceLabels()); err != nil {
-		return nil, checks, failInstall(fmt.Errorf("install: prepare application namespace %s: %w", productconfig.ApplicationNamespace, err), cleanupOnFailure())
-	}
 	if resolved.DNSEnabled {
 		if err := helm.EnsureNamespace(ctx, o.HelmRun, opts.KubeconfigPath, dnsNamespace, nil); err != nil {
 			return nil, checks, failInstall(fmt.Errorf("install: prepare dns namespace %s: %w", dnsNamespace, err), cleanupOnFailure())
 		}
 	}
 
-	taskCount := 1
+	taskCount := 0
 	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled {
 		taskCount++
 	}
 
 	parallelResults := make(chan parallelSetResult, taskCount)
 	var parallelWG sync.WaitGroup
-
-	parallelWG.Add(1)
-	go func() {
-		defer parallelWG.Done()
-		result := applyFreshRelease(ctx, o.HelmRun, opts.KubeconfigPath, applier, applicationSupportRelease)
-		out := parallelSetResult{checks: result.checks, err: result.err}
-		if result.rollback != nil {
-			out.rollbacks = append(out.rollbacks, result.rollback)
-		}
-		parallelResults <- out
-	}()
 
 	if resolved.ArtifactEnabled || resolved.DNSEnabled || resolved.InferenceEnabled {
 		parallelWG.Add(1)

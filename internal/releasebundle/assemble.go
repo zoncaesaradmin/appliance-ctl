@@ -1078,8 +1078,7 @@ func entryIsDeviceUser(entry EntryConfig) bool {
 	sourceBase := strings.ToLower(filepath.Base(entry.SourcePath))
 
 	return strings.Contains(ref, "appliance-host-agent") || strings.Contains(ref, "/coredns@") || strings.Contains(target, "coredns") || strings.Contains(sourceBase, "coredns") ||
-		(entry.Component == "chart" && (strings.HasPrefix(strings.ToLower(filepath.Base(target)), "appliance-dns-") || strings.HasPrefix(strings.ToLower(filepath.Base(entry.SourcePath)), "appliance-dns-"))) ||
-		strings.HasPrefix(ref, "registry.local/jellyfin@sha256:") || strings.Contains(target, "jellyfin") || strings.Contains(sourceBase, "jellyfin")
+		(entry.Component == "chart" && (strings.HasPrefix(strings.ToLower(filepath.Base(target)), "appliance-dns-") || strings.HasPrefix(strings.ToLower(filepath.Base(entry.SourcePath)), "appliance-dns-")))
 }
 
 func entryIsInference(entry EntryConfig) bool {

@@ -1384,7 +1384,6 @@ func TestInstall_CoreProfileOwnsRequiredHostPaths(t *testing.T) {
 		hostdirs.ActionRuntimeLogDir:         {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
-		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:              {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {
@@ -1424,7 +1423,6 @@ func TestInstall_StorageProfileOwnsArtifactServiceLogDirectoriesOnly(t *testing.
 		hostdirs.ArtifactServerLogDir:        {hostdirs.RegistryDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.BlobStorageDir:              {hostdirs.BlobStorageDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		hostdirs.ControlPlaneDatabaseDataDir: {hostdirs.ControlPlaneDatabaseDirOwnerUID, hostdirs.ControlPlaneDatabaseDirOwnerUID},
-		hostdirs.VideoMediaProjectionDir:     {hostdirs.ApplianceDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 		opts.MetadataBundlesDir:              {hostdirs.ActionRuntimeDirOwnerUID, hostdirs.ApplianceSharedFSGID},
 	}
 	if len(ownedPaths) != len(wantOwnedPaths) {

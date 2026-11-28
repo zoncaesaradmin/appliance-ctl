@@ -52,7 +52,7 @@ func EnsureDay2FeaturesDisabled(ctx context.Context, socketPath string) error {
 // EnsureMDNSEnabled establishes the appliance default after host package and
 // host-agent installation. Wi-Fi modes remain explicitly opt-in; mDNS is the
 // low-friction local discovery baseline needed by appliance and reviewed app
-// host names such as jellyfin.local.
+// host names published by the appliance.
 func EnsureMDNSEnabled(ctx context.Context, socketPath, applianceName string) error {
 	if ctx == nil {
 		ctx = context.Background()

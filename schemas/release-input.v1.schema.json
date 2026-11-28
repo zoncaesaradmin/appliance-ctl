@@ -54,7 +54,7 @@
         "uiImage": { "$ref": "#/$defs/artifact" },
         "hostAgentImage": {
           "$ref": "#/$defs/artifact",
-          "description": "Optional; required when packaging the deviceuser pack (host/applications capabilities)."
+          "description": "Optional; required when packaging the deviceuser pack (host capability)."
         },
         "hostAgentBinary": { "$ref": "#/$defs/artifact" },
         "cloudflaredBinary": {
